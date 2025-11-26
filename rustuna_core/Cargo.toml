@@ -1,0 +1,13 @@
+[package]
+name = "rustuna_core"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+readme = "README.md"
+
+[dependencies]
+rand = { workspace = true }
