@@ -1,0 +1,42 @@
+name: tests
+on:
+  pull_request:
+    branches:
+      - main
+jobs:
+  python_lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Install dependencies
+        working-directory: rustuna_pyo3
+        run: uv sync --group dev
+      - name: ruff
+        working-directory: rustuna_pyo3
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+      - name: mypy
+        working-directory: rustuna_pyo3
+        run: uv run mypy rustuna/ python_examples/
+  python_test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+      - name: Install Python packages
+        working-directory: rustuna_pyo3
+        run: |
+          uv sync --group dev
+      - name: Run tests
+        working-directory: rustuna_pyo3
+        run: uv run pytest tests/
