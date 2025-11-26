@@ -1,0 +1,27 @@
+[workspace]
+members = [
+    "rustuna_core",
+    "rustuna_samplers",
+    "rustuna_importance",
+    "rustuna_js",
+    "rustuna_pyo3",
+    "rustuna_c",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+description = "A Rust implementation of Optuna"
+repository = "https://github.com/optuna/rustuna"
+keywords = ["machine-learning"]
+categories = ["science"]
+license = "MIT"
+
+[workspace.dependencies]
+rustuna_core = { path = "./rustuna_core" }
+rustuna_samplers = { path = "./rustuna_samplers" }
+rustuna_importance = { path = "./rustuna_importance" }
+fanova = "0.2.0"
+rand = "0.8.5"
+tpe = "0.2.0"

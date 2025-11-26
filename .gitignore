@@ -1,0 +1,53 @@
+# Rust
+target/
+dist/
+
+# Node.js
+node_modules/
+rustuna_js/pkg/
+
+# C
+*.exe
+*.log
+rustuna_c/rustuna.h
+rustuna_c/librustuna.so
+
+# Python
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.so
+
+.Python
+.venv/
+env/
+bin/
+build/
+develop-eggs/
+dist/
+eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+include/
+man/
+venv/
+*.egg-info/
+.installed.cfg
+*.egg
+
+htmlcov/
+.coverage
+.cache
+coverage.xml
+.python-version
+
+*.mo
+docs/_build/
+
+# Other
+.DS_Store
+.idea/
+.vscode/
