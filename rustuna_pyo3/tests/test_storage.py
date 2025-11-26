@@ -1,0 +1,130 @@
+from __future__ import annotations
+
+import json
+import tempfile
+import time
+from concurrent.futures import ProcessPoolExecutor
+
+import optuna
+
+import rustuna
+from rustuna.converter import ToRustunaStorage
+
+
+def test_optimize_with_optuna_storage():
+    def objective(trial: rustuna.Trial | optuna.Trial) -> float:
+        return trial.suggest_float("x", -10, 10) ** 2
+
+    storage = ToRustunaStorage(optuna.storages.RDBStorage("sqlite://"))
+    rustuna_study = rustuna.create_study(storage=storage)
+    rustuna_study.optimize(objective, n_trials=10)
+
+
+def test_resume_optimization():
+    def objective(trial: rustuna.Trial | optuna.Trial) -> float:
+        return trial.suggest_float("x", -10, 10) ** 2
+
+    # Sample 10 trials with Optuna
+    optuna_storage = optuna.storages.RDBStorage("sqlite://")
+    optuna_study = optuna.create_study(storage=optuna_storage)
+    optuna_study.optimize(objective, n_trials=10)
+    assert len(optuna_study.trials) == 10
+
+    # Resume the optimization with Rustuna
+    rustuna_storage = ToRustunaStorage(optuna_storage)
+    rustuna_study = rustuna.load_study(
+        study_name=optuna_study.study_name, storage=rustuna_storage
+    )
+    rustuna_study.optimize(objective, n_trials=10)
+    assert len(rustuna_study.trials) == 20
+
+    # Resume the optimization with Optuna
+    optuna_study = optuna.load_study(
+        study_name=optuna_study.study_name, storage=optuna_storage
+    )
+    optuna_study.optimize(objective, n_trials=10)
+    assert len(optuna_study.trials) == 30
+
+
+def _run_optimize(sqlite3_filepath: str) -> None:
+    optuna_storage = optuna.storages.RDBStorage(f"sqlite:///{sqlite3_filepath}")
+    storage = ToRustunaStorage(optuna_storage, is_distributed=True)
+    study = rustuna.load_study(storage=storage, study_name="test_study")
+    study.optimize(lambda t: t.suggest_float("x", -10, 10) ** 2, n_trials=10)
+
+
+def test_rdb_storage_sqlite3():
+    with tempfile.NamedTemporaryFile(suffix=".sqlite3") as f:
+        storage = ToRustunaStorage(optuna.storages.RDBStorage(f"sqlite:///{f.name}"))
+        study = rustuna.create_study(storage=storage, study_name="test_study")
+        _run_optimize(f.name)
+        assert len(storage.get_studies()) == 1
+
+
+def test_multi_process():
+    with tempfile.NamedTemporaryFile(suffix=".sqlite3") as f:
+        storage = ToRustunaStorage(optuna.storages.RDBStorage(f"sqlite:///{f.name}"))
+        study = rustuna.create_study(storage=storage, study_name="test_study")
+
+        with ProcessPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(_run_optimize, f.name) for _ in range(5)]
+
+        studies = storage.get_studies()
+        assert len(studies) == 1
+        trials = storage.get_trials(study_id=studies[0].id)
+        assert len(trials) == 10 * 5
+
+
+class DummyJointSampler:
+    def __init__(self) -> None:
+        self.sample_joint_is_called = False
+
+    @property
+    def support_joint_sampling(self) -> bool:
+        return True
+
+    def sample_joint(
+        self,
+        ctx: rustuna.SamplerContext,
+        storage: rustuna.Storage,
+        search_space: dict[str, rustuna.Distribution],
+    ) -> dict[str, float]:
+        if ctx.trial_number == 0:
+            # TODO(c-bata): Avoid to call sample_joint when search_space is empty.
+            return {}
+
+        self.sample_joint_is_called = True
+        assert len(search_space) == 2
+        params = {}
+        for name, distribution in search_space.items():
+            dic = distribution.to_dict()
+            if dic["type"] == "FloatDistribution":
+                params[name] = dic["low"]
+            else:
+                assert False, "Unreachable code"
+        return params
+
+    def sample_independent(
+        self,
+        ctx: rustuna.SamplerContext,
+        storage: rustuna.Storage,
+        name: str,
+        distribution: rustuna.Distribution,
+    ) -> float:
+        dic = distribution.to_dict()
+        if dic["type"] == "FloatDistribution":
+            return dic["low"]
+        assert False, "Unreachable code"
+
+
+def test_storage_cache_joint_search_space():
+    def objective(trial: rustuna.Trial | optuna.Trial) -> float:
+        x = trial.suggest_float("x", -10, 10)
+        y = trial.suggest_float("y", -10, 10)
+        return x**2 + y**2
+
+    sampler = DummyJointSampler()
+    storage = ToRustunaStorage(optuna.storages.RDBStorage("sqlite://"))
+    rustuna_study = rustuna.create_study(storage=storage, sampler=sampler)
+    rustuna_study.optimize(objective, n_trials=10)
+    assert sampler.sample_joint_is_called

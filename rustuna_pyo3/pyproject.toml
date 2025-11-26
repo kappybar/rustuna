@@ -1,0 +1,29 @@
+[build-system]
+requires = ["maturin>=1.3,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "rustuna"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+]
+dynamic = ["version"]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+module-name = "rustuna._rustuna"
+
+[tool.ruff.lint]
+select = ["E", "I"] # pycodestyle and isort
+ignore = ["E501"]
+
+[dependency-groups]
+dev = [
+    "optuna",
+    "ruff",
+    "pytest",
+    "mypy",
+]

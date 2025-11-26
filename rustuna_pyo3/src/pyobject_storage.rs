@@ -1,0 +1,540 @@
+use std::collections::HashMap;
+
+use pyo3::exceptions::PyRuntimeError;
+use pyo3::prelude::*;
+
+use pyo3::types::PyList;
+use rustuna_core::attr::{AttrKey, Attrs};
+use rustuna_core::distribution::Distribution;
+use rustuna_core::storage::{InMemoryStorage, Storage};
+use rustuna_core::study::{Direction, PersistedStudy};
+use rustuna_core::trial::{PersistedTrial, TrialStateValues};
+
+use crate::distribution::PyDistribution;
+use crate::study::{pyobject_to_persisted_study, PyDirection};
+use crate::trial::{pyobject_to_persisted_trial, PyTrialState};
+
+pub struct PyObjectStorage {
+    obj: PyObject,
+    is_distributed: bool,
+    cache: InMemoryStorage,
+    cache_study_to_src_study: HashMap<u32, u32>,
+    src_study_to_cache_study: HashMap<u32, u32>,
+}
+impl PyObjectStorage {
+    pub fn new(obj: PyObject, is_distributed: bool) -> Self {
+        PyObjectStorage {
+            obj,
+            is_distributed,
+            cache: InMemoryStorage::new(),
+            cache_study_to_src_study: HashMap::new(),
+            src_study_to_cache_study: HashMap::new(),
+        }
+    }
+
+    fn register_src_study_to_cache(
+        &mut self,
+        src_study: PersistedStudy,
+        sync_attrs: bool,
+    ) -> rustuna_core::Result<()> {
+        let cache_study_id = match self.src_study_to_cache_study.get(&src_study.id) {
+            Some(cache_study_id) => Ok(*cache_study_id),
+            None => {
+                let cache_study = self
+                    .cache
+                    .create_new_study(&src_study.name.clone(), src_study.directions.clone())?;
+                self.cache_study_to_src_study
+                    .insert(cache_study.id, src_study.id);
+                self.src_study_to_cache_study
+                    .insert(src_study.id, cache_study.id);
+                Ok(cache_study.id)
+            }
+        }?;
+        if sync_attrs {
+            self.cache
+                .set_study_attrs(cache_study_id, src_study.attrs.clone())?;
+        }
+        Ok(())
+    }
+
+    fn obj_create_new_study(
+        &mut self,
+        study_name: &str,
+        directions: &[Direction],
+    ) -> PyResult<u32> {
+        Python::with_gil(|py| {
+            let py_directions: Vec<PyDirection> =
+                directions.iter().map(|d| d.clone().into()).collect();
+            let py_study =
+                self.obj
+                    .call_method1(py, "create_new_study", (study_name, py_directions))?;
+            let study_id = py_study.getattr(py, "id")?.extract::<u32>(py)?;
+            Ok(study_id)
+        })
+    }
+
+    fn obj_create_new_trial(&mut self, study_id: u32) -> PyResult<PersistedTrial> {
+        Python::with_gil(|py| {
+            let py_trial = self.obj.call_method1(py, "create_new_trial", (study_id,))?;
+            let py_trial = py_trial.as_ref(py);
+            pyobject_to_persisted_trial(py_trial, study_id)
+        })
+    }
+
+    fn obj_set_trial_param(
+        &mut self,
+        study_id: u32,
+        trial_number: u32,
+        name: &str,
+        distribution: &Distribution,
+        value: f64,
+    ) -> PyResult<()> {
+        Python::with_gil(|py| {
+            // TODO(c-bata): Consider how to set category_labels.
+            let attrs = Attrs::new();
+            let py_distribution = PyDistribution::new(distribution.clone(), name, &attrs);
+            self.obj.call_method1(
+                py,
+                "set_trial_param",
+                (study_id, trial_number, name, py_distribution, value),
+            )?;
+            Ok(())
+        })
+    }
+
+    fn obj_set_trial_state_values(
+        &mut self,
+        study_id: u32,
+        trial_number: u32,
+        state: &TrialStateValues,
+    ) -> PyResult<()> {
+        Python::with_gil(|py| {
+            let values = match state {
+                TrialStateValues::Complete(ref values) => Some(values.clone()),
+                _ => None,
+            };
+            let py_state = PyTrialState::from(state.clone());
+            self.obj.call_method1(
+                py,
+                "set_trial_state_values",
+                (study_id, trial_number, py_state, values),
+            )?;
+            Ok(())
+        })
+    }
+
+    fn obj_set_study_attrs(&mut self, study_id: u32, attrs: Attrs) -> PyResult<()> {
+        Python::with_gil(|py| {
+            let py_system_attrs = pyo3::types::PyDict::new(py);
+            let py_user_attrs = pyo3::types::PyDict::new(py);
+            for (k, v) in attrs.into_iter() {
+                match k {
+                    AttrKey::System(k) => {
+                        py_system_attrs.set_item(k, v)?;
+                    }
+                    AttrKey::User(k) => {
+                        py_user_attrs.set_item(k, v)?;
+                    }
+                }
+            }
+            self.obj
+                .call_method1(py, "set_study_system_attrs", (study_id, py_system_attrs))?;
+            self.obj
+                .call_method1(py, "set_study_user_attrs", (study_id, py_system_attrs))?;
+            Ok(())
+        })
+    }
+
+    fn obj_set_trial_attrs(
+        &mut self,
+        study_id: u32,
+        trial_number: u32,
+        attrs: Attrs,
+    ) -> PyResult<()> {
+        Python::with_gil(|py| {
+            let py_system_attrs = pyo3::types::PyDict::new(py);
+            let py_user_attrs = pyo3::types::PyDict::new(py);
+            for (k, v) in attrs.into_iter() {
+                match k {
+                    AttrKey::System(k) => {
+                        py_system_attrs.set_item(k, v)?;
+                    }
+                    AttrKey::User(k) => {
+                        py_user_attrs.set_item(k, v)?;
+                    }
+                }
+            }
+            self.obj.call_method1(
+                py,
+                "set_trial_system_attrs",
+                (study_id, trial_number, py_system_attrs),
+            )?;
+            self.obj.call_method1(
+                py,
+                "set_trial_user_attrs",
+                (study_id, trial_number, py_system_attrs),
+            )?;
+            Ok(())
+        })
+    }
+
+    fn obj_get_study(&self, study_id: u32) -> PyResult<PersistedStudy> {
+        Python::with_gil(|py| {
+            let study = self.obj.call_method1(py, "get_study", (study_id,))?;
+            let study = study.as_ref(py);
+            pyobject_to_persisted_study(study)
+        })
+    }
+
+    fn obj_get_studies(&self) -> PyResult<Vec<PersistedStudy>> {
+        Python::with_gil(|py| {
+            let studies = self.obj.call_method1(py, "get_studies", ())?;
+            let studies_ref = studies.as_ref(py);
+            if !studies_ref.is_instance_of::<PyList>() {
+                return Err(PyRuntimeError::new_err("studies must be a list"));
+            }
+            let studies = studies_ref.downcast::<PyList>()?;
+            let mut persisted_studies: Vec<PersistedStudy> = Vec::with_capacity(studies.len());
+            for study in studies.iter() {
+                persisted_studies.push(pyobject_to_persisted_study(study)?);
+            }
+            Ok(persisted_studies)
+        })
+    }
+
+    fn obj_get_trials(&self, study_id: u32) -> PyResult<Vec<PersistedTrial>> {
+        Python::with_gil(|py| {
+            let trials = self.obj.call_method1(py, "get_trials", (study_id,))?;
+            let trials_ref = trials.as_ref(py);
+            if !trials_ref.is_instance_of::<PyList>() {
+                return Err(PyRuntimeError::new_err("studies must be a list"));
+            }
+            let trials = trials_ref.downcast::<PyList>()?;
+            let mut persisted_trials: Vec<PersistedTrial> = Vec::with_capacity(trials.len());
+            for trial in trials.iter() {
+                persisted_trials.push(pyobject_to_persisted_trial(trial, study_id)?);
+            }
+            Ok(persisted_trials)
+        })
+    }
+
+    pub fn sync_studies(&mut self, sync_attrs: bool) -> rustuna_core::Result<()> {
+        let studies = self
+            .obj_get_studies()
+            .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
+        for src_study in studies {
+            self.register_src_study_to_cache(src_study, sync_attrs)?
+        }
+        Ok(())
+    }
+
+    fn sync_study_from_id(
+        &mut self,
+        cache_study_id: u32,
+        sync_attrs: bool,
+    ) -> rustuna_core::Result<()> {
+        match self.cache_study_to_src_study.get(&cache_study_id) {
+            Some(src_study_id) => {
+                if sync_attrs {
+                    let src_study = self.obj_get_study(*src_study_id).map_err(|_| {
+                        rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError)
+                    })?;
+                    self.cache
+                        .set_study_attrs(cache_study_id, src_study.attrs)?;
+                }
+                Ok(())
+            }
+            None => self.sync_studies(sync_attrs),
+        }
+    }
+
+    fn sync_trial(
+        &mut self,
+        cache_study_id: u32,
+        number: u32,
+        src_trial: Option<PersistedTrial>,
+        cache_n_trials: Option<u32>,
+    ) -> rustuna_core::Result<()> {
+        let cache_n_trials = match cache_n_trials {
+            Some(n) => n,
+            None => self.cache.get_trials(cache_study_id)?.len() as u32,
+        };
+        let cache_trial = match cache_n_trials.cmp(&number) {
+            std::cmp::Ordering::Equal => self.cache.create_new_trial(cache_study_id),
+            std::cmp::Ordering::Greater => self.cache.get_trial(cache_study_id, number),
+            std::cmp::Ordering::Less => {
+                for n in cache_n_trials..number {
+                    let cache_trial = self.cache.create_new_trial(cache_study_id)?;
+                    assert!(cache_trial.number == n);
+                }
+                self.cache.create_new_trial(cache_study_id)
+            }
+        }?;
+        assert!(
+            number == cache_trial.number,
+            "{:?} != {:?} (src_trial={:?})",
+            number,
+            cache_trial.number,
+            src_trial
+        );
+        if cache_trial.is_finished() {
+            return Ok(());
+        }
+        let src_trial = match src_trial {
+            Some(src_trial) => src_trial,
+            None => {
+                let src_study_id = self.cache_study_to_src_study.get(&cache_study_id).ok_or(
+                    rustuna_core::Error::new(rustuna_core::ErrorKind::StudyNotFound),
+                )?;
+                Python::with_gil(|py| {
+                    let trial = self
+                        .obj
+                        .call_method1(py, "get_trial", (*src_study_id, number))?;
+                    let trial = trial.as_ref(py);
+                    pyobject_to_persisted_trial(trial, *src_study_id)
+                })
+                .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?
+            }
+        };
+        let cache_trial = cache_trial.clone();
+        self.cache
+            .set_trial_attrs(cache_study_id, cache_trial.number, src_trial.attrs)?;
+
+        for (name, distribution) in src_trial.distributions {
+            let internal_repr =
+                src_trial
+                    .internal_params
+                    .get(&name)
+                    .ok_or(rustuna_core::Error::new(
+                        rustuna_core::ErrorKind::StorageError,
+                    ))?;
+            if cache_trial.distributions.contains_key(&name) {
+                continue;
+            }
+            self.cache.set_trial_param(
+                cache_study_id,
+                src_trial.number,
+                &name,
+                &distribution,
+                *internal_repr,
+            )?;
+        }
+
+        if !cache_trial.is_finished() && cache_trial.state_values != src_trial.state_values {
+            self.cache.set_trial_state_values(
+                cache_study_id,
+                src_trial.number,
+                src_trial.state_values.clone(),
+            )?;
+        }
+        Ok(())
+    }
+
+    fn sync_trials(&mut self, cache_study_id: u32) -> rustuna_core::Result<()> {
+        let src_study_id =
+            self.cache_study_to_src_study
+                .get(&cache_study_id)
+                .ok_or(rustuna_core::Error::new(
+                    rustuna_core::ErrorKind::StudyNotFound,
+                ))?;
+
+        let src_trials = self
+            .obj_get_trials(*src_study_id)
+            .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
+        for src_trial in src_trials {
+            let cache_n_trials = self.cache.get_trials(cache_study_id)?.len() as u32;
+            self.sync_trial(
+                cache_study_id,
+                src_trial.number,
+                Some(src_trial),
+                Some(cache_n_trials),
+            )?;
+        }
+        Ok(())
+    }
+}
+impl Storage for PyObjectStorage {
+    fn create_new_study(
+        &mut self,
+        study_name: &str,
+        directions: Vec<Direction>,
+    ) -> rustuna_core::Result<&PersistedStudy> {
+        let src_study_id = self
+            .obj_create_new_study(study_name, &directions)
+            .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
+        let cache_study = self.cache.create_new_study(study_name, directions)?;
+        self.cache_study_to_src_study
+            .insert(cache_study.id, src_study_id);
+        self.src_study_to_cache_study
+            .insert(src_study_id, cache_study.id);
+        Ok(cache_study)
+    }
+
+    fn create_new_trial(
+        &mut self,
+        study_id: u32,
+    ) -> rustuna_core::Result<&rustuna_core::trial::PersistedTrial> {
+        self.sync_study_from_id(study_id, false)?;
+        let src_study_id =
+            self.cache_study_to_src_study
+                .get(&study_id)
+                .ok_or(rustuna_core::Error::new(
+                    rustuna_core::ErrorKind::StudyNotFound,
+                ))?;
+        let src_trial = self
+            .obj_create_new_trial(*src_study_id)
+            .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
+        if self.is_distributed {
+            self.sync_trials(study_id)?;
+            return self.cache.get_trial(study_id, src_trial.number);
+        }
+        let number = src_trial.number;
+        let cached_n_trials = self.cache.get_trials(study_id)?.len() as u32;
+        if number == cached_n_trials {
+            self.cache.create_new_trial(study_id)
+        } else {
+            self.sync_trial(study_id, number, Some(src_trial), Some(cached_n_trials))?;
+            self.cache.get_trial(study_id, number)
+        }
+    }
+
+    fn set_trial_param(
+        &mut self,
+        study_id: u32,
+        trial_number: u32,
+        name: &str,
+        distribution: &Distribution,
+        value: f64,
+    ) -> rustuna_core::Result<()> {
+        self.sync_study_from_id(study_id, false)?;
+
+        let src_study_id =
+            self.cache_study_to_src_study
+                .get(&study_id)
+                .ok_or(rustuna_core::Error::new(
+                    rustuna_core::ErrorKind::StudyNotFound,
+                ))?;
+
+        self.obj_set_trial_param(*src_study_id, trial_number, name, distribution, value)
+            .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
+        match self
+            .cache
+            .set_trial_param(study_id, trial_number, name, distribution, value)
+        {
+            Ok(_) => Ok(()),
+            Err(e) => match e.kind {
+                rustuna_core::ErrorKind::StudyNotFound | rustuna_core::ErrorKind::TrialNotFound => {
+                    self.sync_trial(study_id, trial_number, None, None)?;
+                    Ok(())
+                }
+                _ => Err(e),
+            },
+        }
+    }
+
+    fn set_trial_state_values(
+        &mut self,
+        study_id: u32,
+        trial_number: u32,
+        state_values: TrialStateValues,
+    ) -> rustuna_core::Result<()> {
+        self.sync_study_from_id(study_id, false)?;
+
+        let src_study_id =
+            self.cache_study_to_src_study
+                .get(&study_id)
+                .ok_or(rustuna_core::Error::new(
+                    rustuna_core::ErrorKind::StudyNotFound,
+                ))?;
+
+        self.obj_set_trial_state_values(*src_study_id, trial_number, &state_values)
+            .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
+
+        match self
+            .cache
+            .set_trial_state_values(study_id, trial_number, state_values)
+        {
+            Ok(_) => Ok(()),
+            Err(e) => match e.kind {
+                rustuna_core::ErrorKind::StudyNotFound | rustuna_core::ErrorKind::TrialNotFound => {
+                    self.sync_trial(study_id, trial_number, None, None)?;
+                    Ok(())
+                }
+                _ => Err(e),
+            },
+        }
+    }
+
+    fn get_studies(&self) -> rustuna_core::Result<&Vec<rustuna_core::study::PersistedStudy>> {
+        self.cache.get_studies()
+    }
+
+    fn get_study(
+        &self,
+        study_id: u32,
+    ) -> rustuna_core::Result<&rustuna_core::study::PersistedStudy> {
+        self.cache.get_study(study_id)
+    }
+
+    fn get_trials(
+        &self,
+        study_id: u32,
+    ) -> rustuna_core::Result<&Vec<rustuna_core::trial::PersistedTrial>> {
+        self.cache.get_trials(study_id)
+    }
+
+    fn get_trial(
+        &self,
+        study_id: u32,
+        trial_number: u32,
+    ) -> rustuna_core::Result<&rustuna_core::trial::PersistedTrial> {
+        self.cache.get_trial(study_id, trial_number)
+    }
+
+    fn set_study_attrs(
+        &mut self,
+        study_id: u32,
+        attrs: rustuna_core::attr::Attrs,
+    ) -> rustuna_core::Result<()> {
+        self.obj_set_study_attrs(study_id, attrs.clone())
+            .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
+        match self.cache.set_study_attrs(study_id, attrs) {
+            Ok(_) => Ok(()),
+            Err(e) => match e.kind {
+                rustuna_core::ErrorKind::StudyNotFound => {
+                    self.sync_study_from_id(study_id, true)?;
+                    Ok(())
+                }
+                _ => Err(e),
+            },
+        }
+    }
+
+    fn set_trial_attrs(
+        &mut self,
+        study_id: u32,
+        trial_number: u32,
+        attrs: rustuna_core::attr::Attrs,
+    ) -> rustuna_core::Result<()> {
+        self.obj_set_trial_attrs(study_id, trial_number, attrs.clone())
+            .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
+        match self.cache.set_trial_attrs(study_id, trial_number, attrs) {
+            Ok(_) => Ok(()),
+            Err(e) => match e.kind {
+                rustuna_core::ErrorKind::StudyNotFound | rustuna_core::ErrorKind::TrialNotFound => {
+                    self.sync_trial(study_id, trial_number, None, None)?;
+                    Ok(())
+                }
+                _ => Err(e),
+            },
+        }
+    }
+
+    fn get_joint_search_space(
+        &mut self,
+        study_id: u32,
+    ) -> rustuna_core::Result<HashMap<String, Distribution>> {
+        self.sync_study_from_id(study_id, false)?;
+        self.cache.get_joint_search_space(study_id)
+    }
+}
