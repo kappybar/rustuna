@@ -40,17 +40,22 @@ impl JsStudy {
     #[wasm_bindgen(getter)]
     pub fn best_trial(&mut self) -> JsResult<JsPersistedTrial> {
         let number = get_best_trial(&self.0).map_err(|e| JsError::new(&format!("{:?}", e)))?;
-        let guard =
-            self.0.storage.read().map_err(|e| {
+        let (trials, study_attrs) = {
+            let mut guard = self.0.storage.write().map_err(|e| {
                 JsError::new(&format!("Failed to acquire the storage guard: {:?}", e))
             })?;
-        let trials = guard
-            .get_trials(self.0.id)
-            .map_err(|e| JsError::new(&format!("Failed to get trials: {:?}", e.kind)))?;
-        let study = guard
-            .get_study(self.0.id)
-            .map_err(|e| JsError::new(&format!("Failed to get study: {:?}", e.kind)))?;
-        let trial = JsPersistedTrial::new(trials[number as usize].clone(), study.attrs.clone());
+            let trials = guard
+                .get_trials(self.0.id)
+                .map_err(|e| JsError::new(&format!("Failed to get trials: {:?}", e.kind)))?
+                .clone();
+            let study_attrs = guard
+                .get_study(self.0.id)
+                .map_err(|e| JsError::new(&format!("Failed to get study: {:?}", e.kind)))?
+                .attrs
+                .clone();
+            (trials, study_attrs)
+        };
+        let trial = JsPersistedTrial::new(trials[number as usize].clone(), study_attrs);
         Ok(trial)
     }
 }
