@@ -28,10 +28,14 @@ pub trait Storage: Send + Sync {
         trial_number: u32,
         state_values: TrialStateValues,
     ) -> Result<()>;
-    fn get_studies(&self) -> Result<&Vec<PersistedStudy>>;
-    fn get_study(&self, study_id: u32) -> Result<&PersistedStudy>;
-    fn get_trials(&self, study_id: u32) -> Result<&Vec<PersistedTrial>>;
-    fn get_trial(&self, study_id: u32, trial_number: u32) -> Result<&PersistedTrial>;
+    // Design Note:
+    // get_* methods take &mut self to allow in-place cache refresh in wrapper implementations
+    // (e.g., CachedStorage). With &self it is impossible to safely update caches and return
+    // references without relying on unsafe patterns.
+    fn get_studies(&mut self) -> Result<&Vec<PersistedStudy>>;
+    fn get_study(&mut self, study_id: u32) -> Result<&PersistedStudy>;
+    fn get_trials(&mut self, study_id: u32) -> Result<&Vec<PersistedTrial>>;
+    fn get_trial(&mut self, study_id: u32, trial_number: u32) -> Result<&PersistedTrial>;
     // Design Note:
     // Unlike the storage APIs in Optuna, the `set_study_attrs` and `set_trial_attrs` methods
     // are designed to receive multiple attributes for bulk insert operations.
@@ -147,11 +151,11 @@ impl Storage for InMemoryStorage {
         Ok(())
     }
 
-    fn get_studies(&self) -> Result<&Vec<PersistedStudy>> {
+    fn get_studies(&mut self) -> Result<&Vec<PersistedStudy>> {
         Ok(&self.studies)
     }
 
-    fn get_study(&self, study_id: u32) -> Result<&PersistedStudy> {
+    fn get_study(&mut self, study_id: u32) -> Result<&PersistedStudy> {
         let study = self
             .studies
             .get(study_id as usize)
@@ -159,11 +163,11 @@ impl Storage for InMemoryStorage {
         Ok(study)
     }
 
-    fn get_trials(&self, study_id: u32) -> Result<&Vec<PersistedTrial>> {
+    fn get_trials(&mut self, study_id: u32) -> Result<&Vec<PersistedTrial>> {
         get_trials_by_study_id(&self.trials, study_id)
     }
 
-    fn get_trial(&self, study_id: u32, trial_number: u32) -> Result<&PersistedTrial> {
+    fn get_trial(&mut self, study_id: u32, trial_number: u32) -> Result<&PersistedTrial> {
         let trial = get_trials_by_study_id(&self.trials, study_id)?
             .get(trial_number as usize)
             .ok_or(Error::new(ErrorKind::TrialNotFound))?;

@@ -64,8 +64,8 @@ impl Study {
     }
 
     pub fn from_id(id: u32, storage: Arc<RwLock<dyn Storage>>) -> Result<Self> {
-        let guard = storage
-            .read()
+        let mut guard = storage
+            .write()
             .map_err(|_| Error::new(ErrorKind::Unexpected))?;
         let study = guard.get_study(id)?;
         let name = study.name.clone();
@@ -75,8 +75,8 @@ impl Study {
     }
 
     pub fn from_name(name: String, storage: Arc<RwLock<dyn Storage>>) -> Result<Self> {
-        let guard = storage
-            .read()
+        let mut guard = storage
+            .write()
             .map_err(|_| Error::new(ErrorKind::Unexpected))?;
         let studies = guard.get_studies()?;
         let study = studies
@@ -181,15 +181,15 @@ impl Study {
     }
 
     pub fn get_trials(&self) -> Result<Vec<PersistedTrial>> {
-        let guard = self.storage.read().unwrap();
+        let mut guard = self.storage.write().unwrap();
         let trials = guard.get_trials(self.id)?;
         Ok(trials.clone())
     }
 
     pub fn get_user_attr(&self, key: String) -> Result<Option<String>> {
-        let guard = self
+        let mut guard = self
             .storage
-            .read()
+            .write()
             .map_err(|_| Error::new(ErrorKind::Unexpected))?;
         let study = guard.get_study(self.id)?;
 
@@ -254,7 +254,7 @@ impl PersistedStudy {
 }
 
 pub fn get_best_trial(study: &Study) -> Result<u32> {
-    let guard = study.storage.read().unwrap();
+    let mut guard = study.storage.write().unwrap();
     let trials = guard.get_trials(study.id)?;
 
     let best_trial = trials
@@ -283,7 +283,7 @@ pub fn get_best_trial(study: &Study) -> Result<u32> {
 
 // TODO(HideakiImamura): Support the faster algorithm for `len(directions) == 2`.
 pub fn get_pareto_front(study: &Study) -> Result<Vec<u32>> {
-    let guard = study.storage.read().unwrap();
+    let mut guard = study.storage.write().unwrap();
     let trials = guard
         .get_trials(study.id)?
         .iter()
