@@ -94,7 +94,7 @@ impl CachedStorage {
             return Ok(());
         }
 
-        let trials = self.trials.entry(study_id).or_insert_with(HashMap::new);
+        let trials = self.trials.entry(study_id).or_default();
         for trial in loaded {
             trials.insert(trial.number, trial);
         }
@@ -141,7 +141,7 @@ impl crate::storage::Storage for CachedStorage {
 
     fn create_new_trial(&mut self, study_id: u32) -> Result<&PersistedTrial> {
         let trial = self.backend.create_new_trial(study_id)?;
-        let trials = self.trials.entry(study_id).or_insert_with(HashMap::new);
+        let trials = self.trials.entry(study_id).or_default();
         let number = trial.number;
         trials.insert(number, trial);
         let trial_ref = trials.get(&number).unwrap();
@@ -155,7 +155,7 @@ impl crate::storage::Storage for CachedStorage {
         study_cache.update(&trials_vec);
         self.unfinished_trials
             .entry(study_id)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(trial_ref.number);
         Ok(trial_ref)
     }
@@ -172,7 +172,7 @@ impl crate::storage::Storage for CachedStorage {
             .set_trial_param(study_id, trial_number, name, distribution, value)?;
         self.unfinished_trials
             .entry(study_id)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(trial_number);
         self.refresh_trials(study_id)?;
 
@@ -208,7 +208,7 @@ impl crate::storage::Storage for CachedStorage {
 
         self.unfinished_trials
             .entry(study_id)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(trial_number);
         self.refresh_trials(study_id)?;
 
@@ -248,11 +248,7 @@ impl crate::storage::Storage for CachedStorage {
     }
 
     fn get_trials(&mut self, study_id: u32) -> Result<&Vec<PersistedTrial>> {
-        if !self.trials.contains_key(&study_id) {
-            self.refresh_trials(study_id)?;
-        } else {
-            self.refresh_trials(study_id)?;
-        }
+        self.refresh_trials(study_id)?;
         let trials_map = self
             .trials
             .get(&study_id)
