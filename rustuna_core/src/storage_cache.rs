@@ -55,7 +55,6 @@ pub struct CachedStorage {
     trials: HashMap<u32, HashMap<u32, PersistedTrial>>,
     study_caches: HashMap<u32, StudyCache>,
     unfinished_trials: HashMap<u32, Vec<u32>>,
-    // Track last finished trial number to load diffs from backend (mirrors Optuna's cached storage).
     last_finished_trial_number: HashMap<u32, i32>,
     trials_sorted_buffer: Vec<PersistedTrial>,
 
@@ -94,10 +93,7 @@ impl CachedStorage {
             return Ok(());
         }
 
-        let trials = self
-            .trials
-            .entry(study_id)
-            .or_insert_with(HashMap::new);
+        let trials = self.trials.entry(study_id).or_insert_with(HashMap::new);
         for trial in loaded {
             trials.insert(trial.number, trial);
         }
@@ -106,7 +102,6 @@ impl CachedStorage {
             .study_caches
             .entry(study_id)
             .or_insert_with(StudyCache::new);
-        // Update cache with trials sorted by number.
         let mut trials_vec: Vec<_> = trials.values().cloned().collect();
         trials_vec.sort_by_key(|t| t.number);
         study_cache.update(&trials_vec);
@@ -125,7 +120,6 @@ impl CachedStorage {
             .insert(study_id, last_finished_next);
         Ok(())
     }
-
 }
 
 impl crate::storage::Storage for CachedStorage {
@@ -146,10 +140,7 @@ impl crate::storage::Storage for CachedStorage {
 
     fn create_new_trial(&mut self, study_id: u32) -> Result<&PersistedTrial> {
         let trial = self.backend.create_new_trial(study_id)?;
-        let trials = self
-            .trials
-            .entry(study_id)
-            .or_insert_with(HashMap::new);
+        let trials = self.trials.entry(study_id).or_insert_with(HashMap::new);
         let number = trial.number;
         trials.insert(number, trial);
         let trial_ref = trials.get(&number).unwrap();
@@ -161,8 +152,7 @@ impl crate::storage::Storage for CachedStorage {
         let mut trials_vec: Vec<_> = trials.values().cloned().collect();
         trials_vec.sort_by_key(|t| t.number);
         study_cache.update(&trials_vec);
-        self
-            .unfinished_trials
+        self.unfinished_trials
             .entry(study_id)
             .or_insert_with(Vec::new)
             .push(trial_ref.number);
@@ -239,11 +229,34 @@ impl crate::storage::Storage for CachedStorage {
     }
 
     fn set_study_attrs(&mut self, study_id: u32, attrs: Attrs) -> Result<()> {
-        todo!()
+        self.backend.set_study_attrs(study_id, attrs.clone())?;
+        self.studies = self.backend.get_studies()?;
+        let study = self
+            .studies
+            .iter_mut()
+            .find(|s| s.id == study_id)
+            .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))?;
+        for (k, v) in attrs {
+            study.attrs.insert(k, v);
+        }
+        Ok(())
     }
 
     fn set_trial_attrs(&mut self, study_id: u32, trial_number: u32, attrs: Attrs) -> Result<()> {
-        todo!()
+        self.backend
+            .set_trial_attrs(study_id, trial_number, attrs.clone())?;
+        self.refresh_trials(study_id)?;
+        let trials = self
+            .trials
+            .get_mut(&study_id)
+            .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))?;
+        let trial = trials
+            .get_mut(&trial_number)
+            .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
+        for (k, v) in attrs {
+            trial.attrs.insert(k, v);
+        }
+        Ok(())
     }
 
     fn get_joint_search_space(&mut self, study_id: u32) -> Result<HashMap<String, Distribution>> {
@@ -254,6 +267,7 @@ impl crate::storage::Storage for CachedStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::attr::AttrKey;
     use crate::storage::Storage;
     use crate::ErrorKind;
 
@@ -327,7 +341,9 @@ mod tests {
             let all = self.inner.get_trials(study_id)?.clone();
             let mut trials = Vec::new();
             for t in all {
-                if included_numbers.contains(&t.number) || (t.number as i32) > trial_number_greater_than {
+                if included_numbers.contains(&t.number)
+                    || (t.number as i32) > trial_number_greater_than
+                {
                     trials.push(t);
                 }
             }
@@ -461,11 +477,9 @@ mod tests {
             .unwrap();
         let mut storage = CachedStorage::new(Box::new(backend));
 
-        // First load
         let studies = storage.get_studies().unwrap();
         assert_eq!(studies.len(), 1);
 
-        // Add another study directly to backend and ensure get_studies reflects it.
         let _ = storage
             .backend
             .create_new_study("s2", vec![Direction::Maximize])
@@ -492,5 +506,36 @@ mod tests {
         let _ = storage.backend.create_new_trial(study_id).unwrap();
         let trials2 = storage.get_trials(study_id).unwrap();
         assert_eq!(trials2.len(), 2);
+    }
+
+    #[test]
+    fn set_study_and_trial_attrs_update_cache() {
+        let mut storage = CachedStorage::new(Box::new(DummyBackend::new()));
+        let study_id = storage
+            .create_new_study("s", vec![Direction::Minimize])
+            .unwrap()
+            .id;
+        storage.create_new_trial(study_id).unwrap();
+
+        let mut s_attrs = Attrs::new();
+        s_attrs.insert(AttrKey::User("foo".to_string()), "bar".to_string());
+        storage.set_study_attrs(study_id, s_attrs).unwrap();
+        let study = storage.get_study(study_id).unwrap();
+        assert_eq!(
+            study.attrs.get(&AttrKey::User("foo".to_string())).unwrap(),
+            "bar"
+        );
+
+        let mut t_attrs = Attrs::new();
+        t_attrs.insert(AttrKey::System("key".to_string()), "val".to_string());
+        storage.set_trial_attrs(study_id, 0, t_attrs).unwrap();
+        let trial = storage.get_trial(study_id, 0).unwrap();
+        assert_eq!(
+            trial
+                .attrs
+                .get(&AttrKey::System("key".to_string()))
+                .unwrap(),
+            "val"
+        );
     }
 }
