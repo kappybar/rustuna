@@ -37,6 +37,14 @@ pub trait CachedStorageBackend: Send + Sync {
     fn get_study(&mut self, study_id: u32) -> Result<PersistedStudy>;
     fn get_trials(&mut self, study_id: u32) -> Result<Vec<PersistedTrial>>;
     fn get_trial(&mut self, study_id: u32, trial_number: u32) -> Result<PersistedTrial>;
+    // Return trials that need refreshing: unfinished trials in `included_numbers`
+    // and trials with trial_number greater than `trial_number_greater_than`.
+    fn get_trials_diff(
+        &mut self,
+        study_id: u32,
+        included_numbers: &[u32],
+        trial_number_greater_than: i32,
+    ) -> Result<Vec<PersistedTrial>>;
     fn set_study_attrs(&mut self, study_id: u32, attrs: Attrs) -> Result<()>;
     fn set_trial_attrs(&mut self, study_id: u32, trial_number: u32, attrs: Attrs) -> Result<()>;
     fn get_joint_search_space(&mut self, study_id: u32) -> Result<HashMap<String, Distribution>>;
@@ -44,8 +52,12 @@ pub trait CachedStorageBackend: Send + Sync {
 
 pub struct CachedStorage {
     studies: Vec<PersistedStudy>,
-    trials: HashMap<u32, Vec<PersistedTrial>>,
+    trials: HashMap<u32, HashMap<u32, PersistedTrial>>,
     study_caches: HashMap<u32, StudyCache>,
+    unfinished_trials: HashMap<u32, Vec<u32>>,
+    // Track last finished trial number to load diffs from backend (mirrors Optuna's cached storage).
+    last_finished_trial_number: HashMap<u32, i32>,
+    trials_sorted_buffer: Vec<PersistedTrial>,
 
     backend: Box<dyn CachedStorageBackend>,
 }
@@ -56,9 +68,64 @@ impl CachedStorage {
             studies: Vec::new(),
             trials: HashMap::new(),
             study_caches: HashMap::new(),
+            unfinished_trials: HashMap::new(),
+            last_finished_trial_number: HashMap::new(),
+            trials_sorted_buffer: Vec::new(),
             backend,
         }
     }
+
+    fn refresh_trials(&mut self, study_id: u32) -> Result<()> {
+        let unfinished = self
+            .unfinished_trials
+            .get(&study_id)
+            .cloned()
+            .unwrap_or_default();
+        let last_finished = self
+            .last_finished_trial_number
+            .get(&study_id)
+            .copied()
+            .unwrap_or(-1);
+        let loaded = self
+            .backend
+            .get_trials_diff(study_id, &unfinished, last_finished)?;
+
+        if loaded.is_empty() {
+            return Ok(());
+        }
+
+        let trials = self
+            .trials
+            .entry(study_id)
+            .or_insert_with(HashMap::new);
+        for trial in loaded {
+            trials.insert(trial.number, trial);
+        }
+
+        let study_cache = self
+            .study_caches
+            .entry(study_id)
+            .or_insert_with(StudyCache::new);
+        // Update cache with trials sorted by number.
+        let mut trials_vec: Vec<_> = trials.values().cloned().collect();
+        trials_vec.sort_by_key(|t| t.number);
+        study_cache.update(&trials_vec);
+
+        let mut unfinished_next = vec![];
+        let mut last_finished_next = last_finished;
+        for trial in trials.values() {
+            if trial.is_finished() {
+                last_finished_next = last_finished_next.max(trial.number as i32);
+            } else {
+                unfinished_next.push(trial.number);
+            }
+        }
+        self.unfinished_trials.insert(study_id, unfinished_next);
+        self.last_finished_trial_number
+            .insert(study_id, last_finished_next);
+        Ok(())
+    }
+
 }
 
 impl crate::storage::Storage for CachedStorage {
@@ -70,22 +137,35 @@ impl crate::storage::Storage for CachedStorage {
         let study = self.backend.create_new_study(study_name, directions)?;
         let study_id = study.id;
         self.studies.push(study);
-        self.trials.insert(study_id, vec![]);
+        self.trials.insert(study_id, HashMap::new());
         self.study_caches.insert(study_id, StudyCache::new());
+        self.unfinished_trials.insert(study_id, vec![]);
+        self.last_finished_trial_number.insert(study_id, -1);
         Ok(self.studies.last().unwrap())
     }
 
     fn create_new_trial(&mut self, study_id: u32) -> Result<&PersistedTrial> {
         let trial = self.backend.create_new_trial(study_id)?;
-        let trials = self.trials.entry(study_id).or_insert_with(Vec::new);
-        trials.push(trial);
-        let trial_ref = trials.last().unwrap();
+        let trials = self
+            .trials
+            .entry(study_id)
+            .or_insert_with(HashMap::new);
+        let number = trial.number;
+        trials.insert(number, trial);
+        let trial_ref = trials.get(&number).unwrap();
 
         let study_cache = self
             .study_caches
             .entry(study_id)
             .or_insert_with(StudyCache::new);
-        study_cache.update(trials);
+        let mut trials_vec: Vec<_> = trials.values().cloned().collect();
+        trials_vec.sort_by_key(|t| t.number);
+        study_cache.update(&trials_vec);
+        self
+            .unfinished_trials
+            .entry(study_id)
+            .or_insert_with(Vec::new)
+            .push(trial_ref.number);
         Ok(trial_ref)
     }
 
@@ -128,12 +208,23 @@ impl crate::storage::Storage for CachedStorage {
 
     fn get_trials(&mut self, study_id: u32) -> Result<&Vec<PersistedTrial>> {
         if !self.trials.contains_key(&study_id) {
-            let loaded = self.backend.get_trials(study_id)?;
-            self.trials.insert(study_id, loaded);
+            self.refresh_trials(study_id)?;
+        } else {
+            self.refresh_trials(study_id)?;
         }
-        self.trials
+        let trials_map = self
+            .trials
             .get(&study_id)
-            .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))
+            .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))?;
+        let mut trials_vec: Vec<_> = trials_map.values().cloned().collect();
+        trials_vec.sort_by_key(|t| t.number);
+        self.trials_sorted_buffer.clear();
+        self.trials_sorted_buffer.extend(trials_vec);
+        self.study_caches
+            .entry(study_id)
+            .or_insert_with(StudyCache::new)
+            .update(&self.trials_sorted_buffer);
+        Ok(&self.trials_sorted_buffer)
     }
 
     fn get_trial(&mut self, study_id: u32, trial_number: u32) -> Result<&PersistedTrial> {
@@ -142,7 +233,7 @@ impl crate::storage::Storage for CachedStorage {
             .get(&study_id)
             .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))?;
         let trial = trials
-            .get(trial_number as usize)
+            .get(&trial_number)
             .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
         Ok(trial)
     }
@@ -225,6 +316,22 @@ mod tests {
 
         fn get_trials(&mut self, study_id: u32) -> Result<Vec<PersistedTrial>> {
             Ok(self.inner.get_trials(study_id)?.clone())
+        }
+
+        fn get_trials_diff(
+            &mut self,
+            study_id: u32,
+            included_numbers: &[u32],
+            trial_number_greater_than: i32,
+        ) -> Result<Vec<PersistedTrial>> {
+            let all = self.inner.get_trials(study_id)?.clone();
+            let mut trials = Vec::new();
+            for t in all {
+                if included_numbers.contains(&t.number) || (t.number as i32) > trial_number_greater_than {
+                    trials.push(t);
+                }
+            }
+            Ok(trials)
         }
 
         fn get_trial(&mut self, study_id: u32, trial_number: u32) -> Result<PersistedTrial> {
@@ -367,5 +474,23 @@ mod tests {
         assert_eq!(studies.len(), 2);
         assert!(studies.iter().any(|s| s.name == study.name));
         assert!(studies.iter().any(|s| s.name == "s2"));
+    }
+
+    #[test]
+    fn get_trials_refreshes_when_backend_updates() {
+        let mut backend = DummyBackend::new();
+        let study_id = backend
+            .create_new_study("s", vec![Direction::Minimize])
+            .unwrap()
+            .id;
+        backend.create_new_trial(study_id).unwrap();
+
+        let mut storage = CachedStorage::new(Box::new(backend));
+        let trials1 = storage.get_trials(study_id).unwrap();
+        assert_eq!(trials1.len(), 1);
+
+        let _ = storage.backend.create_new_trial(study_id).unwrap();
+        let trials2 = storage.get_trials(study_id).unwrap();
+        assert_eq!(trials2.len(), 2);
     }
 }
