@@ -128,8 +128,8 @@ impl NSGAIISampler {
         population_numbers: Vec<u32>,
         search_space: &HashMap<String, Distribution>,
     ) -> Result<(HashMap<String, f64>, HashMap<String, f64>)> {
-        let guard = storage
-            .read()
+        let mut guard = storage
+            .write()
             .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
         let trials = guard.get_trials(ctx.study_id)?;
         let population_params = trials

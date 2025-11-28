@@ -63,8 +63,8 @@ impl Sampler for TpeSampler {
         .map_err(|_e| Error::new(ErrorKind::SamplerError))?;
         let mut optimizer = tpe::TpeOptimizer::new(tpe::parzen_estimator(), tpe_param);
 
-        let guard = storage
-            .read()
+        let mut guard = storage
+            .write()
             .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
         let trials = guard.get_trials(ctx.study_id)?;
         let direction = &ctx.directions[0];

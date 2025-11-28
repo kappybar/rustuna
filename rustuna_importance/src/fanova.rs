@@ -5,9 +5,9 @@ use rustuna_core::trial::{PersistedTrial, TrialStateValues};
 use rustuna_core::{Error, ErrorKind, Result};
 
 pub fn get_param_importance(study: &Study) -> Result<Vec<Vec<f64>>> {
-    let guard = study
+    let mut guard = study
         .storage
-        .read()
+        .write()
         .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
     // TODO(c-bata): Avoid to clone trials.
     let completed_trials: Vec<PersistedTrial> = guard
