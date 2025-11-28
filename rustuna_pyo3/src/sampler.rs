@@ -188,7 +188,7 @@ impl Sampler for PyObjectSampler {
         name: &str,
         distribution: &rustuna_core::distribution::Distribution,
     ) -> rustuna_core::Result<f64> {
-        let guard = storage.read().unwrap();
+        let mut guard = storage.write().unwrap();
         let study = guard.get_study(ctx.study_id)?;
         let study_attrs = study.attrs.clone();
         drop(guard);
@@ -231,7 +231,7 @@ impl Sampler for PyObjectSampler {
         storage: Arc<std::sync::RwLock<dyn Storage>>,
         search_space: &HashMap<String, rustuna_core::distribution::Distribution>,
     ) -> rustuna_core::Result<HashMap<String, f64>> {
-        let guard = storage.read().unwrap();
+        let mut guard = storage.write().unwrap();
         let study = guard.get_study(ctx.study_id)?;
         let study_attrs = study.attrs.clone();
         drop(guard);

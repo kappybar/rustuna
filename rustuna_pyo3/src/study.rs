@@ -114,7 +114,7 @@ pub fn py_load_study(
         }
     });
     let storage = storage?;
-    let guard = storage.read().unwrap();
+    let mut guard = storage.write().unwrap();
     let (study_id, directions) = guard
         .get_studies()
         .map_err(|e| PyRuntimeError::new_err(format!("Failed to get the studies: {:?}", e.kind)))?
@@ -293,37 +293,43 @@ impl PyStudy {
     }
 
     #[getter]
-    pub fn best_trial(&self) -> PyResult<PyPersistedTrial> {
+    pub fn best_trial(&mut self) -> PyResult<PyPersistedTrial> {
         let trial_number = get_best_trial(&self.study).map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to get the best trial: {:?}", e.kind))
         })?;
 
-        let guard = self.study.storage.read().map_err(|e| {
+        let mut guard = self.study.storage.write().map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
         })?;
         let trial = guard
             .get_trial(self.study.id, trial_number)
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get trials: {:?}", e.kind)))?;
-        let study = guard.get_study(self.study.id).map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to get the study: {:?}", e.kind))
-        })?;
-        let trial = PyPersistedTrial::new(trial.clone(), study.attrs.clone());
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get trials: {:?}", e.kind)))?
+            .clone();
+        let study_attrs = guard
+            .get_study(self.study.id)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get the study: {:?}", e.kind)))?
+            .attrs
+            .clone();
+        let trial = PyPersistedTrial::new(trial, study_attrs);
         Ok(trial)
     }
 
     #[getter]
-    pub fn trials(&self) -> PyResult<Vec<PyPersistedTrial>> {
-        let guard = self.study.storage.read().unwrap();
-        let trials = guard
+    pub fn trials(&mut self) -> PyResult<Vec<PyPersistedTrial>> {
+        let mut guard = self.study.storage.write().unwrap();
+        let trials_vec = guard
             .get_trials(self.study.id)
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get trials: {:?}", e.kind)))?;
-        let study = guard.get_study(self.study.id).map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to get the study: {:?}", e.kind))
-        })?;
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get trials: {:?}", e.kind)))?
+            .clone();
+        let study_attrs = guard
+            .get_study(self.study.id)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get the study: {:?}", e.kind)))?
+            .attrs
+            .clone();
 
-        let trials: Vec<PyPersistedTrial> = trials
+        let trials: Vec<PyPersistedTrial> = trials_vec
             .iter()
-            .map(|t| PyPersistedTrial::new((*t).clone(), study.attrs.clone()))
+            .map(|t| PyPersistedTrial::new(t.clone(), study_attrs.clone()))
             .collect();
         Ok(trials)
     }
@@ -345,20 +351,23 @@ impl PyStudy {
     }
 
     #[getter]
-    pub fn best_trials(&self) -> PyResult<Vec<PyPersistedTrial>> {
-        let guard = self.study.storage.read().unwrap();
-        let trials = guard
+    pub fn best_trials(&mut self) -> PyResult<Vec<PyPersistedTrial>> {
+        let mut guard = self.study.storage.write().unwrap();
+        let trials_vec = guard
             .get_trials(self.study.id)
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get trials: {:?}", e.kind)))?;
-        let study = guard.get_study(self.study.id).map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to get the study: {:?}", e.kind))
-        })?;
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get trials: {:?}", e.kind)))?
+            .clone();
+        let study_attrs = guard
+            .get_study(self.study.id)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get the study: {:?}", e.kind)))?
+            .attrs
+            .clone();
         let pareto_front_numbers = get_pareto_front(&self.study).map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to get the pareto front: {:?}", e.kind))
         })?;
         let best_trials = pareto_front_numbers
             .iter()
-            .map(|n| PyPersistedTrial::new(trials[*n as usize].clone(), study.attrs.clone()))
+            .map(|n| PyPersistedTrial::new(trials_vec[*n as usize].clone(), study_attrs.clone()))
             .collect();
         Ok(best_trials)
     }
