@@ -167,7 +167,33 @@ impl crate::storage::Storage for CachedStorage {
         distribution: &Distribution,
         value: f64,
     ) -> Result<()> {
-        todo!()
+        self.backend
+            .set_trial_param(study_id, trial_number, name, distribution, value)?;
+        self.unfinished_trials
+            .entry(study_id)
+            .or_insert_with(Vec::new)
+            .push(trial_number);
+        self.refresh_trials(study_id)?;
+
+        let trials = self
+            .trials
+            .get_mut(&study_id)
+            .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))?;
+        let trial = trials
+            .get_mut(&trial_number)
+            .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
+        trial
+            .distributions
+            .insert(name.to_string(), distribution.clone());
+        trial.internal_params.insert(name.to_string(), value);
+
+        let mut trials_vec: Vec<_> = trials.values().cloned().collect();
+        trials_vec.sort_by_key(|t| t.number);
+        self.study_caches
+            .entry(study_id)
+            .or_insert_with(StudyCache::new)
+            .update(&trials_vec);
+        Ok(())
     }
 
     fn set_trial_state_values(
@@ -536,6 +562,39 @@ mod tests {
                 .get(&AttrKey::System("key".to_string()))
                 .unwrap(),
             "val"
+        );
+    }
+
+    #[test]
+    fn set_trial_param_updates_cache_and_refreshes() {
+        let mut backend = DummyBackend::new();
+        let study_id = backend
+            .create_new_study("s", vec![Direction::Minimize])
+            .unwrap()
+            .id;
+        backend.create_new_trial(study_id).unwrap();
+
+        let mut storage = CachedStorage::new(Box::new(backend));
+        let dist = Distribution::Float {
+            low: 0.0,
+            high: 1.0,
+            step: None,
+            log: false,
+        };
+        storage
+            .set_trial_param(study_id, 0, "x", &dist, 0.5)
+            .unwrap();
+
+        let trial = storage.get_trial(study_id, 0).unwrap();
+        assert_eq!(trial.internal_params.get("x"), Some(&0.5));
+        assert_eq!(
+            trial.distributions.get("x"),
+            Some(&Distribution::Float {
+                low: 0.0,
+                high: 1.0,
+                step: None,
+                log: false
+            })
         );
     }
 }
