@@ -37,6 +37,10 @@ pub trait CachedStorageBackend: Send + Sync {
     fn get_study(&mut self, study_id: u32) -> Result<PersistedStudy>;
     fn get_trials(&mut self, study_id: u32) -> Result<Vec<PersistedTrial>>;
     fn get_trial(&mut self, study_id: u32, trial_number: u32) -> Result<PersistedTrial>;
+    fn set_study_attrs(&mut self, study_id: u32, attrs: Attrs) -> Result<()>;
+    fn set_trial_attrs(&mut self, study_id: u32, trial_number: u32, attrs: Attrs) -> Result<()>;
+    fn get_joint_search_space(&mut self, study_id: u32) -> Result<HashMap<String, Distribution>>;
+
     // Return trials that need refreshing: unfinished trials in `included_numbers`
     // and trials with trial_number greater than `trial_number_greater_than`.
     fn get_trials_diff(
@@ -45,9 +49,6 @@ pub trait CachedStorageBackend: Send + Sync {
         included_numbers: &[u32],
         trial_number_greater_than: i32,
     ) -> Result<Vec<PersistedTrial>>;
-    fn set_study_attrs(&mut self, study_id: u32, attrs: Attrs) -> Result<()>;
-    fn set_trial_attrs(&mut self, study_id: u32, trial_number: u32, attrs: Attrs) -> Result<()>;
-    fn get_joint_search_space(&mut self, study_id: u32) -> Result<HashMap<String, Distribution>>;
 }
 
 pub struct CachedStorage {
@@ -205,7 +206,6 @@ impl crate::storage::Storage for CachedStorage {
         self.backend
             .set_trial_state_values(study_id, trial_number, state_values.clone())?;
 
-        // Ensure trial is tracked as unfinished until refreshed.
         self.unfinished_trials
             .entry(study_id)
             .or_insert_with(Vec::new)
@@ -311,7 +311,18 @@ impl crate::storage::Storage for CachedStorage {
     }
 
     fn get_joint_search_space(&mut self, study_id: u32) -> Result<HashMap<String, Distribution>> {
-        todo!()
+        let trials_vec = {
+            let trials = self.get_trials(study_id)?;
+            let mut v = trials.clone();
+            v.sort_by_key(|t| t.number);
+            v
+        };
+        let cache = self
+            .study_caches
+            .entry(study_id)
+            .or_insert_with(StudyCache::new);
+        cache.update(&trials_vec);
+        Ok(cache.get_joint_search_space())
     }
 }
 
@@ -574,6 +585,32 @@ mod tests {
             .unwrap();
         let trial = storage.get_trial(study_id, 0).unwrap();
         assert!(matches!(trial.state_values, TrialStateValues::Complete(_)));
+    }
+
+    #[test]
+    fn get_joint_search_space_uses_cache_update() {
+        let mut storage = CachedStorage::new(Box::new(DummyBackend::new()));
+        let study_id = storage
+            .create_new_study("s", vec![Direction::Minimize])
+            .unwrap()
+            .id;
+
+        let dist = Distribution::Float {
+            low: 0.0,
+            high: 1.0,
+            step: None,
+            log: false,
+        };
+        storage.create_new_trial(study_id).unwrap();
+        storage
+            .set_trial_param(study_id, 0, "x", &dist, 0.5)
+            .unwrap();
+        storage
+            .set_trial_state_values(study_id, 0, TrialStateValues::Complete(vec![0.0]))
+            .unwrap();
+
+        let search_space = storage.get_joint_search_space(study_id).unwrap();
+        assert!(search_space.contains_key("x"));
     }
 
     #[test]
