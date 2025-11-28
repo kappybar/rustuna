@@ -5,8 +5,7 @@ use crate::distribution::Distribution;
 use crate::study::{Direction, PersistedStudy};
 use crate::study_cache::StudyCache;
 use crate::trial::{PersistedTrial, TrialStateValues};
-use crate::{Result};
-
+use crate::Result;
 
 pub trait CachedStorageBackend: Send + Sync {
     // Design Note:
@@ -48,7 +47,6 @@ pub trait CachedStorageBackend: Send + Sync {
     fn get_joint_search_space(&mut self, study_id: u32) -> Result<HashMap<String, Distribution>>;
 }
 
-
 pub struct CachedStorage {
     studies: Vec<PersistedStudy>,
     trials: HashMap<u32, Vec<PersistedTrial>>,
@@ -74,7 +72,12 @@ impl crate::storage::Storage for CachedStorage {
         study_name: &str,
         directions: Vec<Direction>,
     ) -> Result<&PersistedStudy> {
-        todo!()
+        let study = self.backend.create_new_study(study_name, directions)?;
+        let study_id = study.id;
+        self.studies.push(study);
+        self.trials.insert(study_id, vec![]);
+        self.study_caches.insert(study_id, StudyCache::new());
+        Ok(self.studies.last().unwrap())
     }
 
     fn create_new_trial(&mut self, study_id: u32) -> Result<&PersistedTrial> {
@@ -134,6 +137,7 @@ impl crate::storage::Storage for CachedStorage {
 mod tests {
     use super::*;
     use crate::storage::Storage;
+    use crate::ErrorKind;
 
     struct DummyBackend {
         inner: crate::storage::InMemoryStorage,
@@ -213,8 +217,39 @@ mod tests {
             self.inner.set_trial_attrs(study_id, trial_number, attrs)
         }
 
-        fn get_joint_search_space(&mut self, study_id: u32) -> Result<HashMap<String, Distribution>> {
+        fn get_joint_search_space(
+            &mut self,
+            study_id: u32,
+        ) -> Result<HashMap<String, Distribution>> {
             self.inner.get_joint_search_space(study_id)
+        }
+    }
+
+    #[test]
+    fn create_new_study_updates_cache() {
+        let mut storage = CachedStorage::new(Box::new(DummyBackend::new()));
+        let (study_id, name, directions) = {
+            let study = storage
+                .create_new_study("example", vec![Direction::Minimize])
+                .unwrap();
+            (study.id, study.name.clone(), study.directions.clone())
+        };
+        assert_eq!(name, "example");
+        assert_eq!(directions, vec![Direction::Minimize]);
+        assert_eq!(storage.studies.len(), 1);
+        assert!(storage.trials.get(&study_id).is_some());
+    }
+
+    #[test]
+    fn create_new_study_rejects_duplicate() {
+        let mut storage = CachedStorage::new(Box::new(DummyBackend::new()));
+        storage
+            .create_new_study("example", vec![Direction::Minimize])
+            .unwrap();
+        let res = storage.create_new_study("example", vec![Direction::Minimize]);
+        match res {
+            Err(e) => assert!(matches!(e.kind, ErrorKind::DuplicatedStudy)),
+            Ok(_) => panic!("Expected duplicate study error"),
         }
     }
 }
