@@ -202,7 +202,32 @@ impl crate::storage::Storage for CachedStorage {
         trial_number: u32,
         state_values: TrialStateValues,
     ) -> Result<()> {
-        todo!()
+        self.backend
+            .set_trial_state_values(study_id, trial_number, state_values.clone())?;
+
+        // Ensure trial is tracked as unfinished until refreshed.
+        self.unfinished_trials
+            .entry(study_id)
+            .or_insert_with(Vec::new)
+            .push(trial_number);
+        self.refresh_trials(study_id)?;
+
+        let trials = self
+            .trials
+            .get_mut(&study_id)
+            .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))?;
+        let trial = trials
+            .get_mut(&trial_number)
+            .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
+        trial.state_values = state_values;
+
+        let mut trials_vec: Vec<_> = trials.values().cloned().collect();
+        trials_vec.sort_by_key(|t| t.number);
+        self.study_caches
+            .entry(study_id)
+            .or_insert_with(StudyCache::new)
+            .update(&trials_vec);
+        Ok(())
     }
 
     fn get_studies(&mut self) -> Result<&Vec<PersistedStudy>> {
@@ -532,6 +557,23 @@ mod tests {
         let _ = storage.backend.create_new_trial(study_id).unwrap();
         let trials2 = storage.get_trials(study_id).unwrap();
         assert_eq!(trials2.len(), 2);
+    }
+
+    #[test]
+    fn set_trial_state_values_updates_cache() {
+        let mut backend = DummyBackend::new();
+        let study_id = backend
+            .create_new_study("s", vec![Direction::Minimize])
+            .unwrap()
+            .id;
+        backend.create_new_trial(study_id).unwrap();
+
+        let mut storage = CachedStorage::new(Box::new(backend));
+        storage
+            .set_trial_state_values(study_id, 0, TrialStateValues::Complete(vec![1.0]))
+            .unwrap();
+        let trial = storage.get_trial(study_id, 0).unwrap();
+        assert!(matches!(trial.state_values, TrialStateValues::Complete(_)));
     }
 
     #[test]
