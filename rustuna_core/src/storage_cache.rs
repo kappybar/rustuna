@@ -37,11 +37,6 @@ pub trait CachedStorageBackend: Send + Sync {
     fn get_study(&self, study_id: u32) -> Result<PersistedStudy>;
     fn get_trials(&self, study_id: u32) -> Result<Vec<PersistedTrial>>;
     fn get_trial(&self, study_id: u32, trial_number: u32) -> Result<PersistedTrial>;
-    // Design Note:
-    // Unlike the storage APIs in Optuna, the `set_study_attrs` and `set_trial_attrs` methods
-    // are designed to receive multiple attributes for bulk insert operations.
-    // Furthermore, the `user_attrs` and `system_attrs` are merged into a single HashMap,
-    // which simplifies the implementation process for third-party storages.
     fn set_study_attrs(&mut self, study_id: u32, attrs: Attrs) -> Result<()>;
     fn set_trial_attrs(&mut self, study_id: u32, trial_number: u32, attrs: Attrs) -> Result<()>;
     fn get_joint_search_space(&mut self, study_id: u32) -> Result<HashMap<String, Distribution>>;
@@ -81,7 +76,17 @@ impl crate::storage::Storage for CachedStorage {
     }
 
     fn create_new_trial(&mut self, study_id: u32) -> Result<&PersistedTrial> {
-        todo!()
+        let trial = self.backend.create_new_trial(study_id)?;
+        let trials = self.trials.entry(study_id).or_insert_with(Vec::new);
+        trials.push(trial);
+        let trial_ref = trials.last().unwrap();
+
+        let study_cache = self
+            .study_caches
+            .entry(study_id)
+            .or_insert_with(StudyCache::new);
+        study_cache.update(trials);
+        Ok(trial_ref)
     }
 
     fn set_trial_param(
@@ -275,5 +280,20 @@ mod tests {
         assert_eq!(s1.name, "s1");
         let s2 = storage.get_study(1).unwrap();
         assert_eq!(s2.name, "s2");
+    }
+
+    #[test]
+    fn create_new_trial_appends_cache() {
+        let mut storage = CachedStorage::new(Box::new(DummyBackend::new()));
+        let study = storage
+            .create_new_study("s", vec![Direction::Minimize])
+            .unwrap()
+            .id;
+        let t0_num = storage.create_new_trial(study).unwrap().number;
+        let t1_num = storage.create_new_trial(study).unwrap().number;
+        assert_eq!(t0_num, 0);
+        assert_eq!(t1_num, 1);
+        let trials = storage.trials.get(&study).unwrap();
+        assert_eq!(trials.len(), 2);
     }
 }
