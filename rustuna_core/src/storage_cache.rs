@@ -105,11 +105,16 @@ impl crate::storage::Storage for CachedStorage {
     }
 
     fn get_studies(&self) -> Result<&Vec<PersistedStudy>> {
-        todo!()
+        Ok(&self.studies)
     }
 
     fn get_study(&self, study_id: u32) -> Result<&PersistedStudy> {
-        todo!()
+        let study = self
+            .studies
+            .iter()
+            .find(|s| s.id == study_id)
+            .ok_or_else(|| crate::Error::new(crate::ErrorKind::StudyNotFound))?;
+        Ok(study)
     }
 
     fn get_trials(&self, study_id: u32) -> Result<&Vec<PersistedTrial>> {
@@ -251,5 +256,24 @@ mod tests {
             Err(e) => assert!(matches!(e.kind, ErrorKind::DuplicatedStudy)),
             Ok(_) => panic!("Expected duplicate study error"),
         }
+    }
+
+    #[test]
+    fn get_study_and_get_studies_use_cache() {
+        let mut storage = CachedStorage::new(Box::new(DummyBackend::new()));
+        storage
+            .create_new_study("s1", vec![Direction::Minimize])
+            .unwrap();
+        storage
+            .create_new_study("s2", vec![Direction::Maximize])
+            .unwrap();
+
+        let all = storage.get_studies().unwrap();
+        assert_eq!(all.len(), 2);
+
+        let s1 = storage.get_study(0).unwrap();
+        assert_eq!(s1.name, "s1");
+        let s2 = storage.get_study(1).unwrap();
+        assert_eq!(s2.name, "s2");
     }
 }
