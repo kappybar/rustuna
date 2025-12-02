@@ -30,6 +30,23 @@ impl SQLite3Storage {
             .map_err(|_e| Error::new(ErrorKind::StorageError))?;
         Ok(())
     }
+
+    fn validate_study_id(&self, study_id: u32) -> Result<()> {
+        let guard = self.conn.lock().unwrap();
+        let study_exists: Option<u32> = guard
+            .query_row(
+                "SELECT study_id FROM studies WHERE study_id = ?",
+                params![study_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        if study_exists.is_none() {
+            return Err(Error::new(ErrorKind::StudyNotFound));
+        }
+        drop(guard);
+        Ok(())
+    }
 }
 
 impl CachedStorageBackend for SQLite3Storage {
@@ -83,7 +100,34 @@ impl CachedStorageBackend for SQLite3Storage {
         &mut self,
         study_id: u32,
     ) -> rustuna_core::Result<rustuna_core::trial::PersistedTrial> {
-        todo!()
+        self.validate_study_id(study_id)?;
+
+        let guard = self.conn.lock().unwrap();
+        guard
+            .execute(
+                "INSERT INTO trials (number, study_id, state, datetime_start, datetime_complete) \
+             VALUES (NULL, ?, ?, CURRENT_TIMESTAMP, NULL)",
+                params![study_id, "RUNNING"],
+            )
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+
+        let trial_id = guard.last_insert_rowid() as u32;
+        let number: u32 = guard
+            .query_row(
+                "SELECT COUNT(trial_id) FROM trials WHERE study_id = ? AND trial_id < ?",
+                params![study_id, trial_id],
+                |row| row.get(0),
+            )
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+
+        guard
+            .execute(
+                "UPDATE trials SET number = ? WHERE trial_id = ?",
+                params![number, trial_id],
+            )
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+
+        Ok(PersistedTrial::new(study_id, number))
     }
 
     fn set_trial_param(
@@ -467,5 +511,23 @@ mod tests {
             .err()
             .unwrap();
         assert!(matches!(err.kind, ErrorKind::DuplicatedStudy));
+    }
+
+    #[test]
+    fn create_new_trial_inserts_row() {
+        let mut storage = init_storage();
+        let study_id = {
+            let s = storage
+                .create_new_study("example", vec![Direction::Minimize])
+                .unwrap();
+            s.id
+        };
+
+        let trial = storage.create_new_trial(study_id).unwrap();
+        assert_eq!(trial.number, 0);
+        assert_eq!(trial.state_values, TrialStateValues::Running);
+
+        let trial = storage.create_new_trial(study_id).unwrap();
+        assert_eq!(trial.number, 1);
     }
 }
