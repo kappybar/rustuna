@@ -164,11 +164,84 @@ impl CachedStorageBackend for SQLite3Storage {
 
     fn set_trial_state_values(
         &mut self,
-        _study_id: u32,
-        _trial_number: u32,
-        _state_values: rustuna_core::trial::TrialStateValues,
+        study_id: u32,
+        trial_number: u32,
+        state_values: rustuna_core::trial::TrialStateValues,
     ) -> rustuna_core::Result<()> {
-        todo!()
+        let guard = self.conn.lock().unwrap();
+        let trial_id: Option<u32> = guard
+            .query_row(
+                "SELECT trial_id FROM trials WHERE study_id = ? AND number = ?",
+                params![study_id, trial_number],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        let trial_id = trial_id.ok_or(Error::new(ErrorKind::TrialNotFound))?;
+
+        match &state_values {
+            TrialStateValues::Complete(values) => {
+                guard
+                    .execute(
+                        "UPDATE trials SET state = ?, datetime_complete = CURRENT_TIMESTAMP WHERE trial_id = ?",
+                        params!["COMPLETE", trial_id],
+                    )
+                    .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+
+                if !values.is_empty() {
+                    let placeholders = values
+                        .iter()
+                        .enumerate()
+                        .map(|(i, _)| format!("({}, {}, ?, 'FINITE')", trial_id, i))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let sql = format!(
+                        "INSERT INTO trial_values (trial_id, objective, value, value_type) VALUES {} \
+                         ON CONFLICT(trial_id, objective) DO UPDATE SET value=excluded.value, value_type=excluded.value_type",
+                        placeholders
+                    );
+                    let params: Vec<&dyn rusqlite::ToSql> =
+                        values.iter().map(|v| v as &dyn rusqlite::ToSql).collect();
+                    guard
+                        .execute(&sql, params.as_slice())
+                        .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                }
+            }
+            TrialStateValues::Pruned => {
+                guard
+                    .execute(
+                        "UPDATE trials SET state = ?, datetime_complete = CURRENT_TIMESTAMP WHERE trial_id = ?",
+                        params!["PRUNED", trial_id],
+                    )
+                    .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            }
+            TrialStateValues::Fail => {
+                guard
+                    .execute(
+                        "UPDATE trials SET state = ?, datetime_complete = CURRENT_TIMESTAMP WHERE trial_id = ?",
+                        params!["FAIL", trial_id],
+                    )
+                    .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            }
+            TrialStateValues::Running => {
+                guard
+                    .execute(
+                        "UPDATE trials SET state = ?, datetime_complete = NULL WHERE trial_id = ?",
+                        params!["RUNNING", trial_id],
+                    )
+                    .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            }
+            TrialStateValues::Waiting => {
+                guard
+                    .execute(
+                        "UPDATE trials SET state = ?, datetime_complete = NULL WHERE trial_id = ?",
+                        params!["WAITING", trial_id],
+                    )
+                    .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            }
+        }
+
+        Ok(())
     }
 
     fn get_studies(&mut self) -> rustuna_core::Result<Vec<rustuna_core::study::PersistedStudy>> {
@@ -858,5 +931,48 @@ mod tests {
                 .get(&AttrKey::System("trial_system_key".to_string())),
             Some(&"trial_system_value".to_string())
         );
+    }
+
+    #[test]
+    fn set_trial_state_values_complete() {
+        let mut storage = init_storage();
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize, Direction::Maximize])
+            .unwrap()
+            .id;
+        let trial = storage.create_new_trial(study_id).unwrap();
+
+        assert_eq!(trial.state_values, TrialStateValues::Running);
+
+        storage
+            .set_trial_state_values(
+                study_id,
+                trial.number,
+                TrialStateValues::Complete(vec![1.5, 2.5]),
+            )
+            .unwrap();
+
+        let trial = storage.get_trial(study_id, trial.number).unwrap();
+        assert_eq!(
+            trial.state_values,
+            TrialStateValues::Complete(vec![1.5, 2.5])
+        );
+    }
+
+    #[test]
+    fn set_trial_state_values_fail() {
+        let mut storage = init_storage();
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])
+            .unwrap()
+            .id;
+        let trial = storage.create_new_trial(study_id).unwrap();
+
+        storage
+            .set_trial_state_values(study_id, trial.number, TrialStateValues::Fail)
+            .unwrap();
+
+        let trial = storage.get_trial(study_id, trial.number).unwrap();
+        assert_eq!(trial.state_values, TrialStateValues::Fail);
     }
 }
