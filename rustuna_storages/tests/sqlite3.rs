@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use rustuna_core::storage_cache::CachedStorageBackend;
+use rustuna_core::distribution::Distribution;
+use rustuna_core::storage::Storage;
+use rustuna_core::storage_cache::{CachedStorage, CachedStorageBackend};
 use rustuna_core::trial::TrialStateValues;
 use rustuna_storages::sqlite3::SQLite3Storage;
 
@@ -105,4 +107,71 @@ study.optimize(objective, n_trials=10)
 
     // Objective value
     assert!(matches!(trial0.state_values, TrialStateValues::Complete(_)));
+}
+
+#[test]
+fn get_trials() {
+    let python = std::env::var("PYTHON_BIN").unwrap_or_else(|_| "python3".to_string());
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db_path = dir.path().join("optuna.sqlite3");
+    let script = r#"
+import optuna, sys
+
+def objective(trial: optuna.Trial) -> float:
+    x = trial.suggest_float("x", 1, 10, log=True)
+    y = trial.suggest_int("y", -10, 10)
+    trial.suggest_categorical("z", [True, False, "foo", 10])
+    trial.set_user_attr("key", "value")
+    return x ** 2 + y
+
+storage = "sqlite:///" + sys.argv[1]
+study = optuna.create_study(storage=storage, study_name="foo", load_if_exists=True)
+study.optimize(objective, n_trials=10)
+"#;
+    // Evaluate 10 trials
+    assert!(run_optuna_script(&python, &db_path, script));
+    let mut storage = CachedStorage::new(Box::new(
+        SQLite3Storage::new(db_path.to_string_lossy().as_ref()).unwrap(),
+    ));
+    let study_id = {
+        let studies = storage.get_studies().unwrap();
+        assert_eq!(studies.len(), 1);
+        studies[0].id
+    };
+    let trials = storage.get_trials(study_id).unwrap();
+    assert_eq!(trials.len(), 10);
+
+    // Evaluate more 10 trials
+    assert!(run_optuna_script(&python, &db_path, script));
+    let trials = storage.get_trials(study_id).unwrap();
+    assert_eq!(trials.len(), 20);
+    assert_eq!(trials[0].distributions.len(), 3);
+    assert_eq!(
+        trials[0].distributions["x"],
+        Distribution::Float {
+            low: 1.0,
+            high: 10.0,
+            step: None,
+            log: true
+        }
+    );
+    assert_eq!(
+        trials[0].distributions["y"],
+        Distribution::Int {
+            low: -10,
+            high: 10,
+            step: Some(1),
+            log: false
+        }
+    );
+    assert_eq!(
+        trials[0].distributions["z"],
+        Distribution::Categorical { cardinality: 4 }
+    );
+    assert_eq!(trials[0].internal_params.len(), 3);
+    assert_eq!(trials[0].attrs.len(), 1);
+    assert!(matches!(
+        trials[0].state_values,
+        TrialStateValues::Complete(_)
+    ));
 }

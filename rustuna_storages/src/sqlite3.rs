@@ -563,11 +563,139 @@ impl CachedStorageBackend for SQLite3Storage {
 
     fn get_trials_diff(
         &mut self,
-        _study_id: u32,
-        _included_numbers: &[u32],
-        _trial_number_greater_than: i32,
+        study_id: u32,
+        included_numbers: &[u32],
+        trial_number_greater_than: i32,
     ) -> rustuna_core::Result<Vec<rustuna_core::trial::PersistedTrial>> {
-        todo!()
+        let guard = self.conn.lock().unwrap();
+
+        // Build SQL query with filters
+        let mut sql = String::from("SELECT trial_id, number, state FROM trials WHERE study_id = ?");
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(study_id)];
+
+        // Filter by trial_number_greater_than
+        if trial_number_greater_than >= 0 {
+            sql.push_str(" AND number > ?");
+            params.push(Box::new(trial_number_greater_than));
+        }
+
+        // Filter by included_numbers if provided
+        if !included_numbers.is_empty() {
+            let placeholders = included_numbers
+                .iter()
+                .map(|_| "?")
+                .collect::<Vec<_>>()
+                .join(", ");
+            sql.push_str(&format!(" OR number IN ({})", placeholders));
+            for &num in included_numbers {
+                params.push(Box::new(num));
+            }
+        }
+
+        sql.push_str(" ORDER BY trial_id");
+
+        let mut stmt = guard
+            .prepare(&sql)
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+
+        let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let trial_rows = stmt
+            .query_map(param_refs.as_slice(), |row| {
+                Ok((
+                    row.get::<_, u32>(0)?,
+                    row.get::<_, u32>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+
+        let mut trials = Vec::new();
+        for row in trial_rows {
+            let (trial_id, number, state_str) =
+                row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
+
+            // Parse state and get values if COMPLETE
+            let state_values = match state_str.as_str() {
+                "RUNNING" | "WAITING" => TrialStateValues::Running,
+                "PRUNED" => TrialStateValues::Pruned,
+                "FAIL" => TrialStateValues::Fail,
+                "COMPLETE" => {
+                    let mut values_stmt = guard
+                        .prepare(
+                            "SELECT value FROM trial_values WHERE trial_id = ? ORDER BY objective",
+                        )
+                        .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                    let values = values_stmt
+                        .query_map(params![trial_id], |row| row.get(0))
+                        .map_err(|_e| Error::new(ErrorKind::StorageError))?
+                        .collect::<std::result::Result<Vec<f64>, _>>()
+                        .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                    TrialStateValues::Complete(values)
+                }
+                _ => return Err(Error::new(ErrorKind::StorageError)),
+            };
+
+            // Get distributions and params
+            let mut distributions = HashMap::new();
+            let mut internal_params = HashMap::new();
+            let mut params_stmt = guard
+                .prepare("SELECT param_name, param_value, distribution_json FROM trial_params WHERE trial_id = ?")
+                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            let param_rows = params_stmt
+                .query_map(params![trial_id], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, f64>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })
+                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            for row in param_rows {
+                let (name, value, distribution_json) =
+                    row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                let (distribution, _labels) = json_to_distribution(&distribution_json)?;
+                distributions.insert(name.clone(), distribution);
+                internal_params.insert(name, value);
+            }
+
+            // Get user attributes
+            let mut attrs: Attrs = Attrs::new();
+            let mut user_attrs_stmt = guard
+                .prepare("SELECT key, value_json FROM trial_user_attributes WHERE trial_id = ?")
+                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            let user_attr_rows = user_attrs_stmt
+                .query_map(params![trial_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            for row in user_attr_rows {
+                let (key, value) = row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                attrs.insert(AttrKey::User(key), value);
+            }
+
+            // Get system attributes
+            let mut system_attrs_stmt = guard
+                .prepare("SELECT key, value_json FROM trial_system_attributes WHERE trial_id = ?")
+                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            let system_attr_rows = system_attrs_stmt
+                .query_map(params![trial_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            for row in system_attr_rows {
+                let (key, value) = row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                attrs.insert(AttrKey::System(key), value);
+            }
+
+            let mut trial = PersistedTrial::new(study_id, number);
+            trial.state_values = state_values;
+            trial.internal_params = internal_params;
+            trial.distributions = distributions;
+            trial.attrs = attrs;
+            trials.push(trial);
+        }
+
+        Ok(trials)
     }
 }
 
@@ -974,5 +1102,40 @@ mod tests {
 
         let trial = storage.get_trial(study_id, trial.number).unwrap();
         assert_eq!(trial.state_values, TrialStateValues::Fail);
+    }
+
+    #[test]
+    fn get_trials_diff() {
+        let mut storage = init_storage();
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])
+            .unwrap()
+            .id;
+
+        // Create 5 trials
+        for i in 0..5 {
+            let trial = storage.create_new_trial(study_id).unwrap();
+            storage
+                .set_trial_state_values(
+                    study_id,
+                    trial.number,
+                    TrialStateValues::Complete(vec![i as f64]),
+                )
+                .unwrap();
+        }
+
+        // Get all trials with number > 2
+        let trials = storage.get_trials_diff(study_id, &[], 2).unwrap();
+        assert_eq!(trials.len(), 2);
+        assert_eq!(trials[0].number, 3);
+        assert_eq!(trials[1].number, 4);
+
+        // Get specific trials by number
+        let trials = storage.get_trials_diff(study_id, &[0, 2], -1).unwrap();
+        assert_eq!(trials.len(), 5); // All trials + included ones
+
+        // Get trials with number > 3 OR in [0, 1]
+        let trials = storage.get_trials_diff(study_id, &[0, 1], 3).unwrap();
+        assert_eq!(trials.len(), 3); // trials 0, 1, 4
     }
 }
