@@ -35,11 +35,9 @@ pub trait CachedStorageBackend: Send + Sync {
     ) -> Result<()>;
     fn get_studies(&mut self) -> Result<Vec<PersistedStudy>>;
     fn get_study(&mut self, study_id: u32) -> Result<PersistedStudy>;
-    fn get_trials(&mut self, study_id: u32) -> Result<Vec<PersistedTrial>>;
     fn get_trial(&mut self, study_id: u32, trial_number: u32) -> Result<PersistedTrial>;
     fn set_study_attrs(&mut self, study_id: u32, attrs: Attrs) -> Result<()>;
     fn set_trial_attrs(&mut self, study_id: u32, trial_number: u32, attrs: Attrs) -> Result<()>;
-    fn get_joint_search_space(&mut self, study_id: u32) -> Result<HashMap<String, Distribution>>;
 
     // Return trials that need refreshing: unfinished trials in `included_numbers`
     // and trials with trial_number greater than `trial_number_greater_than`.
@@ -386,10 +384,6 @@ mod tests {
             Ok(self.inner.get_study(study_id)?.clone())
         }
 
-        fn get_trials(&mut self, study_id: u32) -> Result<Vec<PersistedTrial>> {
-            Ok(self.inner.get_trials(study_id)?.clone())
-        }
-
         fn get_trials_diff(
             &mut self,
             study_id: u32,
@@ -423,13 +417,6 @@ mod tests {
             attrs: Attrs,
         ) -> Result<()> {
             self.inner.set_trial_attrs(study_id, trial_number, attrs)
-        }
-
-        fn get_joint_search_space(
-            &mut self,
-            study_id: u32,
-        ) -> Result<HashMap<String, Distribution>> {
-            self.inner.get_joint_search_space(study_id)
         }
     }
 
