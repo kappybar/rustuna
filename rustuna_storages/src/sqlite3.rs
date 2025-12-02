@@ -353,10 +353,37 @@ impl CachedStorageBackend for SQLite3Storage {
 
     fn set_study_attrs(
         &mut self,
-        _study_id: u32,
-        _attrs: rustuna_core::attr::Attrs,
+        study_id: u32,
+        attrs: rustuna_core::attr::Attrs,
     ) -> rustuna_core::Result<()> {
-        todo!()
+        self.validate_study_id(study_id)?;
+
+        let guard = self.conn.lock().unwrap();
+        for (key, value) in attrs {
+            match key {
+                AttrKey::User(key_str) => {
+                    guard
+                        .execute(
+                            "INSERT INTO study_user_attributes (study_id, key, value_json) \
+                             VALUES (?, ?, ?) \
+                             ON CONFLICT(study_id, key) DO UPDATE SET value_json=excluded.value_json",
+                            params![study_id, key_str, value],
+                        )
+                        .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                }
+                AttrKey::System(key_str) => {
+                    guard
+                        .execute(
+                            "INSERT INTO study_system_attributes (study_id, key, value_json) \
+                             VALUES (?, ?, ?) \
+                             ON CONFLICT(study_id, key) DO UPDATE SET value_json=excluded.value_json",
+                            params![study_id, key_str, value],
+                        )
+                        .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                }
+            }
+        }
+        Ok(())
     }
 
     fn set_trial_attrs(
@@ -667,5 +694,37 @@ mod tests {
         assert_eq!(trial.internal_params["float"], 0.5);
         assert_eq!(trial.internal_params["int"], 5.0);
         assert_eq!(trial.internal_params["cat"], 1.0);
+    }
+
+    #[test]
+    fn set_study_attrs() {
+        let mut storage = init_storage();
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])
+            .unwrap()
+            .id;
+
+        let mut attrs = Attrs::new();
+        attrs.insert(
+            AttrKey::User("user_key".to_string()),
+            "user_value".to_string(),
+        );
+        attrs.insert(
+            AttrKey::System("system_key".to_string()),
+            "system_value".to_string(),
+        );
+
+        storage.set_study_attrs(study_id, attrs).unwrap();
+
+        let study = storage.get_study(study_id).unwrap();
+        assert_eq!(study.attrs.len(), 2);
+        assert_eq!(
+            study.attrs.get(&AttrKey::User("user_key".to_string())),
+            Some(&"user_value".to_string())
+        );
+        assert_eq!(
+            study.attrs.get(&AttrKey::System("system_key".to_string())),
+            Some(&"system_value".to_string())
+        );
     }
 }
