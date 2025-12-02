@@ -38,7 +38,45 @@ impl CachedStorageBackend for SQLite3Storage {
         study_name: &str,
         directions: Vec<rustuna_core::study::Direction>,
     ) -> rustuna_core::Result<rustuna_core::study::PersistedStudy> {
-        todo!()
+        let guard = self.conn.lock().unwrap();
+
+        let existing: Option<u32> = guard
+            .query_row(
+                "SELECT study_id FROM studies WHERE study_name = ?",
+                params![study_name],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        if existing.is_some() {
+            return Err(Error::new(ErrorKind::DuplicatedStudy));
+        }
+
+        guard
+            .execute(
+                "INSERT INTO studies (study_name) VALUES (?)",
+                params![study_name],
+            )
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+
+        let study_id = guard.last_insert_rowid() as u32;
+
+        for (objective, direction) in directions.iter().enumerate() {
+            let direction_str = match direction {
+                Direction::Minimize => "MINIMIZE",
+                Direction::Maximize => "MAXIMIZE",
+            };
+
+            guard.execute(
+                "INSERT INTO study_directions (direction, study_id, objective) VALUES (?, ?, ?)",
+                params![direction_str, study_id, objective as u32],
+            )
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        }
+        drop(guard);
+
+        let persisted_study = PersistedStudy::new(study_id, study_name.to_string(), directions);
+        Ok(persisted_study)
     }
 
     fn create_new_trial(
@@ -394,12 +432,40 @@ fn value_to_category_label(v: &Value) -> Option<CategoryLabel> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustuna_core::distribution::Distribution;
     use rustuna_core::study::Direction;
 
     fn init_storage() -> SQLite3Storage {
         let storage = SQLite3Storage::new(":memory:").unwrap();
         storage.create_database().unwrap();
         storage
+    }
+
+    #[test]
+    fn create_new_study_inserts_rows() {
+        let mut storage = init_storage();
+        assert_eq!(storage.get_studies().unwrap().len(), 0);
+
+        let study = storage
+            .create_new_study("example", vec![Direction::Minimize, Direction::Maximize])
+            .unwrap();
+        assert_eq!(study.name, "example");
+        assert_eq!(
+            study.directions,
+            vec![Direction::Minimize, Direction::Maximize]
+        );
+        assert_eq!(storage.get_studies().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn create_new_study_rejects_duplicate_name() {
+        let mut storage = init_storage();
+        storage
+            .create_new_study("dup", vec![Direction::Minimize])
+            .unwrap();
+        let err = storage
+            .create_new_study("dup", vec![Direction::Minimize])
+            .err()
+            .unwrap();
+        assert!(matches!(err.kind, ErrorKind::DuplicatedStudy));
     }
 }
