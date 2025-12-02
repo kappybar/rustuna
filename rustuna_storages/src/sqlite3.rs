@@ -138,7 +138,28 @@ impl CachedStorageBackend for SQLite3Storage {
         distribution: &rustuna_core::distribution::Distribution,
         value: f64,
     ) -> rustuna_core::Result<()> {
-        todo!()
+        let guard = self.conn.lock().unwrap();
+        let trial_id: Option<u32> = guard
+            .query_row(
+                "SELECT trial_id FROM trials WHERE study_id = ? AND number = ?",
+                params![study_id, trial_number],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        let trial_id = trial_id.ok_or(Error::new(ErrorKind::TrialNotFound))?;
+
+        let distribution_json = distribution_to_json(distribution, None);
+        guard
+            .execute(
+                "INSERT INTO trial_params (trial_id, param_name, param_value, distribution_json) \
+             VALUES (?, ?, ?, ?) \
+             ON CONFLICT(trial_id, param_name) DO UPDATE SET \
+                 param_value=excluded.param_value, distribution_json=excluded.distribution_json",
+                params![trial_id, name, value, distribution_json],
+            )
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        Ok(())
     }
 
     fn set_trial_state_values(
@@ -287,7 +308,7 @@ impl CachedStorageBackend for SQLite3Storage {
         for row in param_rows {
             let (name, value, distribution_json) =
                 row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
-            let (distribution, _labels) = parse_distribution_json(&distribution_json)?;
+            let (distribution, _labels) = json_to_distribution(&distribution_json)?;
             distributions.insert(name.clone(), distribution);
             internal_params.insert(name, value);
         }
@@ -357,7 +378,73 @@ impl CachedStorageBackend for SQLite3Storage {
     }
 }
 
-fn parse_distribution_json(
+fn distribution_to_json(distribution: &Distribution, labels: Option<&[CategoryLabel]>) -> String {
+    let (name, attributes) = match distribution {
+        Distribution::Float {
+            low,
+            high,
+            step,
+            log,
+        } => (
+            "FloatDistribution",
+            json!({
+                "low": low,
+                "high": high,
+                "step": step,
+                "log": log
+            }),
+        ),
+        Distribution::Int {
+            low,
+            high,
+            step,
+            log,
+        } => (
+            "IntDistribution",
+            json!({
+                "low": low,
+                "high": high,
+                "step": step,
+                "log": log
+            }),
+        ),
+        Distribution::Categorical { cardinality } => {
+            let choices = labels
+                .map(|ls| ls.iter().map(category_label_to_value).collect::<Vec<_>>())
+                .unwrap_or_else(|| {
+                    (0..*cardinality as u32)
+                        .map(|i| serde_json::Value::Number(i.into()))
+                        .collect::<Vec<_>>()
+                });
+            (
+                "CategoricalDistribution",
+                json!({
+                    "choices": choices,
+                }),
+            )
+        }
+    };
+
+    json!({
+        "name": name,
+        "attributes": attributes,
+    })
+    .to_string()
+}
+
+fn category_label_to_value(label: &CategoryLabel) -> Value {
+    match label {
+        CategoryLabel::Float(f) => Number::from_f64(*f)
+            .map(Value::Number)
+            .unwrap_or(Value::Null),
+        CategoryLabel::Int(i) => Value::Number(Number::from(*i)),
+        CategoryLabel::String(s) => Value::String(s.clone()),
+        CategoryLabel::Bool(b) => Value::Bool(*b),
+        CategoryLabel::None => Value::Null,
+    }
+}
+
+fn json_to_distribution(
     distribution_json: &str,
 ) -> Result<(Distribution, Option<Vec<CategoryLabel>>)> {
     let value: Value =
@@ -529,5 +616,56 @@ mod tests {
 
         let trial = storage.create_new_trial(study_id).unwrap();
         assert_eq!(trial.number, 1);
+    }
+
+    #[test]
+    fn set_trial_param() {
+        let mut storage = init_storage();
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])
+            .unwrap()
+            .id;
+        let trial = storage.create_new_trial(study_id).unwrap();
+
+        // FloatDistribution
+        let float_dist = Distribution::Float {
+            low: 0.0,
+            high: 1.0,
+            step: None,
+            log: false,
+        };
+        storage
+            .set_trial_param(study_id, trial.number, "float", &float_dist, 0.5)
+            .unwrap();
+
+        // IntDistribution
+        let int_dist = Distribution::Int {
+            low: 0,
+            high: 10,
+            step: None,
+            log: false,
+        };
+        storage
+            .set_trial_param(study_id, trial.number, "int", &int_dist, 5.0)
+            .unwrap();
+
+        // CategoricalDistribution
+        let categorical_dist = Distribution::Categorical { cardinality: 3 };
+        storage
+            .set_trial_param(study_id, trial.number, "cat", &categorical_dist, 1.0)
+            .unwrap();
+
+        // Check distributions
+        let trial = storage.get_trial(study_id, trial.number).unwrap();
+        assert_eq!(trial.distributions.len(), 3);
+        assert_eq!(trial.distributions["float"], float_dist);
+        assert_eq!(trial.distributions["int"], int_dist);
+        assert_eq!(trial.distributions["cat"], categorical_dist);
+
+        // Check params
+        assert_eq!(trial.internal_params.len(), 3);
+        assert_eq!(trial.internal_params["float"], 0.5);
+        assert_eq!(trial.internal_params["int"], 5.0);
+        assert_eq!(trial.internal_params["cat"], 1.0);
     }
 }
