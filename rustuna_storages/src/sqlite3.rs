@@ -192,13 +192,12 @@ impl CachedStorageBackend for SQLite3Storage {
                     let placeholders = values
                         .iter()
                         .enumerate()
-                        .map(|(i, _)| format!("({}, {}, ?, 'FINITE')", trial_id, i))
+                        .map(|(i, _)| format!("({trial_id}, {i}, ?, 'FINITE')"))
                         .collect::<Vec<_>>()
                         .join(", ");
                     let sql = format!(
-                        "INSERT INTO trial_values (trial_id, objective, value, value_type) VALUES {} \
-                         ON CONFLICT(trial_id, objective) DO UPDATE SET value=excluded.value, value_type=excluded.value_type",
-                        placeholders
+                        "INSERT INTO trial_values (trial_id, objective, value, value_type) VALUES {placeholders} \
+                         ON CONFLICT(trial_id, objective) DO UPDATE SET value=excluded.value, value_type=excluded.value_type"
                     );
                     let params: Vec<&dyn rusqlite::ToSql> =
                         values.iter().map(|v| v as &dyn rusqlite::ToSql).collect();
@@ -448,9 +447,8 @@ impl CachedStorageBackend for SQLite3Storage {
                 .collect::<Vec<_>>()
                 .join(", ");
             let sql = format!(
-                "INSERT INTO study_user_attributes (study_id, key, value_json) VALUES {} \
-                 ON CONFLICT(study_id, key) DO UPDATE SET value_json=excluded.value_json",
-                placeholders
+                "INSERT INTO study_user_attributes (study_id, key, value_json) VALUES {placeholders} \
+                 ON CONFLICT(study_id, key) DO UPDATE SET value_json=excluded.value_json"
             );
             let mut params: Vec<&dyn rusqlite::ToSql> = Vec::new();
             for (key, value) in &user_attrs {
@@ -470,9 +468,8 @@ impl CachedStorageBackend for SQLite3Storage {
                 .collect::<Vec<_>>()
                 .join(", ");
             let sql = format!(
-                "INSERT INTO study_system_attributes (study_id, key, value_json) VALUES {} \
-                 ON CONFLICT(study_id, key) DO UPDATE SET value_json=excluded.value_json",
-                placeholders
+                "INSERT INTO study_system_attributes (study_id, key, value_json) VALUES {placeholders} \
+                 ON CONFLICT(study_id, key) DO UPDATE SET value_json=excluded.value_json"
             );
             let mut params: Vec<&dyn rusqlite::ToSql> = Vec::new();
             for (key, value) in &system_attrs {
@@ -521,9 +518,8 @@ impl CachedStorageBackend for SQLite3Storage {
                 .collect::<Vec<_>>()
                 .join(", ");
             let sql = format!(
-                "INSERT INTO trial_user_attributes (trial_id, key, value_json) VALUES {} \
-                 ON CONFLICT(trial_id, key) DO UPDATE SET value_json=excluded.value_json",
-                placeholders
+                "INSERT INTO trial_user_attributes (trial_id, key, value_json) VALUES {placeholders} \
+                 ON CONFLICT(trial_id, key) DO UPDATE SET value_json=excluded.value_json"
             );
             let mut params: Vec<&dyn rusqlite::ToSql> = Vec::new();
             for (key, value) in &user_attrs {
@@ -543,9 +539,8 @@ impl CachedStorageBackend for SQLite3Storage {
                 .collect::<Vec<_>>()
                 .join(", ");
             let sql = format!(
-                "INSERT INTO trial_system_attributes (trial_id, key, value_json) VALUES {} \
-                 ON CONFLICT(trial_id, key) DO UPDATE SET value_json=excluded.value_json",
-                placeholders
+                "INSERT INTO trial_system_attributes (trial_id, key, value_json) VALUES {placeholders} \
+                 ON CONFLICT(trial_id, key) DO UPDATE SET value_json=excluded.value_json"
             );
             let mut params: Vec<&dyn rusqlite::ToSql> = Vec::new();
             for (key, value) in &system_attrs {
@@ -586,7 +581,7 @@ impl CachedStorageBackend for SQLite3Storage {
                 .map(|_| "?")
                 .collect::<Vec<_>>()
                 .join(", ");
-            sql.push_str(&format!(" OR number IN ({})", placeholders));
+            sql.push_str(&format!(" OR number IN ({placeholders})"));
             for &num in included_numbers {
                 params.push(Box::new(num));
             }
