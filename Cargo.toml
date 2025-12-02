@@ -2,6 +2,7 @@
 members = [
     "rustuna_core",
     "rustuna_samplers",
+    "rustuna_storages",
     "rustuna_importance",
     "rustuna_js",
     "rustuna_pyo3",
