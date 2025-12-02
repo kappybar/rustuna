@@ -736,6 +736,7 @@ dependencies = [
  "rustuna_core",
  "rustuna_importance",
  "rustuna_samplers",
+ "rustuna_storages",
 ]
 
 [[package]]

@@ -7,8 +7,10 @@ use pyo3::types::{PyList, PyType};
 use rustuna_core::attr::{category_labels_to_attrs, get_category_labels, CategoryLabel};
 use rustuna_core::distribution::Distribution;
 use rustuna_core::storage::{InMemoryStorage, Storage};
+use rustuna_core::storage_cache::CachedStorage;
 use rustuna_core::study::Direction;
 use rustuna_core::trial::TrialStateValues;
+use rustuna_storages::sqlite3::SQLite3Storage;
 
 use crate::attrs::{pyobj_to_system_attrs, pyobj_to_user_attrs};
 use crate::distribution::{category_label_to_pyobject, pyobject_to_category_label, PyDistribution};
@@ -31,6 +33,23 @@ impl PyStorage {
         Ok(PyStorage {
             storage: Arc::new(RwLock::new(InMemoryStorage::new())),
             kind: "in_memory",
+        })
+    }
+
+    #[classmethod]
+    #[pyo3(name = "sqlite3", signature = (file_path, *, create_database = false))]
+    fn sqlite3(_cls: &PyType, file_path: &str, create_database: bool) -> PyResult<Self> {
+        let sqlite3 = SQLite3Storage::new(file_path).map_err(|e| {
+            PyRuntimeError::new_err(format!("Failed to open the SQLite3 file: {e:?}"))
+        })?;
+        if create_database {
+            sqlite3.create_database().map_err(|e| {
+                PyRuntimeError::new_err(format!("Failed to create the database: {e:?}"))
+            })?;
+        }
+        Ok(PyStorage {
+            storage: Arc::new(RwLock::new(CachedStorage::new(Box::new(sqlite3)))),
+            kind: "sqlite3",
         })
     }
 
