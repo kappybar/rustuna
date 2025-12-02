@@ -49,3 +49,60 @@ optuna.create_study(storage=storage, study_name="test-1", directions=["maximize"
         rustuna_core::study::Direction::Minimize
     );
 }
+
+#[test]
+fn load_trial() {
+    let python = std::env::var("PYTHON_BIN").unwrap_or_else(|_| "python3".to_string());
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db_path = dir.path().join("optuna.sqlite3");
+    let script = r#"
+import optuna, sys
+
+def objective(trial: optuna.Trial) -> float:
+    x = trial.suggest_float("x", 1, 10, log=True)
+    y = trial.suggest_int("y", -10, 10)
+    trial.suggest_categorical("z", [True, False, "foo", 10])
+    return x ** 2 + y
+
+storage = "sqlite:///" + sys.argv[1]
+study = optuna.create_study(storage=storage)
+study.optimize(objective, n_trials=10)
+"#;
+
+    assert!(run_optuna_script(&python, &db_path, script));
+
+    let mut storage = SQLite3Storage::new(db_path.to_string_lossy().as_ref()).unwrap();
+    let studies = storage.get_studies().unwrap();
+    assert_eq!(studies.len(), 1);
+
+    let trial0 = storage.get_trial(studies[0].id, 0).unwrap();
+    assert_eq!(trial0.number, 0);
+
+    // Distributions
+    assert_eq!(trial0.distributions.len(), 3);
+    assert_eq!(
+        trial0.distributions["x"],
+        rustuna_core::distribution::Distribution::Float {
+            low: 1.0,
+            high: 10.0,
+            log: true,
+            step: None
+        }
+    );
+    assert_eq!(
+        trial0.distributions["y"],
+        rustuna_core::distribution::Distribution::Int {
+            low: -10,
+            high: 10,
+            log: false,
+            step: Some(1)
+        }
+    );
+    assert_eq!(
+        trial0.distributions["z"],
+        rustuna_core::distribution::Distribution::Categorical { cardinality: 4 }
+    );
+
+    // Objective value
+    assert!(matches!(trial0.state_values, TrialStateValues::Complete(_)));
+}

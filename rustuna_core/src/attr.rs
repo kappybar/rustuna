@@ -59,7 +59,7 @@ impl CategoryLabel {
     }
 }
 
-fn system_key_category_label(param_name: &str, choice_idx: usize) -> AttrKey {
+pub fn system_key_category_label(param_name: &str, choice_idx: usize) -> AttrKey {
     AttrKey::System(format!("category_labels:{param_name}:{choice_idx}"))
 }
 
