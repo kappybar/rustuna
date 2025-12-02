@@ -358,41 +358,134 @@ impl CachedStorageBackend for SQLite3Storage {
     ) -> rustuna_core::Result<()> {
         self.validate_study_id(study_id)?;
 
-        let guard = self.conn.lock().unwrap();
+        let mut user_attrs = Vec::new();
+        let mut system_attrs = Vec::new();
         for (key, value) in attrs {
             match key {
-                AttrKey::User(key_str) => {
-                    guard
-                        .execute(
-                            "INSERT INTO study_user_attributes (study_id, key, value_json) \
-                             VALUES (?, ?, ?) \
-                             ON CONFLICT(study_id, key) DO UPDATE SET value_json=excluded.value_json",
-                            params![study_id, key_str, value],
-                        )
-                        .map_err(|_e| Error::new(ErrorKind::StorageError))?;
-                }
-                AttrKey::System(key_str) => {
-                    guard
-                        .execute(
-                            "INSERT INTO study_system_attributes (study_id, key, value_json) \
-                             VALUES (?, ?, ?) \
-                             ON CONFLICT(study_id, key) DO UPDATE SET value_json=excluded.value_json",
-                            params![study_id, key_str, value],
-                        )
-                        .map_err(|_e| Error::new(ErrorKind::StorageError))?;
-                }
+                AttrKey::User(key_str) => user_attrs.push((key_str, value)),
+                AttrKey::System(key_str) => system_attrs.push((key_str, value)),
             }
         }
+
+        let guard = self.conn.lock().unwrap();
+        if !user_attrs.is_empty() {
+            let placeholders = user_attrs
+                .iter()
+                .map(|_| "(?, ?, ?)")
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sql = format!(
+                "INSERT INTO study_user_attributes (study_id, key, value_json) VALUES {} \
+                 ON CONFLICT(study_id, key) DO UPDATE SET value_json=excluded.value_json",
+                placeholders
+            );
+            let mut params: Vec<&dyn rusqlite::ToSql> = Vec::new();
+            for (key, value) in &user_attrs {
+                params.push(&study_id);
+                params.push(key);
+                params.push(value);
+            }
+            guard
+                .execute(&sql, params.as_slice())
+                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        }
+
+        if !system_attrs.is_empty() {
+            let placeholders = system_attrs
+                .iter()
+                .map(|_| "(?, ?, ?)")
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sql = format!(
+                "INSERT INTO study_system_attributes (study_id, key, value_json) VALUES {} \
+                 ON CONFLICT(study_id, key) DO UPDATE SET value_json=excluded.value_json",
+                placeholders
+            );
+            let mut params: Vec<&dyn rusqlite::ToSql> = Vec::new();
+            for (key, value) in &system_attrs {
+                params.push(&study_id);
+                params.push(key);
+                params.push(value);
+            }
+            guard
+                .execute(&sql, params.as_slice())
+                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        }
+
         Ok(())
     }
 
     fn set_trial_attrs(
         &mut self,
-        _study_id: u32,
-        _trial_number: u32,
-        _attrs: rustuna_core::attr::Attrs,
+        study_id: u32,
+        trial_number: u32,
+        attrs: rustuna_core::attr::Attrs,
     ) -> rustuna_core::Result<()> {
-        todo!()
+        let mut user_attrs = Vec::new();
+        let mut system_attrs = Vec::new();
+        for (key, value) in attrs {
+            match key {
+                AttrKey::User(key_str) => user_attrs.push((key_str, value)),
+                AttrKey::System(key_str) => system_attrs.push((key_str, value)),
+            }
+        }
+
+        let guard = self.conn.lock().unwrap();
+        let trial_id: Option<u32> = guard
+            .query_row(
+                "SELECT trial_id FROM trials WHERE study_id = ? AND number = ?",
+                params![study_id, trial_number],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        let trial_id = trial_id.ok_or(Error::new(ErrorKind::TrialNotFound))?;
+
+        if !user_attrs.is_empty() {
+            let placeholders = user_attrs
+                .iter()
+                .map(|_| "(?, ?, ?)")
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sql = format!(
+                "INSERT INTO trial_user_attributes (trial_id, key, value_json) VALUES {} \
+                 ON CONFLICT(trial_id, key) DO UPDATE SET value_json=excluded.value_json",
+                placeholders
+            );
+            let mut params: Vec<&dyn rusqlite::ToSql> = Vec::new();
+            for (key, value) in &user_attrs {
+                params.push(&trial_id);
+                params.push(key);
+                params.push(value);
+            }
+            guard
+                .execute(&sql, params.as_slice())
+                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        }
+
+        if !system_attrs.is_empty() {
+            let placeholders = system_attrs
+                .iter()
+                .map(|_| "(?, ?, ?)")
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sql = format!(
+                "INSERT INTO trial_system_attributes (trial_id, key, value_json) VALUES {} \
+                 ON CONFLICT(trial_id, key) DO UPDATE SET value_json=excluded.value_json",
+                placeholders
+            );
+            let mut params: Vec<&dyn rusqlite::ToSql> = Vec::new();
+            for (key, value) in &system_attrs {
+                params.push(&trial_id);
+                params.push(key);
+                params.push(value);
+            }
+            guard
+                .execute(&sql, params.as_slice())
+                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        }
+
+        Ok(())
     }
 
     fn get_trials_diff(
@@ -725,6 +818,45 @@ mod tests {
         assert_eq!(
             study.attrs.get(&AttrKey::System("system_key".to_string())),
             Some(&"system_value".to_string())
+        );
+    }
+
+    #[test]
+    fn set_trial_attrs() {
+        let mut storage = init_storage();
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])
+            .unwrap()
+            .id;
+        let trial = storage.create_new_trial(study_id).unwrap();
+
+        let mut attrs = Attrs::new();
+        attrs.insert(
+            AttrKey::User("trial_user_key".to_string()),
+            "trial_user_value".to_string(),
+        );
+        attrs.insert(
+            AttrKey::System("trial_system_key".to_string()),
+            "trial_system_value".to_string(),
+        );
+
+        storage
+            .set_trial_attrs(study_id, trial.number, attrs)
+            .unwrap();
+
+        let trial = storage.get_trial(study_id, trial.number).unwrap();
+        assert_eq!(trial.attrs.len(), 2);
+        assert_eq!(
+            trial
+                .attrs
+                .get(&AttrKey::User("trial_user_key".to_string())),
+            Some(&"trial_user_value".to_string())
+        );
+        assert_eq!(
+            trial
+                .attrs
+                .get(&AttrKey::System("trial_system_key".to_string())),
+            Some(&"trial_system_value".to_string())
         );
     }
 }
