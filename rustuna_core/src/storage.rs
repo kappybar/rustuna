@@ -13,6 +13,7 @@ pub trait Storage: Send + Sync {
         study_name: &str,
         directions: Vec<Direction>,
     ) -> Result<&PersistedStudy>;
+    fn delete_study(&mut self, study_id: u32) -> Result<()>;
     fn create_new_trial(&mut self, study_id: u32) -> Result<&PersistedTrial>;
     fn set_trial_param(
         &mut self,
@@ -51,6 +52,7 @@ pub struct InMemoryStorage {
     studies: Vec<PersistedStudy>,
     trials: HashMap<u32, Vec<PersistedTrial>>,
     study_caches: HashMap<u32, StudyCache>,
+    next_study_id: u32,
 }
 impl InMemoryStorage {
     pub fn new() -> InMemoryStorage {
@@ -58,6 +60,7 @@ impl InMemoryStorage {
             studies: vec![],
             trials: HashMap::new(),
             study_caches: HashMap::new(),
+            next_study_id: 0,
         }
     }
 }
@@ -89,14 +92,27 @@ impl Storage for InMemoryStorage {
             return Err(Error::new(ErrorKind::DuplicatedStudy));
         }
 
-        let study_id = self.studies.len() as u32;
+        let study_id = self.next_study_id;
+        self.next_study_id += 1;
         self.studies.push(PersistedStudy::new(
             study_id,
             study_name.to_string(),
             directions,
         ));
         self.trials.insert(study_id, vec![]);
-        Ok(&self.studies[study_id as usize])
+        Ok(self.studies.last().unwrap())
+    }
+
+    fn delete_study(&mut self, study_id: u32) -> Result<()> {
+        if !self.studies.iter().any(|s| s.id == study_id) {
+            return Err(Error::new(ErrorKind::StudyNotFound));
+        }
+
+        self.studies.retain(|s| s.id != study_id);
+        self.trials.remove(&study_id);
+        self.study_caches.remove(&study_id);
+
+        Ok(())
     }
 
     fn create_new_trial(&mut self, study_id: u32) -> Result<&PersistedTrial> {
@@ -158,7 +174,8 @@ impl Storage for InMemoryStorage {
     fn get_study(&mut self, study_id: u32) -> Result<&PersistedStudy> {
         let study = self
             .studies
-            .get(study_id as usize)
+            .iter()
+            .find(|s| s.id == study_id)
             .ok_or(Error::new(ErrorKind::StudyNotFound))?;
         Ok(study)
     }
@@ -177,7 +194,8 @@ impl Storage for InMemoryStorage {
     fn set_study_attrs(&mut self, study_id: u32, attrs: Attrs) -> Result<()> {
         let study = self
             .studies
-            .get_mut(study_id as usize)
+            .iter_mut()
+            .find(|s| s.id == study_id)
             .ok_or(Error::new(ErrorKind::StudyNotFound))?;
         attrs.into_iter().for_each(|(key, value)| {
             study.attrs.insert(key, value);
@@ -209,4 +227,29 @@ fn check_trial_is_updatable(trial: &PersistedTrial) -> Result<()> {
         return Err(Error::new(ErrorKind::TrialAlreadyFinished));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_study_does_not_reuse_study_id() -> Result<()> {
+        let mut storage = InMemoryStorage::new();
+
+        let study1 = storage.create_new_study("study1", vec![Direction::Minimize])?;
+        let study1_id = study1.id;
+        storage.create_new_study("study2", vec![Direction::Minimize])?;
+        storage.delete_study(study1_id)?;
+
+        let err = storage.get_study(study1_id).err().unwrap();
+        assert!(matches!(err.kind, ErrorKind::StudyNotFound));
+
+        let study3 = storage.create_new_study("study3", vec![Direction::Minimize])?;
+        assert_eq!(study3.id, 2);
+        assert_ne!(study3.id, study1_id);
+
+        assert_eq!(storage.get_studies()?.len(), 2);
+        Ok(())
+    }
 }

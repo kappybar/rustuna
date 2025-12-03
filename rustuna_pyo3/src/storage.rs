@@ -69,6 +69,12 @@ impl PyStorage {
         Ok(study.clone().into())
     }
 
+    fn delete_study(&mut self, study_id: u32) -> PyResult<()> {
+        let mut guard = self.storage.write().unwrap();
+        guard.delete_study(study_id).map_err(err_to_exceptions)?;
+        Ok(())
+    }
+
     fn create_new_trial(&mut self, study_id: u32) -> PyResult<PyPersistedTrial> {
         let mut guard = self.storage.write().unwrap();
         let trial = guard

@@ -18,6 +18,7 @@ pub trait CachedStorageBackend: Send + Sync {
         study_name: &str,
         directions: Vec<Direction>,
     ) -> Result<PersistedStudy>;
+    fn delete_study(&mut self, study_id: u32) -> Result<()>;
     fn create_new_trial(&mut self, study_id: u32) -> Result<PersistedTrial>;
     fn set_trial_param(
         &mut self,
@@ -132,6 +133,18 @@ impl rustuna_core::storage::Storage for CachedStorage {
         self.unfinished_trials.insert(study_id, vec![]);
         self.last_finished_trial_number.insert(study_id, -1);
         Ok(self.studies.last().unwrap())
+    }
+
+    fn delete_study(&mut self, study_id: u32) -> Result<()> {
+        self.backend.delete_study(study_id)?;
+
+        self.studies.retain(|s| s.id != study_id);
+        self.trials.remove(&study_id);
+        self.study_caches.remove(&study_id);
+        self.unfinished_trials.remove(&study_id);
+        self.last_finished_trial_number.remove(&study_id);
+
+        Ok(())
     }
 
     fn create_new_trial(&mut self, study_id: u32) -> Result<&PersistedTrial> {
@@ -340,6 +353,11 @@ mod tests {
             Ok(study)
         }
 
+        fn delete_study(&mut self, study_id: u32) -> Result<()> {
+            self.inner.delete_study(study_id)?;
+            Ok(())
+        }
+
         fn create_new_trial(&mut self, study_id: u32) -> Result<PersistedTrial> {
             let trial = self.inner.create_new_trial(study_id)?.clone();
             Ok(trial)
@@ -434,6 +452,26 @@ mod tests {
             Err(e) => assert!(matches!(e.kind, ErrorKind::DuplicatedStudy)),
             Ok(_) => panic!("Expected duplicate study error"),
         }
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_study_does_not_reuse_study_id() -> Result<()> {
+        let mut storage = CachedStorage::new(Box::new(DummyBackend::new()));
+
+        let study1 = storage.create_new_study("study1", vec![Direction::Minimize])?;
+        let study1_id = study1.id;
+        storage.create_new_study("study2", vec![Direction::Minimize])?;
+        storage.delete_study(study1_id)?;
+
+        let err = storage.get_study(study1_id).err().unwrap();
+        assert!(matches!(err.kind, ErrorKind::StudyNotFound));
+
+        let study3 = storage.create_new_study("study3", vec![Direction::Minimize])?;
+        assert_eq!(study3.id, 2);
+        assert_ne!(study3.id, study1_id);
+
+        assert_eq!(storage.get_studies()?.len(), 2);
         Ok(())
     }
 

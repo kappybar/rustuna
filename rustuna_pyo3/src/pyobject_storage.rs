@@ -73,6 +73,13 @@ impl PyObjectStorage {
         })
     }
 
+    fn obj_delete_study(&mut self, study_id: u32) -> PyResult<()> {
+        Python::with_gil(|py| {
+            self.obj.call_method1(py, "delete_study", (study_id,))?;
+            Ok(())
+        })
+    }
+
     fn obj_create_new_trial(&mut self, study_id: u32) -> PyResult<PersistedTrial> {
         Python::with_gil(|py| {
             let py_trial = self.obj.call_method1(py, "create_new_trial", (study_id,))?;
@@ -368,6 +375,13 @@ impl Storage for PyObjectStorage {
         self.src_study_to_cache_study
             .insert(src_study_id, cache_study.id);
         Ok(cache_study)
+    }
+
+    fn delete_study(&mut self, study_id: u32) -> rustuna_core::Result<()> {
+        self.obj_delete_study(study_id)
+            .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
+        self.cache.delete_study(study_id)?;
+        Ok(())
     }
 
     fn create_new_trial(
