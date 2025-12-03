@@ -9,8 +9,8 @@ use rustuna_core::distribution::Distribution;
 use rustuna_core::storage::{InMemoryStorage, Storage};
 use rustuna_core::study::Direction;
 use rustuna_core::trial::TrialStateValues;
-use rustuna_storages::sqlite3::SQLite3Storage;
 use rustuna_storages::cache::CachedStorage;
+use rustuna_storages::sqlite3::SQLite3Storage;
 
 use crate::attrs::{pyobj_to_system_attrs, pyobj_to_user_attrs};
 use crate::distribution::{category_label_to_pyobject, pyobject_to_category_label, PyDistribution};

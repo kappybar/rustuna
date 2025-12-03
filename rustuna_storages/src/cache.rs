@@ -412,162 +412,140 @@ mod tests {
     }
 
     #[test]
-    fn create_new_study_updates_cache() {
+    fn create_new_study_updates_cache() -> Result<()> {
         let mut storage = CachedStorage::new(Box::new(DummyBackend::new()));
         let (study_id, name, directions) = {
-            let study = storage
-                .create_new_study("example", vec![Direction::Minimize])
-                .unwrap();
+            let study = storage.create_new_study("example", vec![Direction::Minimize])?;
             (study.id, study.name.clone(), study.directions.clone())
         };
         assert_eq!(name, "example");
         assert_eq!(directions, vec![Direction::Minimize]);
         assert_eq!(storage.studies.len(), 1);
         assert!(storage.trials.get(&study_id).is_some());
+        Ok(())
     }
 
     #[test]
-    fn create_new_study_rejects_duplicate() {
+    fn create_new_study_rejects_duplicate() -> Result<()> {
         let mut storage = CachedStorage::new(Box::new(DummyBackend::new()));
-        storage
-            .create_new_study("example", vec![Direction::Minimize])
-            .unwrap();
+        storage.create_new_study("example", vec![Direction::Minimize])?;
         let res = storage.create_new_study("example", vec![Direction::Minimize]);
         match res {
             Err(e) => assert!(matches!(e.kind, ErrorKind::DuplicatedStudy)),
             Ok(_) => panic!("Expected duplicate study error"),
         }
+        Ok(())
     }
 
     #[test]
-    fn get_study_and_get_studies_use_cache() {
+    fn get_study_and_get_studies_use_cache() -> Result<()> {
         let mut storage = CachedStorage::new(Box::new(DummyBackend::new()));
-        storage
-            .create_new_study("s1", vec![Direction::Minimize])
-            .unwrap();
-        storage
-            .create_new_study("s2", vec![Direction::Maximize])
-            .unwrap();
+        storage.create_new_study("s1", vec![Direction::Minimize])?;
+        storage.create_new_study("s2", vec![Direction::Maximize])?;
 
-        let all = storage.get_studies().unwrap();
+        let all = storage.get_studies()?;
         assert_eq!(all.len(), 2);
 
-        let s1 = storage.get_study(0).unwrap();
+        let s1 = storage.get_study(0)?;
         assert_eq!(s1.name, "s1");
-        let s2 = storage.get_study(1).unwrap();
+        let s2 = storage.get_study(1)?;
         assert_eq!(s2.name, "s2");
+        Ok(())
     }
 
     #[test]
-    fn create_new_trial_appends_cache() {
+    fn create_new_trial_appends_cache() -> Result<()> {
         let mut storage = CachedStorage::new(Box::new(DummyBackend::new()));
-        let study = storage
-            .create_new_study("s", vec![Direction::Minimize])
-            .unwrap()
-            .id;
-        let t0_num = storage.create_new_trial(study).unwrap().number;
-        let t1_num = storage.create_new_trial(study).unwrap().number;
+        let study = storage.create_new_study("s", vec![Direction::Minimize])?.id;
+        let t0_num = storage.create_new_trial(study)?.number;
+        let t1_num = storage.create_new_trial(study)?.number;
         assert_eq!(t0_num, 0);
         assert_eq!(t1_num, 1);
         let trials = storage.trials.get(&study).unwrap();
         assert_eq!(trials.len(), 2);
+        Ok(())
     }
 
     #[test]
-    fn get_trials_and_get_trial_return_cached_refs() {
+    fn get_trials_and_get_trial_return_cached_refs() -> Result<()> {
         let mut storage = CachedStorage::new(Box::new(DummyBackend::new()));
-        let study_id = storage
-            .create_new_study("s", vec![Direction::Minimize])
-            .unwrap()
-            .id;
-        storage.create_new_trial(study_id).unwrap();
-        storage.create_new_trial(study_id).unwrap();
+        let study_id = storage.create_new_study("s", vec![Direction::Minimize])?.id;
+        storage.create_new_trial(study_id)?;
+        storage.create_new_trial(study_id)?;
 
-        let trials = storage.get_trials(study_id).unwrap();
+        let trials = storage.get_trials(study_id)?;
         assert_eq!(trials.len(), 2);
-        let t0 = storage.get_trial(study_id, 0).unwrap();
+        let t0 = storage.get_trial(study_id, 0)?;
         assert_eq!(t0.number, 0);
-        let t1 = storage.get_trial(study_id, 1).unwrap();
+        let t1 = storage.get_trial(study_id, 1)?;
         assert_eq!(t1.number, 1);
+        Ok(())
     }
 
     #[test]
-    fn get_trials_loads_from_backend_when_empty() {
+    fn get_trials_loads_from_backend_when_empty() -> Result<()> {
         let mut storage = CachedStorage::new(Box::new(DummyBackend::new()));
-        let study_id = storage
-            .create_new_study("s", vec![Direction::Minimize])
-            .unwrap()
-            .id;
-        storage.create_new_trial(study_id).unwrap();
+        let study_id = storage.create_new_study("s", vec![Direction::Minimize])?.id;
+        storage.create_new_trial(study_id)?;
 
         storage.trials.clear();
-        let trials = storage.get_trials(study_id).unwrap();
+        let trials = storage.get_trials(study_id)?;
         assert_eq!(trials.len(), 1);
+        Ok(())
     }
 
     #[test]
-    fn get_studies_refreshes_from_backend_every_time() {
+    fn get_studies_refreshes_from_backend_every_time() -> Result<()> {
         let mut backend = DummyBackend::new();
-        let study = backend
-            .create_new_study("s", vec![Direction::Minimize])
-            .unwrap();
+        let study = backend.create_new_study("s", vec![Direction::Minimize])?;
         let mut storage = CachedStorage::new(Box::new(backend));
 
-        let studies = storage.get_studies().unwrap();
+        let studies = storage.get_studies()?;
         assert_eq!(studies.len(), 1);
 
-        let _ = storage
+        storage
             .backend
-            .create_new_study("s2", vec![Direction::Maximize])
-            .unwrap();
-        let studies = storage.get_studies().unwrap();
+            .create_new_study("s2", vec![Direction::Maximize])?;
+        let studies = storage.get_studies()?;
         assert_eq!(studies.len(), 2);
         assert!(studies.iter().any(|s| s.name == study.name));
         assert!(studies.iter().any(|s| s.name == "s2"));
+        Ok(())
     }
 
     #[test]
-    fn get_trials_refreshes_when_backend_updates() {
+    fn get_trials_refreshes_when_backend_updates() -> Result<()> {
         let mut backend = DummyBackend::new();
-        let study_id = backend
-            .create_new_study("s", vec![Direction::Minimize])
-            .unwrap()
-            .id;
-        backend.create_new_trial(study_id).unwrap();
+        let study_id = backend.create_new_study("s", vec![Direction::Minimize])?.id;
+        backend.create_new_trial(study_id)?;
 
         let mut storage = CachedStorage::new(Box::new(backend));
-        let trials1 = storage.get_trials(study_id).unwrap();
+        let trials1 = storage.get_trials(study_id)?;
         assert_eq!(trials1.len(), 1);
 
-        let _ = storage.backend.create_new_trial(study_id).unwrap();
-        let trials2 = storage.get_trials(study_id).unwrap();
+        storage.backend.create_new_trial(study_id)?;
+        let trials2 = storage.get_trials(study_id)?;
         assert_eq!(trials2.len(), 2);
+        Ok(())
     }
 
     #[test]
-    fn set_trial_state_values_updates_cache() {
+    fn set_trial_state_values_updates_cache() -> Result<()> {
         let mut backend = DummyBackend::new();
-        let study_id = backend
-            .create_new_study("s", vec![Direction::Minimize])
-            .unwrap()
-            .id;
-        backend.create_new_trial(study_id).unwrap();
+        let study_id = backend.create_new_study("s", vec![Direction::Minimize])?.id;
+        backend.create_new_trial(study_id)?;
 
         let mut storage = CachedStorage::new(Box::new(backend));
-        storage
-            .set_trial_state_values(study_id, 0, TrialStateValues::Complete(vec![1.0]))
-            .unwrap();
-        let trial = storage.get_trial(study_id, 0).unwrap();
+        storage.set_trial_state_values(study_id, 0, TrialStateValues::Complete(vec![1.0]))?;
+        let trial = storage.get_trial(study_id, 0)?;
         assert!(matches!(trial.state_values, TrialStateValues::Complete(_)));
+        Ok(())
     }
 
     #[test]
-    fn get_joint_search_space_uses_cache_update() {
+    fn get_joint_search_space_uses_cache_update() -> Result<()> {
         let mut storage = CachedStorage::new(Box::new(DummyBackend::new()));
-        let study_id = storage
-            .create_new_study("s", vec![Direction::Minimize])
-            .unwrap()
-            .id;
+        let study_id = storage.create_new_study("s", vec![Direction::Minimize])?.id;
 
         let dist = Distribution::Float {
             low: 0.0,
@@ -575,31 +553,25 @@ mod tests {
             step: None,
             log: false,
         };
-        storage.create_new_trial(study_id).unwrap();
-        storage
-            .set_trial_param(study_id, 0, "x", &dist, 0.5)
-            .unwrap();
-        storage
-            .set_trial_state_values(study_id, 0, TrialStateValues::Complete(vec![0.0]))
-            .unwrap();
+        storage.create_new_trial(study_id)?;
+        storage.set_trial_param(study_id, 0, "x", &dist, 0.5)?;
+        storage.set_trial_state_values(study_id, 0, TrialStateValues::Complete(vec![0.0]))?;
 
-        let search_space = storage.get_joint_search_space(study_id).unwrap();
+        let search_space = storage.get_joint_search_space(study_id)?;
         assert!(search_space.contains_key("x"));
+        Ok(())
     }
 
     #[test]
-    fn set_study_and_trial_attrs_update_cache() {
+    fn set_study_and_trial_attrs_update_cache() -> Result<()> {
         let mut storage = CachedStorage::new(Box::new(DummyBackend::new()));
-        let study_id = storage
-            .create_new_study("s", vec![Direction::Minimize])
-            .unwrap()
-            .id;
-        storage.create_new_trial(study_id).unwrap();
+        let study_id = storage.create_new_study("s", vec![Direction::Minimize])?.id;
+        storage.create_new_trial(study_id)?;
 
         let mut s_attrs = Attrs::new();
         s_attrs.insert(AttrKey::User("foo".to_string()), "bar".to_string());
-        storage.set_study_attrs(study_id, s_attrs).unwrap();
-        let study = storage.get_study(study_id).unwrap();
+        storage.set_study_attrs(study_id, s_attrs)?;
+        let study = storage.get_study(study_id)?;
         assert_eq!(
             study.attrs.get(&AttrKey::User("foo".to_string())).unwrap(),
             "bar"
@@ -607,8 +579,8 @@ mod tests {
 
         let mut t_attrs = Attrs::new();
         t_attrs.insert(AttrKey::System("key".to_string()), "val".to_string());
-        storage.set_trial_attrs(study_id, 0, t_attrs).unwrap();
-        let trial = storage.get_trial(study_id, 0).unwrap();
+        storage.set_trial_attrs(study_id, 0, t_attrs)?;
+        let trial = storage.get_trial(study_id, 0)?;
         assert_eq!(
             trial
                 .attrs
@@ -616,16 +588,14 @@ mod tests {
                 .unwrap(),
             "val"
         );
+        Ok(())
     }
 
     #[test]
-    fn set_trial_param_updates_cache_and_refreshes() {
+    fn set_trial_param_updates_cache_and_refreshes() -> Result<()> {
         let mut backend = DummyBackend::new();
-        let study_id = backend
-            .create_new_study("s", vec![Direction::Minimize])
-            .unwrap()
-            .id;
-        backend.create_new_trial(study_id).unwrap();
+        let study_id = backend.create_new_study("s", vec![Direction::Minimize])?.id;
+        backend.create_new_trial(study_id)?;
 
         let mut storage = CachedStorage::new(Box::new(backend));
         let dist = Distribution::Float {
@@ -634,11 +604,9 @@ mod tests {
             step: None,
             log: false,
         };
-        storage
-            .set_trial_param(study_id, 0, "x", &dist, 0.5)
-            .unwrap();
+        storage.set_trial_param(study_id, 0, "x", &dist, 0.5)?;
 
-        let trial = storage.get_trial(study_id, 0).unwrap();
+        let trial = storage.get_trial(study_id, 0)?;
         assert_eq!(trial.internal_params.get("x"), Some(&0.5));
         assert_eq!(
             trial.distributions.get("x"),
@@ -649,5 +617,6 @@ mod tests {
                 log: false
             })
         );
+        Ok(())
     }
 }

@@ -879,69 +879,68 @@ fn value_to_category_label(v: &Value) -> Option<CategoryLabel> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustuna_core::study::Direction;
+    use crate::cache::CachedStorage;
+    use rustuna_core::sampler::RandomSampler;
+    use rustuna_core::study::{create_study, Direction};
+    use std::sync::Arc;
 
-    fn init_storage() -> SQLite3Storage {
-        let storage = SQLite3Storage::new(":memory:").unwrap();
-        storage.create_database().unwrap();
-        storage
+    fn init_storage() -> Result<SQLite3Storage> {
+        let storage = SQLite3Storage::new(":memory:")?;
+        storage.create_database()?;
+        Ok(storage)
     }
 
     #[test]
-    fn create_new_study_inserts_rows() {
-        let mut storage = init_storage();
-        assert_eq!(storage.get_studies().unwrap().len(), 0);
+    fn create_new_study_inserts_rows() -> Result<()> {
+        let mut storage = init_storage()?;
+        assert_eq!(storage.get_studies()?.len(), 0);
 
-        let study = storage
-            .create_new_study("example", vec![Direction::Minimize, Direction::Maximize])
-            .unwrap();
+        let study =
+            storage.create_new_study("example", vec![Direction::Minimize, Direction::Maximize])?;
         assert_eq!(study.name, "example");
         assert_eq!(
             study.directions,
             vec![Direction::Minimize, Direction::Maximize]
         );
-        assert_eq!(storage.get_studies().unwrap().len(), 1);
+        assert_eq!(storage.get_studies()?.len(), 1);
+        Ok(())
     }
 
     #[test]
-    fn create_new_study_rejects_duplicate_name() {
-        let mut storage = init_storage();
-        storage
-            .create_new_study("dup", vec![Direction::Minimize])
-            .unwrap();
+    fn create_new_study_rejects_duplicate_name() -> Result<()> {
+        let mut storage = init_storage()?;
+        storage.create_new_study("dup", vec![Direction::Minimize])?;
         let err = storage
             .create_new_study("dup", vec![Direction::Minimize])
             .err()
             .unwrap();
         assert!(matches!(err.kind, ErrorKind::DuplicatedStudy));
+        Ok(())
     }
 
     #[test]
-    fn create_new_trial_inserts_row() {
-        let mut storage = init_storage();
-        let study_id = {
-            let s = storage
-                .create_new_study("example", vec![Direction::Minimize])
-                .unwrap();
-            s.id
-        };
+    fn create_new_trial_inserts_row() -> Result<()> {
+        let mut storage = init_storage()?;
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])?
+            .id;
 
-        let trial = storage.create_new_trial(study_id).unwrap();
+        let trial = storage.create_new_trial(study_id)?;
         assert_eq!(trial.number, 0);
         assert_eq!(trial.state_values, TrialStateValues::Running);
 
-        let trial = storage.create_new_trial(study_id).unwrap();
+        let trial = storage.create_new_trial(study_id)?;
         assert_eq!(trial.number, 1);
+        Ok(())
     }
 
     #[test]
-    fn set_trial_param() {
-        let mut storage = init_storage();
+    fn set_trial_param() -> Result<()> {
+        let mut storage = init_storage()?;
         let study_id = storage
-            .create_new_study("example", vec![Direction::Minimize])
-            .unwrap()
+            .create_new_study("example", vec![Direction::Minimize])?
             .id;
-        let trial = storage.create_new_trial(study_id).unwrap();
+        let trial = storage.create_new_trial(study_id)?;
 
         // FloatDistribution
         let float_dist = Distribution::Float {
@@ -950,9 +949,7 @@ mod tests {
             step: None,
             log: false,
         };
-        storage
-            .set_trial_param(study_id, trial.number, "float", &float_dist, 0.5)
-            .unwrap();
+        storage.set_trial_param(study_id, trial.number, "float", &float_dist, 0.5)?;
 
         // IntDistribution
         let int_dist = Distribution::Int {
@@ -961,18 +958,14 @@ mod tests {
             step: None,
             log: false,
         };
-        storage
-            .set_trial_param(study_id, trial.number, "int", &int_dist, 5.0)
-            .unwrap();
+        storage.set_trial_param(study_id, trial.number, "int", &int_dist, 5.0)?;
 
         // CategoricalDistribution
         let categorical_dist = Distribution::Categorical { cardinality: 3 };
-        storage
-            .set_trial_param(study_id, trial.number, "cat", &categorical_dist, 1.0)
-            .unwrap();
+        storage.set_trial_param(study_id, trial.number, "cat", &categorical_dist, 1.0)?;
 
         // Check distributions
-        let trial = storage.get_trial(study_id, trial.number).unwrap();
+        let trial = storage.get_trial(study_id, trial.number)?;
         assert_eq!(trial.distributions.len(), 3);
         assert_eq!(trial.distributions["float"], float_dist);
         assert_eq!(trial.distributions["int"], int_dist);
@@ -983,14 +976,14 @@ mod tests {
         assert_eq!(trial.internal_params["float"], 0.5);
         assert_eq!(trial.internal_params["int"], 5.0);
         assert_eq!(trial.internal_params["cat"], 1.0);
+        Ok(())
     }
 
     #[test]
-    fn set_study_attrs() {
-        let mut storage = init_storage();
+    fn set_study_attrs() -> Result<()> {
+        let mut storage = init_storage()?;
         let study_id = storage
-            .create_new_study("example", vec![Direction::Minimize])
-            .unwrap()
+            .create_new_study("example", vec![Direction::Minimize])?
             .id;
 
         let mut attrs = Attrs::new();
@@ -1003,9 +996,9 @@ mod tests {
             "system_value".to_string(),
         );
 
-        storage.set_study_attrs(study_id, attrs).unwrap();
+        storage.set_study_attrs(study_id, attrs)?;
 
-        let study = storage.get_study(study_id).unwrap();
+        let study = storage.get_study(study_id)?;
         assert_eq!(study.attrs.len(), 2);
         assert_eq!(
             study.attrs.get(&AttrKey::User("user_key".to_string())),
@@ -1015,16 +1008,16 @@ mod tests {
             study.attrs.get(&AttrKey::System("system_key".to_string())),
             Some(&"system_value".to_string())
         );
+        Ok(())
     }
 
     #[test]
-    fn set_trial_attrs() {
-        let mut storage = init_storage();
+    fn set_trial_attrs() -> Result<()> {
+        let mut storage = init_storage()?;
         let study_id = storage
-            .create_new_study("example", vec![Direction::Minimize])
-            .unwrap()
+            .create_new_study("example", vec![Direction::Minimize])?
             .id;
-        let trial = storage.create_new_trial(study_id).unwrap();
+        let trial = storage.create_new_trial(study_id)?;
 
         let mut attrs = Attrs::new();
         attrs.insert(
@@ -1036,11 +1029,9 @@ mod tests {
             "trial_system_value".to_string(),
         );
 
-        storage
-            .set_trial_attrs(study_id, trial.number, attrs)
-            .unwrap();
+        storage.set_trial_attrs(study_id, trial.number, attrs)?;
 
-        let trial = storage.get_trial(study_id, trial.number).unwrap();
+        let trial = storage.get_trial(study_id, trial.number)?;
         assert_eq!(trial.attrs.len(), 2);
         assert_eq!(
             trial
@@ -1054,83 +1045,101 @@ mod tests {
                 .get(&AttrKey::System("trial_system_key".to_string())),
             Some(&"trial_system_value".to_string())
         );
+        Ok(())
     }
 
     #[test]
-    fn set_trial_state_values_complete() {
-        let mut storage = init_storage();
+    fn set_trial_state_values_complete() -> Result<()> {
+        let mut storage = init_storage()?;
         let study_id = storage
-            .create_new_study("example", vec![Direction::Minimize, Direction::Maximize])
-            .unwrap()
+            .create_new_study("example", vec![Direction::Minimize, Direction::Maximize])?
             .id;
-        let trial = storage.create_new_trial(study_id).unwrap();
+        let trial = storage.create_new_trial(study_id)?;
 
         assert_eq!(trial.state_values, TrialStateValues::Running);
 
-        storage
-            .set_trial_state_values(
-                study_id,
-                trial.number,
-                TrialStateValues::Complete(vec![1.5, 2.5]),
-            )
-            .unwrap();
+        storage.set_trial_state_values(
+            study_id,
+            trial.number,
+            TrialStateValues::Complete(vec![1.5, 2.5]),
+        )?;
 
-        let trial = storage.get_trial(study_id, trial.number).unwrap();
+        let trial = storage.get_trial(study_id, trial.number)?;
         assert_eq!(
             trial.state_values,
             TrialStateValues::Complete(vec![1.5, 2.5])
         );
+        Ok(())
     }
 
     #[test]
-    fn set_trial_state_values_fail() {
-        let mut storage = init_storage();
+    fn set_trial_state_values_fail() -> Result<()> {
+        let mut storage = init_storage()?;
         let study_id = storage
-            .create_new_study("example", vec![Direction::Minimize])
-            .unwrap()
+            .create_new_study("example", vec![Direction::Minimize])?
             .id;
-        let trial = storage.create_new_trial(study_id).unwrap();
+        let trial = storage.create_new_trial(study_id)?;
 
-        storage
-            .set_trial_state_values(study_id, trial.number, TrialStateValues::Fail)
-            .unwrap();
+        storage.set_trial_state_values(study_id, trial.number, TrialStateValues::Fail)?;
 
-        let trial = storage.get_trial(study_id, trial.number).unwrap();
+        let trial = storage.get_trial(study_id, trial.number)?;
         assert_eq!(trial.state_values, TrialStateValues::Fail);
+        Ok(())
     }
 
     #[test]
-    fn get_trials_diff() {
-        let mut storage = init_storage();
+    fn get_trials_diff() -> Result<()> {
+        let mut storage = init_storage()?;
         let study_id = storage
-            .create_new_study("example", vec![Direction::Minimize])
-            .unwrap()
+            .create_new_study("example", vec![Direction::Minimize])?
             .id;
 
         // Create 5 trials
         for i in 0..5 {
-            let trial = storage.create_new_trial(study_id).unwrap();
-            storage
-                .set_trial_state_values(
-                    study_id,
-                    trial.number,
-                    TrialStateValues::Complete(vec![i as f64]),
-                )
-                .unwrap();
+            let trial = storage.create_new_trial(study_id)?;
+            storage.set_trial_state_values(
+                study_id,
+                trial.number,
+                TrialStateValues::Complete(vec![i as f64]),
+            )?;
         }
 
         // Get all trials with number > 2
-        let trials = storage.get_trials_diff(study_id, &[], 2).unwrap();
+        let trials = storage.get_trials_diff(study_id, &[], 2)?;
         assert_eq!(trials.len(), 2);
         assert_eq!(trials[0].number, 3);
         assert_eq!(trials[1].number, 4);
 
         // Get specific trials by number
-        let trials = storage.get_trials_diff(study_id, &[0, 2], -1).unwrap();
+        let trials = storage.get_trials_diff(study_id, &[0, 2], -1)?;
         assert_eq!(trials.len(), 5); // All trials + included ones
 
         // Get trials with number > 3 OR in [0, 1]
-        let trials = storage.get_trials_diff(study_id, &[0, 1], 3).unwrap();
+        let trials = storage.get_trials_diff(study_id, &[0, 1], 3)?;
         assert_eq!(trials.len(), 3); // trials 0, 1, 4
+        Ok(())
+    }
+
+    #[test]
+    fn run_optimization() -> Result<()> {
+        let storage = SQLite3Storage::new(":memory:")?;
+        storage.create_database()?;
+        let storage = CachedStorage::new(Box::new(storage));
+
+        let mut study = create_study("simple-quadratic", storage, vec![Direction::Minimize])?;
+        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
+        study.optimize(
+            |mut t| {
+                let x = t.suggest_float("x", 0.0, 10.0)?;
+                let y = t.suggest_float("y", 0.0, 10.0)?;
+                let value = (x - 3.0).powi(2) + (y - 5.0).powi(2);
+                println!("{:2} x: {}, y: {}, value: {}", t.number, x, y, value);
+                Ok(vec![value])
+            },
+            sampler,
+            100,
+        )?;
+        assert_eq!(study.get_trials()?.len(), 100);
+        Ok(())
     }
 }

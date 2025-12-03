@@ -1,8 +1,9 @@
 import tempfile
-import rustuna
 
 import optuna
 from optuna.storages import RDBStorage
+
+import rustuna
 
 
 def test_optimize_with_sqlite3() -> None:
@@ -15,7 +16,7 @@ def test_optimize_with_sqlite3() -> None:
             x = trial.suggest_float("x", 1, 10, log=True)
             y = trial.suggest_int("y", -10, 10)
             trial.suggest_categorical("z", [True, False, "foo", 10])
-            return x ** 2 + y
+            return x**2 + y
 
         study.optimize(objective, 10)
         assert len(study.trials) == 10
@@ -35,7 +36,7 @@ def test_use_optuna_db() -> None:
             x = trial.suggest_float("x", 1, 10, log=True)
             y = trial.suggest_int("y", -10, 10)
             trial.suggest_categorical("z", [True, False, "foo", 10])
-            return x ** 2 + y
+            return x**2 + y
 
         study.optimize(objective, 10)
         assert len(study.trials) == 10

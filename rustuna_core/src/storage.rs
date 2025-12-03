@@ -197,10 +197,7 @@ impl Storage for InMemoryStorage {
     }
 
     fn get_joint_search_space(&mut self, study_id: u32) -> Result<HashMap<String, Distribution>> {
-        let study_cache = self
-            .study_caches
-            .entry(study_id)
-            .or_default();
+        let study_cache = self.study_caches.entry(study_id).or_default();
         let trials = get_trials_by_study_id(&self.trials, study_id)?;
         study_cache.update(trials);
         Ok(study_cache.get_joint_search_space())
