@@ -1,0 +1,17 @@
+[package]
+name = "rustuna_storages"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+
+[dependencies]
+rustuna_core = { workspace = true }
+rusqlite = "0.37.0"
+serde_json = "1.0"
+
+[dev-dependencies]
+tempfile = "3.8"

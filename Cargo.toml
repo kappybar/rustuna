@@ -2,6 +2,7 @@
 members = [
     "rustuna_core",
     "rustuna_samplers",
+    "rustuna_storages",
     "rustuna_importance",
     "rustuna_js",
     "rustuna_pyo3",
@@ -22,6 +23,7 @@ license = "MIT"
 rustuna_core = { path = "./rustuna_core" }
 rustuna_samplers = { path = "./rustuna_samplers" }
 rustuna_importance = { path = "./rustuna_importance" }
+rustuna_storages = { path = "./rustuna_storages" }
 fanova = "0.2.0"
 rand = "0.8.5"
 tpe = "0.2.0"

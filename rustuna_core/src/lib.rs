@@ -4,12 +4,11 @@ pub mod attr;
 pub mod distribution;
 pub mod sampler;
 pub mod storage;
-pub mod storage_cache;
 pub mod study;
+pub mod study_cache;
 pub mod trial;
 
 mod error;
-mod study_cache;
 
 /// This is a custom `Result` type for this crate.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
