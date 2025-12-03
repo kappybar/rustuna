@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use crate::attr::Attrs;
-use crate::distribution::Distribution;
-use crate::study::{Direction, PersistedStudy};
-use crate::study_cache::StudyCache;
-use crate::trial::{PersistedTrial, TrialStateValues};
-use crate::{Error, ErrorKind, Result};
+use rustuna_core::attr::Attrs;
+use rustuna_core::distribution::Distribution;
+use rustuna_core::study::{Direction, PersistedStudy};
+use rustuna_core::study_cache::StudyCache;
+use rustuna_core::trial::{PersistedTrial, TrialStateValues};
+use rustuna_core::{Error, ErrorKind, Result};
 
 pub trait CachedStorageBackend: Send + Sync {
     // Design Note:
@@ -97,10 +97,7 @@ impl CachedStorage {
             trials.insert(trial.number, trial);
         }
 
-        let study_cache = self
-            .study_caches
-            .entry(study_id)
-            .or_insert_with(StudyCache::new);
+        let study_cache = self.study_caches.entry(study_id).or_default();
         let mut trials_vec: Vec<_> = trials.values().cloned().collect();
         trials_vec.sort_by_key(|t| t.number);
         study_cache.update(&trials_vec);
@@ -121,7 +118,7 @@ impl CachedStorage {
     }
 }
 
-impl crate::storage::Storage for CachedStorage {
+impl rustuna_core::storage::Storage for CachedStorage {
     fn create_new_study(
         &mut self,
         study_name: &str,
@@ -144,10 +141,7 @@ impl crate::storage::Storage for CachedStorage {
         trials.insert(number, trial);
         let trial_ref = trials.get(&number).unwrap();
 
-        let study_cache = self
-            .study_caches
-            .entry(study_id)
-            .or_insert_with(StudyCache::new);
+        let study_cache = self.study_caches.entry(study_id).or_default();
         let mut trials_vec: Vec<_> = trials.values().cloned().collect();
         trials_vec.sort_by_key(|t| t.number);
         study_cache.update(&trials_vec);
@@ -190,7 +184,7 @@ impl crate::storage::Storage for CachedStorage {
         trials_vec.sort_by_key(|t| t.number);
         self.study_caches
             .entry(study_id)
-            .or_insert_with(StudyCache::new)
+            .or_default()
             .update(&trials_vec);
         Ok(())
     }
@@ -223,7 +217,7 @@ impl crate::storage::Storage for CachedStorage {
         trials_vec.sort_by_key(|t| t.number);
         self.study_caches
             .entry(study_id)
-            .or_insert_with(StudyCache::new)
+            .or_default()
             .update(&trials_vec);
         Ok(())
     }
@@ -241,7 +235,7 @@ impl crate::storage::Storage for CachedStorage {
             .studies
             .iter()
             .find(|s| s.id == study_id)
-            .ok_or_else(|| crate::Error::new(crate::ErrorKind::StudyNotFound))?;
+            .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))?;
         Ok(study)
     }
 
@@ -257,7 +251,7 @@ impl crate::storage::Storage for CachedStorage {
         self.trials_sorted_buffer.extend(trials_vec);
         self.study_caches
             .entry(study_id)
-            .or_insert_with(StudyCache::new)
+            .or_default()
             .update(&self.trials_sorted_buffer);
         Ok(&self.trials_sorted_buffer)
     }
@@ -311,10 +305,7 @@ impl crate::storage::Storage for CachedStorage {
             v.sort_by_key(|t| t.number);
             v
         };
-        let cache = self
-            .study_caches
-            .entry(study_id)
-            .or_insert_with(StudyCache::new);
+        let cache = self.study_caches.entry(study_id).or_default();
         cache.update(&trials_vec);
         Ok(cache.get_joint_search_space())
     }
@@ -323,18 +314,18 @@ impl crate::storage::Storage for CachedStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::attr::AttrKey;
-    use crate::storage::Storage;
-    use crate::ErrorKind;
+    use rustuna_core::attr::AttrKey;
+    use rustuna_core::storage::Storage;
+    use rustuna_core::ErrorKind;
 
     struct DummyBackend {
-        inner: crate::storage::InMemoryStorage,
+        inner: rustuna_core::storage::InMemoryStorage,
     }
 
     impl DummyBackend {
         fn new() -> Self {
             DummyBackend {
-                inner: crate::storage::InMemoryStorage::new(),
+                inner: rustuna_core::storage::InMemoryStorage::new(),
             }
         }
     }

@@ -123,7 +123,7 @@ impl Storage for InMemoryStorage {
         let study_distributions = &mut self
             .study_caches
             .entry(study_id)
-            .or_insert_with(StudyCache::new)
+            .or_default()
             .param_distribution;
         if let Some(study_distribution) = study_distributions.get(name) {
             study_distribution.check_compatibility(distribution)?;
@@ -200,7 +200,7 @@ impl Storage for InMemoryStorage {
         let study_cache = self
             .study_caches
             .entry(study_id)
-            .or_insert_with(StudyCache::new);
+            .or_default();
         let trials = get_trials_by_study_id(&self.trials, study_id)?;
         study_cache.update(trials);
         Ok(study_cache.get_joint_search_space())

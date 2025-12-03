@@ -3,8 +3,8 @@ use std::process::Command;
 
 use rustuna_core::distribution::Distribution;
 use rustuna_core::storage::Storage;
-use rustuna_core::storage_cache::{CachedStorage, CachedStorageBackend};
 use rustuna_core::trial::TrialStateValues;
+use rustuna_storages::cache::{CachedStorage, CachedStorageBackend};
 use rustuna_storages::sqlite3::SQLite3Storage;
 
 fn run_optuna_script(python: &str, db_path: &PathBuf, script: &str) -> bool {

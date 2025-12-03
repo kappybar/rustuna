@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use crate::cache::CachedStorageBackend;
 use rusqlite::{params, Connection, OptionalExtension};
 use rustuna_core::attr::{AttrKey, Attrs, CategoryLabel};
 use rustuna_core::distribution::Distribution;
-use rustuna_core::storage_cache::CachedStorageBackend;
 use rustuna_core::study::{Direction, PersistedStudy};
 use rustuna_core::trial::{PersistedTrial, TrialStateValues};
 use rustuna_core::{Error, ErrorKind, Result};

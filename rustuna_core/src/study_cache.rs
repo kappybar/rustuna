@@ -13,6 +13,13 @@ pub struct StudyCache {
     // TODO(c-bata): Cache following values.
     // best_trial: Option<PersistedTrial>,
 }
+
+impl Default for StudyCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StudyCache {
     pub fn new() -> StudyCache {
         StudyCache {
