@@ -465,26 +465,26 @@ impl Storage for PyObjectStorage {
         }
     }
 
-    fn get_studies(&self) -> rustuna_core::Result<&Vec<rustuna_core::study::PersistedStudy>> {
+    fn get_studies(&mut self) -> rustuna_core::Result<&Vec<rustuna_core::study::PersistedStudy>> {
         self.cache.get_studies()
     }
 
     fn get_study(
-        &self,
+        &mut self,
         study_id: u32,
     ) -> rustuna_core::Result<&rustuna_core::study::PersistedStudy> {
         self.cache.get_study(study_id)
     }
 
     fn get_trials(
-        &self,
+        &mut self,
         study_id: u32,
     ) -> rustuna_core::Result<&Vec<rustuna_core::trial::PersistedTrial>> {
         self.cache.get_trials(study_id)
     }
 
     fn get_trial(
-        &self,
+        &mut self,
         study_id: u32,
         trial_number: u32,
     ) -> rustuna_core::Result<&rustuna_core::trial::PersistedTrial> {

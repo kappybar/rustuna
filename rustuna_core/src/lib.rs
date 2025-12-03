@@ -4,6 +4,7 @@ pub mod attr;
 pub mod distribution;
 pub mod sampler;
 pub mod storage;
+pub mod storage_cache;
 pub mod study;
 pub mod trial;
 

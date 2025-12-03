@@ -108,9 +108,9 @@ impl PyStorage {
         param_name: String,
         cardinality: usize,
     ) -> PyResult<PyObject> {
-        let guard = self
+        let mut guard = self
             .storage
-            .read()
+            .write()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
         let study = guard.get_study(study_id).map_err(err_to_exceptions)?;
         Python::with_gil(
@@ -159,39 +159,47 @@ impl PyStorage {
         Ok(())
     }
 
-    fn get_studies(&self) -> PyResult<Vec<PyPersistedStudy>> {
-        let guard = self.storage.read().unwrap();
+    fn get_studies(&mut self) -> PyResult<Vec<PyPersistedStudy>> {
+        let mut guard = self.storage.write().unwrap();
         let studies = guard
             .get_studies()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to get studies: {:?}", e.kind)))?;
         Ok(studies.iter().map(|s| s.clone().into()).collect())
     }
 
-    fn get_study(&self, study_id: u32) -> PyResult<PyPersistedStudy> {
-        let guard = self.storage.read().unwrap();
+    fn get_study(&mut self, study_id: u32) -> PyResult<PyPersistedStudy> {
+        let mut guard = self.storage.write().unwrap();
         let study = guard.get_study(study_id).map_err(err_to_exceptions)?;
         Ok(study.clone().into())
     }
 
-    fn get_trials(&self, study_id: u32) -> PyResult<Vec<PyPersistedTrial>> {
-        let guard = self.storage.read().unwrap();
-        let study = guard.get_study(study_id).map_err(err_to_exceptions)?;
+    fn get_trials(&mut self, study_id: u32) -> PyResult<Vec<PyPersistedTrial>> {
+        let mut guard = self.storage.write().unwrap();
+        let study_attrs = {
+            let study = guard.get_study(study_id).map_err(err_to_exceptions)?;
+            study.attrs.clone()
+        };
         let trials = guard.get_trials(study_id).map_err(err_to_exceptions)?;
         // TODO(c-bata): Filter category_labels attrs and clone them only.
         let py_trials: Vec<PyPersistedTrial> = trials
             .iter()
-            .map(|t| PyPersistedTrial::new(t.clone(), study.attrs.clone()))
+            .map(|t| PyPersistedTrial::new(t.clone(), study_attrs.clone()))
             .collect();
         Ok(py_trials)
     }
 
-    fn get_trial(&self, study_id: u32, trial_number: u32) -> PyResult<PyPersistedTrial> {
-        let guard = self.storage.read().unwrap();
-        let study = guard.get_study(study_id).map_err(err_to_exceptions)?;
+    fn get_trial(&mut self, study_id: u32, trial_number: u32) -> PyResult<PyPersistedTrial> {
+        let mut guard = self.storage.write().unwrap();
         let trial = guard
             .get_trial(study_id, trial_number)
-            .map_err(err_to_exceptions)?;
-        Ok(PyPersistedTrial::new(trial.clone(), study.attrs.clone()))
+            .map_err(err_to_exceptions)?
+            .clone();
+        let study_attrs = guard
+            .get_study(study_id)
+            .map_err(err_to_exceptions)?
+            .attrs
+            .clone();
+        Ok(PyPersistedTrial::new(trial, study_attrs))
     }
 
     fn set_study_system_attrs(&mut self, study_id: u32, attrs: PyObject) -> PyResult<()> {
