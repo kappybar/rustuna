@@ -126,7 +126,7 @@ impl Trial {
         let mut guard = storage
             .write()
             .map_err(|_| Error::new(ErrorKind::Unexpected))?;
-        guard.set_study_attrs(study_id, category_labels)?;
+        guard.set_study_attrs(study_id, category_labels, false)?;
         Ok(c)
     }
 
@@ -157,7 +157,7 @@ impl Trial {
 
         let key = AttrKey::User(key.to_string());
         attrs.insert(key.clone(), value.clone());
-        guard.set_trial_attrs(self.study_id, self.number, attrs)?;
+        guard.set_trial_attrs(self.study_id, self.number, attrs, false)?;
         self.cached_trial.attrs.insert(key, value);
         Ok(())
     }
@@ -226,7 +226,7 @@ mod tests {
         let mut guard = storage.write().unwrap();
         let mut attrs = Attrs::new();
         attrs.insert(AttrKey::System("key".to_string()), "system".to_string());
-        guard.set_trial_attrs(study.id, 0, attrs).unwrap();
+        guard.set_trial_attrs(study.id, 0, attrs, false).unwrap();
 
         // Check the attributes
         let trial = guard.get_trial(study.id, 0).unwrap();

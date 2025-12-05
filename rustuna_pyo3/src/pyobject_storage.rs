@@ -52,7 +52,7 @@ impl PyObjectStorage {
         }?;
         if sync_attrs {
             self.cache
-                .set_study_attrs(cache_study_id, src_study.attrs.clone())?;
+                .set_study_attrs(cache_study_id, src_study.attrs.clone(), false)?;
         }
         Ok(())
     }
@@ -247,7 +247,7 @@ impl PyObjectStorage {
                         rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError)
                     })?;
                     self.cache
-                        .set_study_attrs(cache_study_id, src_study.attrs)?;
+                        .set_study_attrs(cache_study_id, src_study.attrs, false)?;
                 }
                 Ok(())
             }
@@ -305,7 +305,7 @@ impl PyObjectStorage {
         };
         let cache_trial = cache_trial.clone();
         self.cache
-            .set_trial_attrs(cache_study_id, cache_trial.number, src_trial.attrs)?;
+            .set_trial_attrs(cache_study_id, cache_trial.number, src_trial.attrs, false)?;
 
         for (name, distribution) in src_trial.distributions {
             let internal_repr =
@@ -509,10 +509,12 @@ impl Storage for PyObjectStorage {
         &mut self,
         study_id: u32,
         attrs: rustuna_core::attr::Attrs,
+        _error_on_overwrite: bool,
     ) -> rustuna_core::Result<()> {
+        // TODO(c-bata): Emit warnings if error_on_overwrite is true, since Optuna storage cannot support it.
         self.obj_set_study_attrs(study_id, attrs.clone())
             .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
-        match self.cache.set_study_attrs(study_id, attrs) {
+        match self.cache.set_study_attrs(study_id, attrs, false) {
             Ok(_) => Ok(()),
             Err(e) => match e.kind {
                 rustuna_core::ErrorKind::StudyNotFound => {
@@ -529,10 +531,15 @@ impl Storage for PyObjectStorage {
         study_id: u32,
         trial_number: u32,
         attrs: rustuna_core::attr::Attrs,
+        _error_on_overwrite: bool,
     ) -> rustuna_core::Result<()> {
+        // TODO(c-bata): Emit warnings if error_on_overwrite is true, since Optuna storage cannot support it.
         self.obj_set_trial_attrs(study_id, trial_number, attrs.clone())
             .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
-        match self.cache.set_trial_attrs(study_id, trial_number, attrs) {
+        match self
+            .cache
+            .set_trial_attrs(study_id, trial_number, attrs, false)
+        {
             Ok(_) => Ok(()),
             Err(e) => match e.kind {
                 rustuna_core::ErrorKind::StudyNotFound | rustuna_core::ErrorKind::TrialNotFound => {

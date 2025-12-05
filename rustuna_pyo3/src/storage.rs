@@ -91,7 +91,10 @@ impl PyStorage {
         distribution: PyDistribution,
         value: f64,
     ) -> PyResult<()> {
-        let mut guard = self.storage.write().unwrap();
+        let mut guard = self
+            .storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
         let distribution: Distribution = distribution.into();
         guard
             .set_trial_param(study_id, trial_number, &name, &distribution, value)
@@ -105,7 +108,6 @@ impl PyStorage {
         param_name: String,
         choices: Vec<PyObject>,
     ) -> PyResult<()> {
-        // TODO(c-bata): Add validation to detect changes of the choices.
         let category_labels = Python::with_gil(|py| {
             let mut labels: Vec<CategoryLabel> = Vec::with_capacity(choices.len());
             for choice in choices {
@@ -121,10 +123,26 @@ impl PyStorage {
             .storage
             .write()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
-        guard
-            .set_study_attrs(study_id, attrs)
-            .map_err(err_to_exceptions)?;
-        Ok(())
+        match guard.set_study_attrs(study_id, attrs, true) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                if matches!(e.kind, rustuna_core::ErrorKind::AttrOverwriteNotAllowed) {
+                    let study = guard.get_study(study_id).map_err(err_to_exceptions)?;
+                    let existing_labels =
+                        get_category_labels(&study.attrs, &param_name, category_labels.len());
+                    if let Some(existing) = existing_labels {
+                        if existing == category_labels {
+                            return Ok(());
+                        }
+                    }
+                    return Err(PyValueError::new_err(format!(
+                        "Cannot overwrite category labels for parameter '{}'",
+                        param_name
+                    )));
+                }
+                Err(err_to_exceptions(e))
+            }
+        }
     }
 
     fn get_category_labels(
@@ -234,7 +252,7 @@ impl PyStorage {
         })?;
         let mut guard = self.storage.write().unwrap();
         guard
-            .set_study_attrs(study_id, system_attrs)
+            .set_study_attrs(study_id, system_attrs, false)
             .map_err(err_to_exceptions)?;
         Ok(())
     }
@@ -246,7 +264,7 @@ impl PyStorage {
         })?;
         let mut guard = self.storage.write().unwrap();
         guard
-            .set_study_attrs(study_id, user_attrs)
+            .set_study_attrs(study_id, user_attrs, false)
             .map_err(err_to_exceptions)?;
         Ok(())
     }
@@ -263,7 +281,7 @@ impl PyStorage {
         })?;
         let mut guard = self.storage.write().unwrap();
         guard
-            .set_trial_attrs(study_id, trial_number, system_attrs)
+            .set_trial_attrs(study_id, trial_number, system_attrs, false)
             .map_err(err_to_exceptions)?;
         Ok(())
     }
@@ -280,7 +298,7 @@ impl PyStorage {
         })?;
         let mut guard = self.storage.write().unwrap();
         guard
-            .set_trial_attrs(study_id, trial_number, user_attrs)
+            .set_trial_attrs(study_id, trial_number, user_attrs, false)
             .map_err(err_to_exceptions)?;
         Ok(())
     }

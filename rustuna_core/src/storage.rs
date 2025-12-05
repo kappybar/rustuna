@@ -42,8 +42,21 @@ pub trait Storage: Send + Sync {
     // are designed to receive multiple attributes for bulk insert operations.
     // Furthermore, the `user_attrs` and `system_attrs` are merged into a single HashMap,
     // which simplifies the implementation process for third-party storages.
-    fn set_study_attrs(&mut self, study_id: u32, attrs: Attrs) -> Result<()>;
-    fn set_trial_attrs(&mut self, study_id: u32, trial_number: u32, attrs: Attrs) -> Result<()>;
+    // Note: Some backend implementations (e.g., SQLite) may partially apply attributes across
+    // user/system tables when error_on_overwrite is true.
+    fn set_study_attrs(
+        &mut self,
+        study_id: u32,
+        attrs: Attrs,
+        error_on_overwrite: bool,
+    ) -> Result<()>;
+    fn set_trial_attrs(
+        &mut self,
+        study_id: u32,
+        trial_number: u32,
+        attrs: Attrs,
+        error_on_overwrite: bool,
+    ) -> Result<()>;
     fn get_joint_search_space(&mut self, study_id: u32) -> Result<HashMap<String, Distribution>>;
 }
 
@@ -191,26 +204,43 @@ impl Storage for InMemoryStorage {
         Ok(trial)
     }
 
-    fn set_study_attrs(&mut self, study_id: u32, attrs: Attrs) -> Result<()> {
+    fn set_study_attrs(
+        &mut self,
+        study_id: u32,
+        attrs: Attrs,
+        error_on_overwrite: bool,
+    ) -> Result<()> {
         let study = self
             .studies
             .iter_mut()
             .find(|s| s.id == study_id)
             .ok_or(Error::new(ErrorKind::StudyNotFound))?;
-        attrs.into_iter().for_each(|(key, value)| {
+        for (key, value) in attrs {
+            if error_on_overwrite && study.attrs.contains_key(&key) {
+                return Err(Error::new(ErrorKind::AttrOverwriteNotAllowed));
+            }
             study.attrs.insert(key, value);
-        });
+        }
         Ok(())
     }
 
-    fn set_trial_attrs(&mut self, study_id: u32, trial_number: u32, attrs: Attrs) -> Result<()> {
+    fn set_trial_attrs(
+        &mut self,
+        study_id: u32,
+        trial_number: u32,
+        attrs: Attrs,
+        error_on_overwrite: bool,
+    ) -> Result<()> {
         let trial = get_mut_trials_by_study_id(&mut self.trials, study_id)?
             .get_mut(trial_number as usize)
             .ok_or(Error::new(ErrorKind::TrialNotFound))?;
         check_trial_is_updatable(trial)?;
-        attrs.into_iter().for_each(|(key, value)| {
+        for (key, value) in attrs {
+            if error_on_overwrite && trial.attrs.contains_key(&key) {
+                return Err(Error::new(ErrorKind::AttrOverwriteNotAllowed));
+            }
             trial.attrs.insert(key, value);
-        });
+        }
         Ok(())
     }
 

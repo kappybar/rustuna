@@ -37,8 +37,19 @@ pub trait CachedStorageBackend: Send + Sync {
     fn get_studies(&mut self) -> Result<Vec<PersistedStudy>>;
     fn get_study(&mut self, study_id: u32) -> Result<PersistedStudy>;
     fn get_trial(&mut self, study_id: u32, trial_number: u32) -> Result<PersistedTrial>;
-    fn set_study_attrs(&mut self, study_id: u32, attrs: Attrs) -> Result<()>;
-    fn set_trial_attrs(&mut self, study_id: u32, trial_number: u32, attrs: Attrs) -> Result<()>;
+    fn set_study_attrs(
+        &mut self,
+        study_id: u32,
+        attrs: Attrs,
+        error_on_overwrite: bool,
+    ) -> Result<()>;
+    fn set_trial_attrs(
+        &mut self,
+        study_id: u32,
+        trial_number: u32,
+        attrs: Attrs,
+        error_on_overwrite: bool,
+    ) -> Result<()>;
 
     // Return trials that need refreshing: unfinished trials in `included_numbers`
     // and trials with trial_number greater than `trial_number_greater_than`.
@@ -280,8 +291,14 @@ impl rustuna_core::storage::Storage for CachedStorage {
         Ok(trial)
     }
 
-    fn set_study_attrs(&mut self, study_id: u32, attrs: Attrs) -> Result<()> {
-        self.backend.set_study_attrs(study_id, attrs.clone())?;
+    fn set_study_attrs(
+        &mut self,
+        study_id: u32,
+        attrs: Attrs,
+        error_on_overwrite: bool,
+    ) -> Result<()> {
+        self.backend
+            .set_study_attrs(study_id, attrs.clone(), error_on_overwrite)?;
         self.studies = self.backend.get_studies()?;
         let study = self
             .studies
@@ -294,9 +311,15 @@ impl rustuna_core::storage::Storage for CachedStorage {
         Ok(())
     }
 
-    fn set_trial_attrs(&mut self, study_id: u32, trial_number: u32, attrs: Attrs) -> Result<()> {
+    fn set_trial_attrs(
+        &mut self,
+        study_id: u32,
+        trial_number: u32,
+        attrs: Attrs,
+        error_on_overwrite: bool,
+    ) -> Result<()> {
         self.backend
-            .set_trial_attrs(study_id, trial_number, attrs.clone())?;
+            .set_trial_attrs(study_id, trial_number, attrs.clone(), error_on_overwrite)?;
         self.refresh_trials(study_id)?;
         let trials = self
             .trials
@@ -415,8 +438,14 @@ mod tests {
             Ok(self.inner.get_trial(study_id, trial_number)?.clone())
         }
 
-        fn set_study_attrs(&mut self, study_id: u32, attrs: Attrs) -> Result<()> {
-            self.inner.set_study_attrs(study_id, attrs)
+        fn set_study_attrs(
+            &mut self,
+            study_id: u32,
+            attrs: Attrs,
+            error_on_overwrite: bool,
+        ) -> Result<()> {
+            self.inner
+                .set_study_attrs(study_id, attrs, error_on_overwrite)
         }
 
         fn set_trial_attrs(
@@ -424,8 +453,10 @@ mod tests {
             study_id: u32,
             trial_number: u32,
             attrs: Attrs,
+            error_on_overwrite: bool,
         ) -> Result<()> {
-            self.inner.set_trial_attrs(study_id, trial_number, attrs)
+            self.inner
+                .set_trial_attrs(study_id, trial_number, attrs, error_on_overwrite)
         }
     }
 
@@ -608,7 +639,7 @@ mod tests {
 
         let mut s_attrs = Attrs::new();
         s_attrs.insert(AttrKey::User("foo".to_string()), "bar".to_string());
-        storage.set_study_attrs(study_id, s_attrs)?;
+        storage.set_study_attrs(study_id, s_attrs, false)?;
         let study = storage.get_study(study_id)?;
         assert_eq!(
             study.attrs.get(&AttrKey::User("foo".to_string())).unwrap(),
@@ -617,7 +648,7 @@ mod tests {
 
         let mut t_attrs = Attrs::new();
         t_attrs.insert(AttrKey::System("key".to_string()), "val".to_string());
-        storage.set_trial_attrs(study_id, 0, t_attrs)?;
+        storage.set_trial_attrs(study_id, 0, t_attrs, false)?;
         let trial = storage.get_trial(study_id, 0)?;
         assert_eq!(
             trial

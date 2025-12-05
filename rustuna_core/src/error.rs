@@ -18,6 +18,7 @@ pub enum ErrorKind {
     DuplicatedStudy,
     StudyNotFound,
     TrialNotFound,
+    AttrOverwriteNotAllowed,
     InvalidObjectiveValues,
     TrialAlreadyFinished,
     StorageInternalError,
