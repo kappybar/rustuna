@@ -692,6 +692,80 @@ impl CachedStorageBackend for SQLite3Storage {
 
         Ok(trials)
     }
+
+    fn delete_study(&mut self, study_id: u32) -> Result<()> {
+        let guard = self.conn.lock().unwrap();
+
+        // Delete trial-related records using subquery
+        guard
+            .execute(
+                "DELETE FROM trial_values WHERE trial_id IN (SELECT trial_id FROM trials WHERE study_id = ?)",
+                params![study_id]
+            )
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        guard
+            .execute(
+                "DELETE FROM trial_intermediate_values WHERE trial_id IN (SELECT trial_id FROM trials WHERE study_id = ?)",
+                params![study_id]
+            )
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        guard
+            .execute(
+                "DELETE FROM trial_params WHERE trial_id IN (SELECT trial_id FROM trials WHERE study_id = ?)",
+                params![study_id]
+            )
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        guard
+            .execute(
+                "DELETE FROM trial_system_attributes WHERE trial_id IN (SELECT trial_id FROM trials WHERE study_id = ?)",
+                params![study_id]
+            )
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        guard
+            .execute(
+                "DELETE FROM trial_user_attributes WHERE trial_id IN (SELECT trial_id FROM trials WHERE study_id = ?)",
+                params![study_id]
+            )
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        guard
+            .execute(
+                "DELETE FROM trial_heartbeats WHERE trial_id IN (SELECT trial_id FROM trials WHERE study_id = ?)",
+                params![study_id]
+            )
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+
+        // Delete trials
+        guard
+            .execute("DELETE FROM trials WHERE study_id = ?", params![study_id])
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+
+        // Delete study-related records
+        guard
+            .execute(
+                "DELETE FROM study_system_attributes WHERE study_id = ?",
+                params![study_id],
+            )
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        guard
+            .execute(
+                "DELETE FROM study_user_attributes WHERE study_id = ?",
+                params![study_id],
+            )
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        guard
+            .execute(
+                "DELETE FROM study_directions WHERE study_id = ?",
+                params![study_id],
+            )
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+
+        // Finally delete the study
+        guard
+            .execute("DELETE FROM studies WHERE study_id = ?", params![study_id])
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+
+        Ok(())
+    }
 }
 
 fn distribution_to_json(distribution: &Distribution, labels: Option<&[CategoryLabel]>) -> String {
@@ -917,6 +991,25 @@ mod tests {
         assert!(matches!(err.kind, ErrorKind::DuplicatedStudy));
         Ok(())
     }
+
+    // TODO(c-bata): Pass following test case by adding `AUTOINCREMENT` attribute to study_id field.
+    // See the following comment in Optuna
+    // https://github.com/optuna/optuna/blob/af238ea2/tests/storages_tests/test_storages.py#L95-L98
+    // #[test]
+    // fn create_new_study_unique_id() -> Result<()> {
+    //     let mut storage = init_storage()?;
+    //     assert_eq!(storage.get_studies()?.len(), 0);
+    //     let study1 = storage.create_new_study("study-1", vec![Direction::Minimize])?;
+    //     let study2 =
+    //         storage.create_new_study("study-2", vec![Direction::Minimize])?;
+    //     storage.delete_study(study2.id)?;
+    //     let study3 = storage.create_new_study("study-3", vec![Direction::Minimize])?;
+    //     assert_ne!(study1.id, study2.id);
+    //     assert_ne!(study1.id, study3.id);
+    //     assert_ne!(study2.id, study3.id);
+    //     assert_eq!(storage.get_studies()?.len(), 2);
+    //     Ok(())
+    // }
 
     #[test]
     fn create_new_trial_inserts_row() -> Result<()> {
