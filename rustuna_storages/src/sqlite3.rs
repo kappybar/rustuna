@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use crate::cache::CachedStorageBackend;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, Error as RusqliteError, OptionalExtension};
 use rustuna_core::attr::{AttrKey, Attrs, CategoryLabel};
 use rustuna_core::distribution::Distribution;
 use rustuna_core::study::{Direction, PersistedStudy};
@@ -427,6 +427,7 @@ impl CachedStorageBackend for SQLite3Storage {
         &mut self,
         study_id: u32,
         attrs: rustuna_core::attr::Attrs,
+        error_on_overwrite: bool,
     ) -> rustuna_core::Result<()> {
         self.validate_study_id(study_id)?;
 
@@ -439,26 +440,42 @@ impl CachedStorageBackend for SQLite3Storage {
             }
         }
 
-        let guard = self.conn.lock().unwrap();
+        let mut guard = self.conn.lock().unwrap();
+        let tx = guard
+            .transaction()
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+
         if !user_attrs.is_empty() {
             let placeholders = user_attrs
                 .iter()
                 .map(|_| "(?, ?, ?)")
                 .collect::<Vec<_>>()
                 .join(", ");
-            let sql = format!(
-                "INSERT INTO study_user_attributes (study_id, key, value_json) VALUES {placeholders} \
+            let sql = if error_on_overwrite {
+                format!(
+                    "INSERT INTO study_user_attributes (study_id, key, value_json) VALUES {placeholders}"
+                )
+            } else {
+                format!(
+                    "INSERT INTO study_user_attributes (study_id, key, value_json) VALUES {placeholders} \
                  ON CONFLICT(study_id, key) DO UPDATE SET value_json=excluded.value_json"
-            );
+                )
+            };
             let mut params: Vec<&dyn rusqlite::ToSql> = Vec::new();
             for (key, value) in &user_attrs {
                 params.push(&study_id);
                 params.push(key);
                 params.push(value);
             }
-            guard
-                .execute(&sql, params.as_slice())
-                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            let res = tx.execute(&sql, params.as_slice());
+            if let Err(RusqliteError::SqliteFailure(_, _)) = res {
+                if error_on_overwrite {
+                    return Err(Error::new(ErrorKind::AttrOverwriteNotAllowed));
+                }
+                return Err(Error::new(ErrorKind::StorageError));
+            } else if res.is_err() {
+                return Err(Error::new(ErrorKind::StorageError));
+            }
         }
 
         if !system_attrs.is_empty() {
@@ -467,21 +484,35 @@ impl CachedStorageBackend for SQLite3Storage {
                 .map(|_| "(?, ?, ?)")
                 .collect::<Vec<_>>()
                 .join(", ");
-            let sql = format!(
-                "INSERT INTO study_system_attributes (study_id, key, value_json) VALUES {placeholders} \
+            let sql = if error_on_overwrite {
+                format!(
+                    "INSERT INTO study_system_attributes (study_id, key, value_json) VALUES {placeholders}"
+                )
+            } else {
+                format!(
+                    "INSERT INTO study_system_attributes (study_id, key, value_json) VALUES {placeholders} \
                  ON CONFLICT(study_id, key) DO UPDATE SET value_json=excluded.value_json"
-            );
+                )
+            };
             let mut params: Vec<&dyn rusqlite::ToSql> = Vec::new();
             for (key, value) in &system_attrs {
                 params.push(&study_id);
                 params.push(key);
                 params.push(value);
             }
-            guard
-                .execute(&sql, params.as_slice())
-                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            let res = tx.execute(&sql, params.as_slice());
+            if let Err(RusqliteError::SqliteFailure(_, _)) = res {
+                if error_on_overwrite {
+                    return Err(Error::new(ErrorKind::AttrOverwriteNotAllowed));
+                }
+                return Err(Error::new(ErrorKind::StorageError));
+            } else if res.is_err() {
+                return Err(Error::new(ErrorKind::StorageError));
+            }
         }
 
+        tx.commit()
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
         Ok(())
     }
 
@@ -490,6 +521,7 @@ impl CachedStorageBackend for SQLite3Storage {
         study_id: u32,
         trial_number: u32,
         attrs: rustuna_core::attr::Attrs,
+        error_on_overwrite: bool,
     ) -> rustuna_core::Result<()> {
         let mut user_attrs = Vec::new();
         let mut system_attrs = Vec::new();
@@ -500,7 +532,7 @@ impl CachedStorageBackend for SQLite3Storage {
             }
         }
 
-        let guard = self.conn.lock().unwrap();
+        let mut guard = self.conn.lock().unwrap();
         let trial_id: Option<u32> = guard
             .query_row(
                 "SELECT trial_id FROM trials WHERE study_id = ? AND number = ?",
@@ -511,25 +543,41 @@ impl CachedStorageBackend for SQLite3Storage {
             .map_err(|_e| Error::new(ErrorKind::StorageError))?;
         let trial_id = trial_id.ok_or(Error::new(ErrorKind::TrialNotFound))?;
 
+        let tx = guard
+            .transaction()
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+
         if !user_attrs.is_empty() {
             let placeholders = user_attrs
                 .iter()
                 .map(|_| "(?, ?, ?)")
                 .collect::<Vec<_>>()
                 .join(", ");
-            let sql = format!(
-                "INSERT INTO trial_user_attributes (trial_id, key, value_json) VALUES {placeholders} \
+            let sql = if error_on_overwrite {
+                format!(
+                    "INSERT INTO trial_user_attributes (trial_id, key, value_json) VALUES {placeholders}"
+                )
+            } else {
+                format!(
+                    "INSERT INTO trial_user_attributes (trial_id, key, value_json) VALUES {placeholders} \
                  ON CONFLICT(trial_id, key) DO UPDATE SET value_json=excluded.value_json"
-            );
+                )
+            };
             let mut params: Vec<&dyn rusqlite::ToSql> = Vec::new();
             for (key, value) in &user_attrs {
                 params.push(&trial_id);
                 params.push(key);
                 params.push(value);
             }
-            guard
-                .execute(&sql, params.as_slice())
-                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            let res = tx.execute(&sql, params.as_slice());
+            if let Err(RusqliteError::SqliteFailure(_, _)) = res {
+                if error_on_overwrite {
+                    return Err(Error::new(ErrorKind::AttrOverwriteNotAllowed));
+                }
+                return Err(Error::new(ErrorKind::StorageError));
+            } else if res.is_err() {
+                return Err(Error::new(ErrorKind::StorageError));
+            }
         }
 
         if !system_attrs.is_empty() {
@@ -538,21 +586,35 @@ impl CachedStorageBackend for SQLite3Storage {
                 .map(|_| "(?, ?, ?)")
                 .collect::<Vec<_>>()
                 .join(", ");
-            let sql = format!(
-                "INSERT INTO trial_system_attributes (trial_id, key, value_json) VALUES {placeholders} \
+            let sql = if error_on_overwrite {
+                format!(
+                    "INSERT INTO trial_system_attributes (trial_id, key, value_json) VALUES {placeholders}"
+                )
+            } else {
+                format!(
+                    "INSERT INTO trial_system_attributes (trial_id, key, value_json) VALUES {placeholders} \
                  ON CONFLICT(trial_id, key) DO UPDATE SET value_json=excluded.value_json"
-            );
+                )
+            };
             let mut params: Vec<&dyn rusqlite::ToSql> = Vec::new();
             for (key, value) in &system_attrs {
                 params.push(&trial_id);
                 params.push(key);
                 params.push(value);
             }
-            guard
-                .execute(&sql, params.as_slice())
-                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            let res = tx.execute(&sql, params.as_slice());
+            if let Err(RusqliteError::SqliteFailure(_, _)) = res {
+                if error_on_overwrite {
+                    return Err(Error::new(ErrorKind::AttrOverwriteNotAllowed));
+                }
+                return Err(Error::new(ErrorKind::StorageError));
+            } else if res.is_err() {
+                return Err(Error::new(ErrorKind::StorageError));
+            }
         }
 
+        tx.commit()
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
         Ok(())
     }
 
@@ -1089,7 +1151,7 @@ mod tests {
             "system_value".to_string(),
         );
 
-        storage.set_study_attrs(study_id, attrs)?;
+        storage.set_study_attrs(study_id, attrs, false)?;
 
         let study = storage.get_study(study_id)?;
         assert_eq!(study.attrs.len(), 2);
@@ -1101,6 +1163,47 @@ mod tests {
             study.attrs.get(&AttrKey::System("system_key".to_string())),
             Some(&"system_value".to_string())
         );
+        Ok(())
+    }
+
+    #[test]
+    fn set_study_attrs_error_on_overwrite_rollback() -> Result<()> {
+        let mut storage = init_storage()?;
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])?
+            .id;
+
+        let mut attrs = Attrs::new();
+        attrs.insert(
+            AttrKey::User("user_key".to_string()),
+            "user_value".to_string(),
+        );
+        storage.set_study_attrs(study_id, attrs, false)?;
+
+        let mut overwrite = Attrs::new();
+        overwrite.insert(
+            AttrKey::User("user_key".to_string()),
+            "user_value_overwrite".to_string(),
+        );
+        overwrite.insert(
+            AttrKey::User("another_key".to_string()),
+            "another_value".to_string(),
+        );
+        let err = storage
+            .set_study_attrs(study_id, overwrite, true)
+            .err()
+            .unwrap();
+        assert!(matches!(err.kind, ErrorKind::AttrOverwriteNotAllowed));
+
+        let study = storage.get_study(study_id)?;
+        assert_eq!(
+            study.attrs.get(&AttrKey::User("user_key".to_string())),
+            Some(&"user_value".to_string())
+        );
+        assert!(!study
+            .attrs
+            .contains_key(&AttrKey::User("another_key".to_string())));
+
         Ok(())
     }
 
@@ -1122,7 +1225,7 @@ mod tests {
             "trial_system_value".to_string(),
         );
 
-        storage.set_trial_attrs(study_id, trial.number, attrs)?;
+        storage.set_trial_attrs(study_id, trial.number, attrs, false)?;
 
         let trial = storage.get_trial(study_id, trial.number)?;
         assert_eq!(trial.attrs.len(), 2);
@@ -1138,6 +1241,50 @@ mod tests {
                 .get(&AttrKey::System("trial_system_key".to_string())),
             Some(&"trial_system_value".to_string())
         );
+        Ok(())
+    }
+
+    #[test]
+    fn set_trial_attrs_error_on_overwrite_rollback() -> Result<()> {
+        let mut storage = init_storage()?;
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])?
+            .id;
+        let trial = storage.create_new_trial(study_id)?;
+
+        let mut attrs = Attrs::new();
+        attrs.insert(
+            AttrKey::User("trial_user_key".to_string()),
+            "trial_user_value".to_string(),
+        );
+        storage.set_trial_attrs(study_id, trial.number, attrs, false)?;
+
+        let mut overwrite = Attrs::new();
+        overwrite.insert(
+            AttrKey::User("trial_user_key".to_string()),
+            "overwritten".to_string(),
+        );
+        overwrite.insert(
+            AttrKey::User("new_user_key".to_string()),
+            "new_value".to_string(),
+        );
+        let err = storage
+            .set_trial_attrs(study_id, trial.number, overwrite, true)
+            .err()
+            .unwrap();
+        assert!(matches!(err.kind, ErrorKind::AttrOverwriteNotAllowed));
+
+        let trial = storage.get_trial(study_id, trial.number)?;
+        assert_eq!(
+            trial
+                .attrs
+                .get(&AttrKey::User("trial_user_key".to_string())),
+            Some(&"trial_user_value".to_string())
+        );
+        assert!(!trial
+            .attrs
+            .contains_key(&AttrKey::User("new_user_key".to_string())));
+
         Ok(())
     }
 

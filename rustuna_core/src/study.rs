@@ -209,7 +209,7 @@ impl Study {
         for (key, value) in attrs {
             a.insert(AttrKey::User(key), value);
         }
-        guard.set_study_attrs(self.id, a)?;
+        guard.set_study_attrs(self.id, a, false)?;
         Ok(())
     }
 }
