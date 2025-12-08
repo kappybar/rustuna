@@ -13,6 +13,7 @@ rustuna_core = { workspace = true }
 rusqlite = "0.37.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+chrono = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.8"

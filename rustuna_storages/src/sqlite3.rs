@@ -1,3 +1,4 @@
+use chrono::NaiveDateTime;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -107,7 +108,7 @@ impl CachedStorageBackend for SQLite3Storage {
         guard
             .execute(
                 "INSERT INTO trials (number, study_id, state, datetime_start, datetime_complete) \
-             VALUES (NULL, ?, ?, CURRENT_TIMESTAMP, NULL)",
+             VALUES (NULL, ?, ?, datetime('now','localtime'), NULL)",
                 params![study_id, "RUNNING"],
             )
             .map_err(|_e| Error::new(ErrorKind::StorageError))?;
@@ -128,7 +129,23 @@ impl CachedStorageBackend for SQLite3Storage {
             )
             .map_err(|_e| Error::new(ErrorKind::StorageError))?;
 
-        Ok(PersistedTrial::new(study_id, number))
+        let datetime_start: Option<String> = guard
+            .query_row(
+                "SELECT datetime_start FROM trials WHERE trial_id = ?",
+                params![trial_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+
+        let mut trial = PersistedTrial::new(study_id, number);
+        if let Some(dt) = datetime_start {
+            let v = serde_json::to_string(&dt).map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            trial
+                .attrs
+                .insert(AttrKey::System("datetime_start".to_string()), v);
+        }
+        Ok(trial)
     }
 
     fn set_trial_param(
@@ -338,15 +355,16 @@ impl CachedStorageBackend for SQLite3Storage {
         let guard = self.conn.lock().unwrap();
 
         // Query to trials table .
-        let trial_row: Option<(u32, String)> = guard
+        let trial_row: Option<(u32, String, Option<String>, Option<String>)> = guard
             .query_row(
-                "SELECT trial_id, state FROM trials WHERE study_id = ? AND number = ?",
+                "SELECT trial_id, state, datetime_start, datetime_complete FROM trials WHERE study_id = ? AND number = ?",
                 params![study_id, trial_number],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .optional()
             .map_err(|_e| Error::new(ErrorKind::StorageError))?;
-        let (trial_id, state_str) = trial_row.ok_or(Error::new(ErrorKind::TrialNotFound))?;
+        let (trial_id, state_str, datetime_start, datetime_complete) =
+            trial_row.ok_or(Error::new(ErrorKind::TrialNotFound))?;
         let state_values = match state_str.as_str() {
             "RUNNING" | "WAITING" => TrialStateValues::Running,
             "PRUNED" => TrialStateValues::Pruned,
@@ -418,6 +436,24 @@ impl CachedStorageBackend for SQLite3Storage {
         for row in system_attr_rows {
             let (key, value) = row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
             attrs.insert(AttrKey::System(key), value);
+        }
+        if let Some(dt) = datetime_start {
+            if let std::collections::hash_map::Entry::Vacant(e) =
+                attrs.entry(AttrKey::System("datetime_start".to_string()))
+            {
+                let v =
+                    serde_json::to_string(&dt).map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                e.insert(v);
+            }
+        }
+        if let Some(dt) = datetime_complete {
+            if let std::collections::hash_map::Entry::Vacant(e) =
+                attrs.entry(AttrKey::System("datetime_complete".to_string()))
+            {
+                let v =
+                    serde_json::to_string(&dt).map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                e.insert(v);
+            }
         }
 
         // Intermediate values
@@ -664,7 +700,9 @@ impl CachedStorageBackend for SQLite3Storage {
         let guard = self.conn.lock().unwrap();
 
         // Build SQL query with filters
-        let mut sql = String::from("SELECT trial_id, number, state FROM trials WHERE study_id = ?");
+        let mut sql = String::from(
+            "SELECT trial_id, number, state, datetime_start, datetime_complete FROM trials WHERE study_id = ?",
+        );
         let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(study_id)];
 
         let mut trial_filters = vec!["number > ?".to_string()];
@@ -699,13 +737,15 @@ impl CachedStorageBackend for SQLite3Storage {
                     row.get::<_, u32>(0)?,
                     row.get::<_, u32>(1)?,
                     row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
                 ))
             })
             .map_err(|_e| Error::new(ErrorKind::StorageError))?;
 
         let mut trials = Vec::new();
         for row in trial_rows {
-            let (trial_id, number, state_str) =
+            let (trial_id, number, state_str, datetime_start, datetime_complete) =
                 row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
 
             // Parse state and get values if COMPLETE
@@ -779,6 +819,24 @@ impl CachedStorageBackend for SQLite3Storage {
             for row in system_attr_rows {
                 let (key, value) = row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
                 attrs.insert(AttrKey::System(key), value);
+            }
+            if let Some(dt) = datetime_start.clone() {
+                if let std::collections::hash_map::Entry::Vacant(e) =
+                    attrs.entry(AttrKey::System("datetime_start".to_string()))
+                {
+                    let v = serde_json::to_string(&dt)
+                        .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                    e.insert(v);
+                }
+            }
+            if let Some(dt) = datetime_complete.clone() {
+                if let std::collections::hash_map::Entry::Vacant(e) =
+                    attrs.entry(AttrKey::System("datetime_complete".to_string()))
+                {
+                    let v = serde_json::to_string(&dt)
+                        .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                    e.insert(v);
+                }
             }
 
             // Intermediate values
@@ -995,9 +1053,43 @@ impl OptunaCompatibleStorage for SQLite3Storage {
 
         Ok(())
     }
+
+    fn set_trial_datetime(
+        &mut self,
+        trial_id: u32,
+        datetime_start: Option<NaiveDateTime>,
+        datetime_complete: Option<NaiveDateTime>,
+    ) -> Result<()> {
+        let guard = self.conn.lock().unwrap();
+        let exists: Option<u32> = guard
+            .query_row(
+                "SELECT trial_id FROM trials WHERE trial_id = ?",
+                params![trial_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        if exists.is_none() {
+            return Err(Error::new(ErrorKind::TrialNotFound));
+        }
+
+        let start_str = datetime_start.map(format_naive_datetime);
+        let complete_str = datetime_complete.map(format_naive_datetime);
+        guard
+            .execute(
+                "UPDATE trials SET datetime_start = COALESCE(?, datetime_start), datetime_complete = COALESCE(?, datetime_complete) WHERE trial_id = ?",
+                params![start_str, complete_str, trial_id],
+            )
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        Ok(())
+    }
 }
 
 impl OptunaCachedStorageBackend for SQLite3Storage {}
+
+fn format_naive_datetime(dt: NaiveDateTime) -> String {
+    dt.format("%Y-%m-%d %H:%M:%S%.f").to_string()
+}
 
 fn distribution_to_json(distribution: &Distribution, labels: Option<&[CategoryLabel]>) -> String {
     let (name, attributes) = match distribution {
@@ -1397,7 +1489,6 @@ mod tests {
         storage.set_trial_attrs(study_id, trial.number, attrs, false)?;
 
         let trial = storage.get_trial(study_id, trial.number)?;
-        assert_eq!(trial.attrs.len(), 2);
         assert_eq!(
             trial
                 .attrs

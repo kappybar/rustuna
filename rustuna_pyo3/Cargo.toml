@@ -14,7 +14,8 @@ name = "rustuna"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.20.2", features = ["extension-module"] }
+pyo3 = { version = "0.20.2", features = ["extension-module", "chrono"] }
+chrono = { workspace = true }
 rustuna_core = { workspace = true }
 rustuna_samplers = { workspace = true }
 rustuna_storages = { workspace = true }
