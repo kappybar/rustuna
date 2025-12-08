@@ -10,6 +10,7 @@ use rustuna_core::storage::{InMemoryStorage, Storage};
 use rustuna_core::study::Direction;
 use rustuna_core::trial::TrialStateValues;
 use rustuna_storages::cache::CachedStorage;
+use rustuna_storages::optuna::OptunaCompatibleStorage;
 use rustuna_storages::sqlite3::SQLite3Storage;
 
 use crate::attrs::{pyobj_to_system_attrs, pyobj_to_user_attrs};
@@ -23,6 +24,7 @@ use crate::trial::{PyPersistedTrial, PyTrialState};
 #[pyo3(module = "rustuna")]
 pub struct PyStorage {
     pub storage: Arc<RwLock<dyn Storage>>,
+    pub optuna_compatible: Option<Arc<RwLock<dyn OptunaCompatibleStorage>>>,
     pub kind: &'static str,
 }
 
@@ -32,6 +34,7 @@ impl PyStorage {
     fn in_memory(_cls: &PyType) -> PyResult<Self> {
         Ok(PyStorage {
             storage: Arc::new(RwLock::new(InMemoryStorage::new())),
+            optuna_compatible: None,
             kind: "in_memory",
         })
     }
@@ -39,16 +42,19 @@ impl PyStorage {
     #[classmethod]
     #[pyo3(name = "sqlite3", signature = (file_path, *, create_database = false))]
     fn sqlite3(_cls: &PyType, file_path: &str, create_database: bool) -> PyResult<Self> {
-        let sqlite3 = SQLite3Storage::new(file_path).map_err(|e| {
+        let backend = SQLite3Storage::new(file_path).map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to open the SQLite3 file: {e:?}"))
         })?;
         if create_database {
-            sqlite3.create_database().map_err(|e| {
+            backend.create_database().map_err(|e| {
                 PyRuntimeError::new_err(format!("Failed to create the database: {e:?}"))
             })?;
         }
+
+        let arc_storage = Arc::new(RwLock::new(CachedStorage::new(Box::new(backend))));
         Ok(PyStorage {
-            storage: Arc::new(RwLock::new(CachedStorage::new(Box::new(sqlite3)))),
+            storage: arc_storage.clone(),
+            optuna_compatible: Some(arc_storage),
             kind: "sqlite3",
         })
     }
@@ -91,11 +97,17 @@ impl PyStorage {
         distribution: PyDistribution,
         value: f64,
     ) -> PyResult<()> {
+        let category_labels = distribution.category_labels.clone();
+        let distribution: Distribution = distribution.into();
+
+        if let Some(labels) = category_labels {
+            self.set_category_labels_internal(study_id, name.clone(), labels)?;
+        }
+
         let mut guard = self
             .storage
             .write()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
-        let distribution: Distribution = distribution.into();
         guard
             .set_trial_param(study_id, trial_number, &name, &distribution, value)
             .map_err(err_to_exceptions)?;
@@ -118,31 +130,7 @@ impl PyStorage {
             }
             Ok(labels)
         })?;
-        let attrs = category_labels_to_attrs(&param_name, &category_labels);
-        let mut guard = self
-            .storage
-            .write()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
-        match guard.set_study_attrs(study_id, attrs, true) {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                if matches!(e.kind, rustuna_core::ErrorKind::AttrOverwriteNotAllowed) {
-                    let study = guard.get_study(study_id).map_err(err_to_exceptions)?;
-                    let existing_labels =
-                        get_category_labels(&study.attrs, &param_name, category_labels.len());
-                    if let Some(existing) = existing_labels {
-                        if existing == category_labels {
-                            return Ok(());
-                        }
-                    }
-                    return Err(PyValueError::new_err(format!(
-                        "Cannot overwrite category labels for parameter '{}'",
-                        param_name
-                    )));
-                }
-                Err(err_to_exceptions(e))
-            }
-        }
+        self.set_category_labels_internal(study_id, param_name, category_labels)
     }
 
     fn get_category_labels(
@@ -301,5 +289,90 @@ impl PyStorage {
             .set_trial_attrs(study_id, trial_number, user_attrs, false)
             .map_err(err_to_exceptions)?;
         Ok(())
+    }
+
+    fn get_trial_id_from_study_id_trial_number(
+        &mut self,
+        study_id: u32,
+        trial_number: u32,
+    ) -> PyResult<u32> {
+        let optuna_storage = self.optuna_compatible.as_ref().ok_or_else(|| {
+            PyRuntimeError::new_err("This storage does not support Optuna-compatible operations")
+        })?;
+        let mut guard = optuna_storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+        let trial_id = guard
+            .get_trial_id_from_study_id_trial_number(study_id, trial_number)
+            .map_err(err_to_exceptions)?;
+        Ok(trial_id)
+    }
+
+    fn get_study_id_trial_number_from_trial_id(&mut self, trial_id: u32) -> PyResult<(u32, u32)> {
+        let optuna_storage = self.optuna_compatible.as_ref().ok_or_else(|| {
+            PyRuntimeError::new_err("This storage does not support Optuna-compatible operations")
+        })?;
+        let mut guard = optuna_storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+        let (study_id, trial_number) = guard
+            .get_study_id_trial_number_from_trial_id(trial_id)
+            .map_err(err_to_exceptions)?;
+        Ok((study_id, trial_number))
+    }
+
+    fn set_trial_intermediate_value(
+        &mut self,
+        trial_id: u32,
+        step: u32,
+        intermediate_value: f64,
+    ) -> PyResult<()> {
+        let optuna_storage = self.optuna_compatible.as_ref().ok_or_else(|| {
+            PyRuntimeError::new_err("This storage does not support Optuna-compatible operations")
+        })?;
+        let mut guard = optuna_storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+        let mut intermediate_values = std::collections::HashMap::new();
+        intermediate_values.insert(step, intermediate_value);
+        guard
+            .set_trial_intermediate_values(trial_id, intermediate_values)
+            .map_err(err_to_exceptions)?;
+        Ok(())
+    }
+}
+
+impl PyStorage {
+    fn set_category_labels_internal(
+        &mut self,
+        study_id: u32,
+        param_name: String,
+        category_labels: Vec<CategoryLabel>,
+    ) -> PyResult<()> {
+        let attrs = category_labels_to_attrs(&param_name, &category_labels);
+        let mut guard = self
+            .storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+        match guard.set_study_attrs(study_id, attrs, true) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                if matches!(e.kind, rustuna_core::ErrorKind::AttrOverwriteNotAllowed) {
+                    let study = guard.get_study(study_id).map_err(err_to_exceptions)?;
+                    let existing_labels =
+                        get_category_labels(&study.attrs, &param_name, category_labels.len());
+                    if let Some(existing) = existing_labels {
+                        if existing == category_labels {
+                            return Ok(());
+                        }
+                    }
+                    return Err(PyValueError::new_err(format!(
+                        "Cannot overwrite category labels for parameter '{}'",
+                        param_name
+                    )));
+                }
+                Err(err_to_exceptions(e))
+            }
+        }
     }
 }

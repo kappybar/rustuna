@@ -109,3 +109,4 @@ CREATE TABLE IF NOT EXISTS "trial_values" (
 	UNIQUE (trial_id, objective)
 );
 CREATE INDEX trials_study_id_key ON trials (study_id);
+INSERT INTO version_info (version_info_id, schema_version, library_version) VALUES (1, 12, '4.6.0.dev')

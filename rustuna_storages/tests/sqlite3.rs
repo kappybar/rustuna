@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::Path;
 use std::process::Command;
 
 use rustuna_core::distribution::Distribution;
@@ -8,7 +8,7 @@ use rustuna_core::{Error, ErrorKind, Result};
 use rustuna_storages::cache::{CachedStorage, CachedStorageBackend};
 use rustuna_storages::sqlite3::SQLite3Storage;
 
-fn run_optuna_script(python: &str, db_path: &PathBuf, script: &str) -> Result<()> {
+fn run_optuna_script(python: &str, db_path: &Path, script: &str) -> Result<()> {
     let output = Command::new(python)
         .args(["-c", script, db_path.to_string_lossy().as_ref()])
         .output()
