@@ -13,7 +13,7 @@ use rustuna_core::distribution::Distribution;
 #[pyo3(module = "rustuna")]
 pub struct PyDistribution {
     pub distribution: Distribution,
-    category_labels: Option<Vec<CategoryLabel>>,
+    pub category_labels: Option<Vec<CategoryLabel>>,
 }
 impl PyDistribution {
     pub fn new(distribution: Distribution, name: &str, study_attrs: &Attrs) -> PyDistribution {

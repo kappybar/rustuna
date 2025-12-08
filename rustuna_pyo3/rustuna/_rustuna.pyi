@@ -1,5 +1,5 @@
 import enum
-from typing import Callable, Literal, Protocol, Sequence, TypedDict
+from typing import Callable, Literal, Protocol, TypedDict
 
 CategoricalChoiceType = float | int | str | bool | None
 DistributionDict = (
@@ -215,54 +215,37 @@ class StorageProtocol(Protocol):
     def set_trial_user_attrs(
         self, study_id: int, trial_number: int, attrs: dict[str, str]
     ) -> None: ...
-
-class Storage:
-    @classmethod
-    def in_memory(cls) -> Storage: ...
-    @classmethod
-    def sqlite3(cls, file_path: str, *, create_database: bool = False) -> Storage: ...
-    def create_new_study(
-        self, study_name: str, directions: list[StudyDirection]
-    ) -> PersistedStudy: ...
-    def create_new_trial(self, study_id: int) -> PersistedTrial: ...
-    def set_trial_param(
-        self,
-        study_id: int,
-        trial_number: int,
-        name: str,
-        distribution: Distribution,
-        value: float,
-    ) -> None: ...
     def set_category_labels(
         self,
         study_id: int,
         param_name: str,
-        labels: list[None | bool | int | float | str],
+        choices: list[CategoricalChoiceType],
     ) -> None: ...
     def get_category_labels(
         self,
         study_id: int,
         param_name: str,
-    ) -> list[None | bool | int | float | str]: ...
-    def set_trial_state_values(
-        self,
-        study_id: int,
-        trial_number: int,
-        state: TrialState,
-        values: None | list[float] = None,
+        cardinality: int,
+    ) -> list[CategoricalChoiceType]: ...
+
+class OptunaStorageProtocol(StorageProtocol, Protocol):
+    def get_study_id_trial_number_from_trial_id(
+        self, trial_id: int
+    ) -> tuple[int, int]: ...
+    def get_trial_id_from_study_id_trial_number(
+        self, study_id: int, trial_number: int
+    ) -> int: ...
+    def set_trial_intermediate_value(
+        self, trial_id: int, step: int, intermediate_value: float
     ) -> None: ...
-    def get_studies(self) -> list[PersistedStudy]: ...
-    def get_study(self, study_id: int) -> PersistedStudy: ...
-    def get_trials(self, study_id: int) -> list[PersistedTrial]: ...
-    def get_trial(self, study_id: int, trial_number: int) -> PersistedTrial: ...
-    def set_study_system_attrs(self, study_id: int, attrs: dict[str, str]) -> None: ...
-    def set_study_user_attrs(self, study_id: int, attrs: dict[str, str]) -> None: ...
-    def set_trial_system_attrs(
-        self, study_id: int, trial_number: int, attrs: dict[str, str]
-    ) -> None: ...
-    def set_trial_user_attrs(
-        self, study_id: int, trial_number: int, attrs: dict[str, str]
-    ) -> None: ...
+
+class Storage:
+    @classmethod
+    def in_memory(cls) -> StorageProtocol: ...
+    @classmethod
+    def sqlite3(
+        cls, file_path: str, *, create_database: bool = False
+    ) -> OptunaStorageProtocol: ...
 
 # Sampler
 class SamplerContext:
