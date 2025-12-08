@@ -26,4 +26,5 @@ dev = [
     "ruff",
     "pytest",
     "mypy",
+    "freezegun",
 ]

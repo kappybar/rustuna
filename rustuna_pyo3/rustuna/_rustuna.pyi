@@ -1,3 +1,4 @@
+import datetime
 import enum
 from typing import Callable, Literal, Protocol, TypedDict
 
@@ -235,6 +236,12 @@ class OptunaStorageProtocol(StorageProtocol, Protocol):
     def get_trial_id_from_study_id_trial_number(
         self, study_id: int, trial_number: int
     ) -> int: ...
+    def set_trial_datetime(
+        self,
+        trial_id: int,
+        datetime_start: datetime.datetime | None,
+        datetime_complete: datetime.datetime | None,
+    ) -> None: ...
     def set_trial_intermediate_value(
         self, trial_id: int, step: int, intermediate_value: float
     ) -> None: ...

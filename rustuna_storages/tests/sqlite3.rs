@@ -184,7 +184,12 @@ study.optimize(objective, n_trials=10)
         Distribution::Categorical { cardinality: 4 }
     );
     assert_eq!(trials[0].internal_params.len(), 3);
-    assert_eq!(trials[0].attrs.len(), 1);
+    let user_attrs_count = trials[0]
+        .attrs
+        .keys()
+        .filter(|k| matches!(k, rustuna_core::attr::AttrKey::User(_)))
+        .count();
+    assert_eq!(user_attrs_count, 1);
     assert!(matches!(
         trials[0].state_values,
         TrialStateValues::Complete(_)

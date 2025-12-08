@@ -3,6 +3,7 @@ use std::sync::{Arc, RwLock};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
+use chrono::NaiveDateTime;
 use pyo3::types::{PyList, PyType};
 use rustuna_core::attr::{category_labels_to_attrs, get_category_labels, CategoryLabel};
 use rustuna_core::distribution::Distribution;
@@ -340,6 +341,25 @@ impl PyStorage {
             .map_err(err_to_exceptions)?;
         Ok(())
     }
+
+    #[pyo3(signature = (trial_id, datetime_start=None, datetime_complete=None))]
+    fn set_trial_datetime(
+        &mut self,
+        trial_id: u32,
+        datetime_start: Option<NaiveDateTime>,
+        datetime_complete: Option<NaiveDateTime>,
+    ) -> PyResult<()> {
+        let optuna_storage = self.optuna_compatible.as_ref().ok_or_else(|| {
+            PyRuntimeError::new_err("This storage does not support Optuna-compatible operations")
+        })?;
+        let mut guard = optuna_storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+        guard
+            .set_trial_datetime(trial_id, datetime_start, datetime_complete)
+            .map_err(err_to_exceptions)?;
+        Ok(())
+    }
 }
 
 impl PyStorage {
@@ -367,8 +387,7 @@ impl PyStorage {
                         }
                     }
                     return Err(PyValueError::new_err(format!(
-                        "Cannot overwrite category labels for parameter '{}'",
-                        param_name
+                        "Cannot overwrite category labels for parameter '{param_name}'"
                     )));
                 }
                 Err(err_to_exceptions(e))
