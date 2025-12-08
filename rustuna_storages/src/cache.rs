@@ -7,6 +7,8 @@ use rustuna_core::study_cache::StudyCache;
 use rustuna_core::trial::{PersistedTrial, TrialStateValues};
 use rustuna_core::{Error, ErrorKind, Result};
 
+use crate::optuna::OptunaCompatibleStorage;
+
 pub trait CachedStorageBackend: Send + Sync {
     // Design Note:
     // This trait is intended for backends that return owned values (not references) so that
@@ -61,6 +63,8 @@ pub trait CachedStorageBackend: Send + Sync {
     ) -> Result<Vec<PersistedTrial>>;
 }
 
+pub trait OptunaCachedStorageBackend: CachedStorageBackend + OptunaCompatibleStorage {}
+
 pub struct CachedStorage {
     studies: Vec<PersistedStudy>,
     trials: HashMap<u32, HashMap<u32, PersistedTrial>>,
@@ -69,11 +73,11 @@ pub struct CachedStorage {
     last_finished_trial_number: HashMap<u32, i32>,
     trials_sorted_buffer: Vec<PersistedTrial>,
 
-    backend: Box<dyn CachedStorageBackend>,
+    backend: Box<dyn OptunaCachedStorageBackend>,
 }
 
 impl CachedStorage {
-    pub fn new(backend: Box<dyn CachedStorageBackend>) -> CachedStorage {
+    pub fn new(backend: Box<dyn OptunaCachedStorageBackend>) -> CachedStorage {
         CachedStorage {
             studies: Vec::new(),
             trials: HashMap::new(),
@@ -184,6 +188,25 @@ impl rustuna_core::storage::Storage for CachedStorage {
         distribution: &Distribution,
         value: f64,
     ) -> Result<()> {
+        self.refresh_trials(study_id)?;
+        if let Some(trials) = self.trials.get(&study_id) {
+            if let Some(trial) = trials.get(&trial_number) {
+                if trial.is_finished() {
+                    return Err(Error::new(ErrorKind::TrialAlreadyFinished));
+                }
+            }
+        }
+
+        if let Some(existing) = self
+            .study_caches
+            .entry(study_id)
+            .or_default()
+            .param_distribution
+            .get(name)
+        {
+            existing.check_compatibility(distribution)?;
+        }
+
         self.backend
             .set_trial_param(study_id, trial_number, name, distribution, value)?;
         self.unfinished_trials
@@ -206,10 +229,11 @@ impl rustuna_core::storage::Storage for CachedStorage {
 
         let mut trials_vec: Vec<_> = trials.values().cloned().collect();
         trials_vec.sort_by_key(|t| t.number);
-        self.study_caches
-            .entry(study_id)
-            .or_default()
-            .update(&trials_vec);
+        let study_cache = self.study_caches.entry(study_id).or_default();
+        study_cache
+            .param_distribution
+            .insert(name.to_string(), distribution.clone());
+        study_cache.update(&trials_vec);
         Ok(())
     }
 
@@ -281,6 +305,7 @@ impl rustuna_core::storage::Storage for CachedStorage {
     }
 
     fn get_trial(&mut self, study_id: u32, trial_number: u32) -> Result<&PersistedTrial> {
+        self.refresh_trials(study_id)?;
         let trials = self
             .trials
             .get(&study_id)
@@ -318,6 +343,19 @@ impl rustuna_core::storage::Storage for CachedStorage {
         attrs: Attrs,
         error_on_overwrite: bool,
     ) -> Result<()> {
+        self.refresh_trials(study_id)?;
+        {
+            let trials = self
+                .trials
+                .get(&study_id)
+                .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))?;
+            let trial = trials
+                .get(&trial_number)
+                .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
+            if trial.is_finished() {
+                return Err(Error::new(ErrorKind::TrialAlreadyFinished));
+            }
+        }
         self.backend
             .set_trial_attrs(study_id, trial_number, attrs.clone(), error_on_overwrite)?;
         self.refresh_trials(study_id)?;
@@ -344,6 +382,35 @@ impl rustuna_core::storage::Storage for CachedStorage {
         let cache = self.study_caches.entry(study_id).or_default();
         cache.update(&trials_vec);
         Ok(cache.get_joint_search_space())
+    }
+}
+
+impl OptunaCompatibleStorage for CachedStorage {
+    fn get_study_id_trial_number_from_trial_id(&mut self, trial_id: u32) -> Result<(u32, u32)> {
+        self.backend
+            .get_study_id_trial_number_from_trial_id(trial_id)
+    }
+
+    fn get_trial_id_from_study_id_trial_number(
+        &mut self,
+        study_id: u32,
+        trial_number: u32,
+    ) -> Result<u32> {
+        self.backend
+            .get_trial_id_from_study_id_trial_number(study_id, trial_number)
+    }
+
+    fn set_trial_intermediate_values(
+        &mut self,
+        trial_id: u32,
+        intermediate_values: HashMap<u32, f64>,
+    ) -> Result<()> {
+        if intermediate_values.is_empty() {
+            return Ok(());
+        }
+        self.backend
+            .set_trial_intermediate_values(trial_id, intermediate_values)?;
+        Ok(())
     }
 }
 
@@ -459,6 +526,31 @@ mod tests {
                 .set_trial_attrs(study_id, trial_number, attrs, error_on_overwrite)
         }
     }
+    impl OptunaCompatibleStorage for DummyBackend {
+        fn get_study_id_trial_number_from_trial_id(
+            &mut self,
+            _trial_id: u32,
+        ) -> Result<(u32, u32)> {
+            todo!()
+        }
+
+        fn get_trial_id_from_study_id_trial_number(
+            &mut self,
+            _study_id: u32,
+            _trial_number: u32,
+        ) -> Result<u32> {
+            todo!()
+        }
+
+        fn set_trial_intermediate_values(
+            &mut self,
+            _trial_id: u32,
+            _intermediate_values: HashMap<u32, f64>,
+        ) -> Result<()> {
+            todo!()
+        }
+    }
+    impl OptunaCachedStorageBackend for DummyBackend {}
 
     #[test]
     fn create_new_study_updates_cache() -> Result<()> {
@@ -470,7 +562,7 @@ mod tests {
         assert_eq!(name, "example");
         assert_eq!(directions, vec![Direction::Minimize]);
         assert_eq!(storage.studies.len(), 1);
-        assert!(storage.trials.get(&study_id).is_some());
+        assert!(storage.trials.contains_key(&study_id));
         Ok(())
     }
 
@@ -686,6 +778,85 @@ mod tests {
                 log: false
             })
         );
+        Ok(())
+    }
+
+    #[test]
+    fn set_trial_param() -> Result<()> {
+        let mut storage = CachedStorage::new(Box::new(DummyBackend::new()));
+
+        // Setup test across multiple studies and trials.
+        let study_id = storage
+            .create_new_study("test1", vec![Direction::Minimize])?
+            .id;
+        storage.create_new_study("test2", vec![Direction::Minimize])?;
+        let trial_1 = storage.create_new_trial(study_id)?;
+        let trial_1_number = trial_1.number;
+        let trial_2 = storage.create_new_trial(study_id)?;
+        let trial_2_number = trial_2.number;
+
+        // Setup distributions
+        let distribution_x = Distribution::Float {
+            low: 1.0,
+            high: 2.0,
+            step: None,
+            log: false,
+        };
+        let distribution_y_1 = Distribution::Categorical { cardinality: 3 };
+        // let distribution_y_2 = Distribution::Categorical { cardinality: 2 };
+        let distribution_z = Distribution::Float {
+            low: 1.0,
+            high: 100.0,
+            step: None,
+            log: true,
+        };
+
+        // Set new params.
+        storage.set_trial_param(study_id, trial_1_number, "x", &distribution_x, 0.5)?;
+        storage.set_trial_param(study_id, trial_1_number, "y", &distribution_y_1, 2.0)?;
+        let trial = storage.get_trial(study_id, trial_1_number)?;
+        assert_eq!(trial.internal_params["x"], 0.5);
+        assert_eq!(trial.internal_params["y"], 2.0);
+
+        // Set params to another trial
+        storage.set_trial_param(study_id, trial_2_number, "x", &distribution_x, 0.3)?;
+        storage.set_trial_param(study_id, trial_2_number, "z", &distribution_z, 0.1)?;
+        let trial = storage.get_trial(study_id, trial_2_number)?;
+        assert_eq!(trial.internal_params["x"], 0.3);
+        assert_eq!(trial.internal_params["z"], 0.1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn set_trial_param_rejects_incompatible_distribution_across_trials() -> Result<()> {
+        let mut storage = CachedStorage::new(Box::new(DummyBackend::new()));
+        let study_id = storage
+            .create_new_study("test", vec![Direction::Minimize])?
+            .id;
+
+        let float_dist = Distribution::Float {
+            low: 0.0,
+            high: 1.0,
+            step: None,
+            log: false,
+        };
+        let int_dist = Distribution::Int {
+            low: 0,
+            high: 5,
+            step: None,
+            log: false,
+        };
+
+        let trial0 = storage.create_new_trial(study_id)?.clone();
+        storage.set_trial_param(study_id, trial0.number, "x", &float_dist, 0.5)?;
+
+        let trial1 = storage.create_new_trial(study_id)?.clone();
+        let err = storage
+            .set_trial_param(study_id, trial1.number, "x", &int_dist, 1.0)
+            .err()
+            .unwrap();
+        assert!(matches!(err.kind, ErrorKind::IncompatibleDistribution));
         Ok(())
     }
 }

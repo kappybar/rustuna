@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use crate::cache::CachedStorageBackend;
+use crate::cache::{CachedStorageBackend, OptunaCachedStorageBackend};
+use crate::optuna::{IntermediateValueEntry, OptunaCompatibleStorage};
 use rusqlite::{params, Connection, Error as RusqliteError, OptionalExtension};
 use rustuna_core::attr::{AttrKey, Attrs, CategoryLabel};
 use rustuna_core::distribution::Distribution;
@@ -138,6 +139,7 @@ impl CachedStorageBackend for SQLite3Storage {
         distribution: &rustuna_core::distribution::Distribution,
         value: f64,
     ) -> rustuna_core::Result<()> {
+        // Note: Compatibility between distributions across trials is enforced by CachedStorage.
         let guard = self.conn.lock().unwrap();
         let trial_id: Option<u32> = guard
             .query_row(
@@ -169,15 +171,19 @@ impl CachedStorageBackend for SQLite3Storage {
         state_values: rustuna_core::trial::TrialStateValues,
     ) -> rustuna_core::Result<()> {
         let guard = self.conn.lock().unwrap();
-        let trial_id: Option<u32> = guard
+        let result: Option<(u32, String)> = guard
             .query_row(
-                "SELECT trial_id FROM trials WHERE study_id = ? AND number = ?",
+                "SELECT trial_id, state FROM trials WHERE study_id = ? AND number = ?",
                 params![study_id, trial_number],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()
             .map_err(|_e| Error::new(ErrorKind::StorageError))?;
-        let trial_id = trial_id.ok_or(Error::new(ErrorKind::TrialNotFound))?;
+        let (trial_id, current_state) = result.ok_or(Error::new(ErrorKind::TrialNotFound))?;
+
+        if matches!(current_state.as_str(), "COMPLETE" | "FAIL" | "PRUNED") {
+            return Err(Error::new(ErrorKind::TrialAlreadyFinished));
+        }
 
         match &state_values {
             TrialStateValues::Complete(values) => {
@@ -414,7 +420,38 @@ impl CachedStorageBackend for SQLite3Storage {
             attrs.insert(AttrKey::System(key), value);
         }
 
-        // TODO(c-bata): Populate intermediate values into system attrs if needed.
+        // Intermediate values
+        let mut stmt = guard
+            .prepare("SELECT step, intermediate_value, intermediate_value_type FROM trial_intermediate_values WHERE trial_id = ? ORDER BY step")
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        let intermediate_rows = stmt
+            .query_map(params![trial_id], |row| {
+                Ok((
+                    row.get::<_, u32>(0)?,
+                    row.get::<_, Option<f64>>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        let mut intermediate_entries = Vec::new();
+        for row in intermediate_rows {
+            let (step, stored_value, value_type) =
+                row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            intermediate_entries.push(IntermediateValueEntry {
+                step,
+                value: stored_value,
+                value_type,
+            });
+        }
+        if !intermediate_entries.is_empty() {
+            let intermediate_json = serde_json::to_string(&intermediate_entries)
+                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            attrs.insert(
+                AttrKey::System("intermediate_values".to_string()),
+                intermediate_json,
+            );
+        }
+
         let mut trial = PersistedTrial::new(study_id, trial_number);
         trial.state_values = state_values;
         trial.internal_params = internal_params;
@@ -630,11 +667,8 @@ impl CachedStorageBackend for SQLite3Storage {
         let mut sql = String::from("SELECT trial_id, number, state FROM trials WHERE study_id = ?");
         let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(study_id)];
 
-        // Filter by trial_number_greater_than
-        if trial_number_greater_than >= 0 {
-            sql.push_str(" AND number > ?");
-            params.push(Box::new(trial_number_greater_than));
-        }
+        let mut trial_filters = vec!["number > ?".to_string()];
+        params.push(Box::new(trial_number_greater_than));
 
         // Filter by included_numbers if provided
         if !included_numbers.is_empty() {
@@ -643,12 +677,15 @@ impl CachedStorageBackend for SQLite3Storage {
                 .map(|_| "?")
                 .collect::<Vec<_>>()
                 .join(", ");
-            sql.push_str(&format!(" OR number IN ({placeholders})"));
+            trial_filters.push(format!("number IN ({placeholders})"));
             for &num in included_numbers {
                 params.push(Box::new(num));
             }
         }
 
+        sql.push_str(" AND (");
+        sql.push_str(&trial_filters.join(" OR "));
+        sql.push(')');
         sql.push_str(" ORDER BY trial_id");
 
         let mut stmt = guard
@@ -744,6 +781,38 @@ impl CachedStorageBackend for SQLite3Storage {
                 attrs.insert(AttrKey::System(key), value);
             }
 
+            // Intermediate values
+            let mut intermediate_stmt = guard
+                .prepare("SELECT step, intermediate_value, intermediate_value_type FROM trial_intermediate_values WHERE trial_id = ? ORDER BY step")
+                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            let intermediate_rows = intermediate_stmt
+                .query_map(params![trial_id], |row| {
+                    Ok((
+                        row.get::<_, u32>(0)?,
+                        row.get::<_, Option<f64>>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })
+                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            let mut intermediate_entries = Vec::new();
+            for row in intermediate_rows {
+                let (step, stored_value, value_type) =
+                    row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                intermediate_entries.push(IntermediateValueEntry {
+                    step,
+                    value: stored_value,
+                    value_type,
+                });
+            }
+            if !intermediate_entries.is_empty() {
+                let intermediate_json = serde_json::to_string(&intermediate_entries)
+                    .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                attrs.insert(
+                    AttrKey::System("intermediate_values".to_string()),
+                    intermediate_json,
+                );
+            }
+
             let mut trial = PersistedTrial::new(study_id, number);
             trial.state_values = state_values;
             trial.internal_params = internal_params;
@@ -829,6 +898,106 @@ impl CachedStorageBackend for SQLite3Storage {
         Ok(())
     }
 }
+
+impl OptunaCompatibleStorage for SQLite3Storage {
+    fn get_study_id_trial_number_from_trial_id(&mut self, trial_id: u32) -> Result<(u32, u32)> {
+        let guard = self.conn.lock().unwrap();
+        let result: Option<(u32, u32)> = guard
+            .query_row(
+                "SELECT study_id, number FROM trials WHERE trial_id = ?",
+                params![trial_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        result.ok_or_else(|| Error::new(ErrorKind::TrialNotFound))
+    }
+
+    fn get_trial_id_from_study_id_trial_number(
+        &mut self,
+        study_id: u32,
+        trial_number: u32,
+    ) -> Result<u32> {
+        let guard = self.conn.lock().unwrap();
+        let trial_id: Option<u32> = guard
+            .query_row(
+                "SELECT trial_id FROM trials WHERE study_id = ? AND number = ?",
+                params![study_id, trial_number],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        trial_id.ok_or_else(|| Error::new(ErrorKind::TrialNotFound))
+    }
+
+    fn set_trial_intermediate_values(
+        &mut self,
+        trial_id: u32,
+        intermediate_values: HashMap<u32, f64>,
+    ) -> Result<()> {
+        if intermediate_values.is_empty() {
+            return Ok(());
+        }
+
+        let guard = self.conn.lock().unwrap();
+
+        // TODO(c-bata): Check if Optuna enables PRAGMA foreign_keys and if we can skip this check
+        // Explicitly check trial existence and state since the schema might be created by Optuna
+        let trial_state: Option<String> = guard
+            .query_row(
+                "SELECT state FROM trials WHERE trial_id = ?",
+                params![trial_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+
+        let state = trial_state.ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
+
+        if matches!(state.as_str(), "COMPLETE" | "FAIL" | "PRUNED") {
+            return Err(Error::new(ErrorKind::TrialAlreadyFinished));
+        }
+
+        let placeholders = intermediate_values
+            .iter()
+            .map(|_| "(?, ?, ?, ?)")
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+        "INSERT INTO trial_intermediate_values (trial_id, step, intermediate_value, intermediate_value_type) VALUES {placeholders} \
+         ON CONFLICT(trial_id, step) DO UPDATE SET intermediate_value=excluded.intermediate_value, intermediate_value_type=excluded.intermediate_value_type"
+    );
+
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        for (step, value) in &intermediate_values {
+            let (stored_value, value_type) = if value.is_nan() {
+                (None, "NAN")
+            } else if value.is_infinite() {
+                if value.is_sign_positive() {
+                    (None, "INF_POS")
+                } else {
+                    (None, "INF_NEG")
+                }
+            } else {
+                (Some(*value), "FINITE")
+            };
+
+            params.push(Box::new(trial_id));
+            params.push(Box::new(*step));
+            params.push(Box::new(stored_value));
+            params.push(Box::new(value_type.to_string()));
+        }
+
+        let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        guard
+            .execute(&sql, param_refs.as_slice())
+            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+
+        Ok(())
+    }
+}
+
+impl OptunaCachedStorageBackend for SQLite3Storage {}
 
 fn distribution_to_json(distribution: &Distribution, labels: Option<&[CategoryLabel]>) -> String {
     let (name, attributes) = match distribution {
@@ -1361,6 +1530,61 @@ mod tests {
     }
 
     #[test]
+    fn get_trials_diff_with_large_trial_number_greater_than() -> Result<()> {
+        let mut storage = init_storage()?;
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])?
+            .id;
+
+        storage.create_new_trial(study_id)?;
+
+        // trial_number_greater_than is much larger than existing trial numbers
+        let trials = storage.get_trials_diff(study_id, &[], 500000)?;
+        assert_eq!(trials.len(), 0);
+
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "TODO(c-bata): Add support for large inclusion list"]
+    fn get_trials_diff_with_large_included_numbers() -> Result<()> {
+        let mut storage = init_storage()?;
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])?
+            .id;
+
+        storage.create_new_trial(study_id)?;
+
+        // A large inclusion list used to raise errors in some implementations.
+        // Check that it is not an issue. See https://github.com/optuna/optuna/issues/1457.
+        let large_numbers: Vec<u32> = (0..500000).collect();
+        let trials = storage.get_trials_diff(study_id, &large_numbers, 500000)?;
+        assert_eq!(trials.len(), 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn get_trials_diff_with_negative_trial_number_greater_than() -> Result<()> {
+        let mut storage = init_storage()?;
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])?
+            .id;
+
+        storage.create_new_trial(study_id)?;
+
+        // trial_number_greater_than = -1 should return all trials
+        let trials = storage.get_trials_diff(study_id, &[], -1)?;
+        assert_eq!(trials.len(), 1);
+
+        // trial_number_greater_than much larger than existing trials
+        let trials = storage.get_trials_diff(study_id, &[], 500001)?;
+        assert_eq!(trials.len(), 0);
+
+        Ok(())
+    }
+
+    #[test]
     fn run_optimization() -> Result<()> {
         let storage = SQLite3Storage::new(":memory:")?;
         storage.create_database()?;
@@ -1380,6 +1604,135 @@ mod tests {
             100,
         )?;
         assert_eq!(study.get_trials()?.len(), 100);
+        Ok(())
+    }
+
+    #[test]
+    fn set_trial_intermediate_values() -> Result<()> {
+        let mut storage = init_storage()?;
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])?
+            .id;
+        let trial1 = storage.create_new_trial(study_id)?;
+        let trial2 = storage.create_new_trial(study_id)?;
+        let study_id2 = storage
+            .create_new_study("example2", vec![Direction::Minimize])?
+            .id;
+        let trial3 = storage.create_new_trial(study_id2)?;
+        let trial4 = storage.create_new_trial(study_id)?;
+
+        // Get trial_ids via OptunaCompatibleStorage
+        let trial_id_1 =
+            storage.get_trial_id_from_study_id_trial_number(study_id, trial1.number)?;
+        let trial_id_3 =
+            storage.get_trial_id_from_study_id_trial_number(study_id2, trial3.number)?;
+        let trial_id_4 =
+            storage.get_trial_id_from_study_id_trial_number(study_id, trial4.number)?;
+
+        // Test setting new values
+        let mut values1 = HashMap::new();
+        values1.insert(0, 0.3);
+        values1.insert(2, 0.4);
+        storage.set_trial_intermediate_values(trial_id_1, values1)?;
+
+        let mut values3 = HashMap::new();
+        values3.insert(0, 0.1);
+        values3.insert(1, 0.4);
+        values3.insert(2, 0.5);
+        values3.insert(3, f64::INFINITY);
+        storage.set_trial_intermediate_values(trial_id_3, values3)?;
+
+        let mut values4 = HashMap::new();
+        values4.insert(0, f64::NAN);
+        storage.set_trial_intermediate_values(trial_id_4, values4)?;
+
+        // Verify trial 1
+        let trial1_result = storage.get_trial(study_id, trial1.number)?;
+        let intermediate_json = trial1_result
+            .attrs
+            .get(&AttrKey::System("intermediate_values".to_string()))
+            .unwrap();
+        let intermediate_entries: Vec<IntermediateValueEntry> =
+            serde_json::from_str(intermediate_json).unwrap();
+        assert_eq!(intermediate_entries.len(), 2);
+        assert_eq!(intermediate_entries[0].step, 0);
+        assert_eq!(intermediate_entries[0].value, Some(0.3));
+        assert_eq!(intermediate_entries[0].value_type, "FINITE");
+        assert_eq!(intermediate_entries[1].step, 2);
+        assert_eq!(intermediate_entries[1].value, Some(0.4));
+        assert_eq!(intermediate_entries[1].value_type, "FINITE");
+
+        // Verify trial 2 (no intermediate values)
+        let trial2_result = storage.get_trial(study_id, trial2.number)?;
+        assert!(!trial2_result
+            .attrs
+            .contains_key(&AttrKey::System("intermediate_values".to_string())));
+
+        // Verify trial 3
+        let trial3_result = storage.get_trial(study_id2, trial3.number)?;
+        let intermediate_json = trial3_result
+            .attrs
+            .get(&AttrKey::System("intermediate_values".to_string()))
+            .unwrap();
+        let intermediate_entries: Vec<IntermediateValueEntry> =
+            serde_json::from_str(intermediate_json).unwrap();
+        assert_eq!(intermediate_entries.len(), 4);
+        assert_eq!(intermediate_entries[0].step, 0);
+        assert_eq!(intermediate_entries[0].value, Some(0.1));
+        assert_eq!(intermediate_entries[0].value_type, "FINITE");
+        assert_eq!(intermediate_entries[1].step, 1);
+        assert_eq!(intermediate_entries[1].value, Some(0.4));
+        assert_eq!(intermediate_entries[1].value_type, "FINITE");
+        assert_eq!(intermediate_entries[2].step, 2);
+        assert_eq!(intermediate_entries[2].value, Some(0.5));
+        assert_eq!(intermediate_entries[2].value_type, "FINITE");
+        assert_eq!(intermediate_entries[3].step, 3);
+        assert_eq!(intermediate_entries[3].value, None);
+        assert_eq!(intermediate_entries[3].value_type, "INF_POS");
+
+        // Verify trial 4 (NaN value)
+        let trial4_result = storage.get_trial(study_id, trial4.number)?;
+        let intermediate_json = trial4_result
+            .attrs
+            .get(&AttrKey::System("intermediate_values".to_string()))
+            .unwrap();
+        let intermediate_entries: Vec<IntermediateValueEntry> =
+            serde_json::from_str(intermediate_json).unwrap();
+        assert_eq!(intermediate_entries.len(), 1);
+        assert_eq!(intermediate_entries[0].step, 0);
+        assert_eq!(intermediate_entries[0].value, None);
+        assert_eq!(intermediate_entries[0].value_type, "NAN");
+
+        // Test overwriting existing step
+        let mut values1_update = HashMap::new();
+        values1_update.insert(0, 0.2);
+        storage.set_trial_intermediate_values(trial_id_1, values1_update)?;
+
+        let trial1_updated = storage.get_trial(study_id, trial1.number)?;
+        let intermediate_json = trial1_updated
+            .attrs
+            .get(&AttrKey::System("intermediate_values".to_string()))
+            .unwrap();
+        let intermediate_entries: Vec<IntermediateValueEntry> =
+            serde_json::from_str(intermediate_json).unwrap();
+        assert_eq!(intermediate_entries.len(), 2);
+        assert_eq!(intermediate_entries[0].step, 0);
+        assert_eq!(intermediate_entries[0].value, Some(0.2));
+        assert_eq!(intermediate_entries[0].value_type, "FINITE");
+        assert_eq!(intermediate_entries[1].step, 2);
+        assert_eq!(intermediate_entries[1].value, Some(0.4));
+        assert_eq!(intermediate_entries[1].value_type, "FINITE");
+
+        // Test non-existent trial
+        let non_existent_trial_id = trial_id_4 + 1000;
+        let mut invalid_values = HashMap::new();
+        invalid_values.insert(0, 0.5);
+        let err = storage
+            .set_trial_intermediate_values(non_existent_trial_id, invalid_values)
+            .err()
+            .unwrap();
+        assert!(matches!(err.kind, ErrorKind::TrialNotFound));
+
         Ok(())
     }
 }
