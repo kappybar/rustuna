@@ -1545,24 +1545,24 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    #[ignore = "TODO(c-bata): Add support for large inclusion list"]
-    fn get_trials_diff_with_large_included_numbers() -> Result<()> {
-        let mut storage = init_storage()?;
-        let study_id = storage
-            .create_new_study("example", vec![Direction::Minimize])?
-            .id;
+    // TODO(c-bata): Fix this test case
+    // #[test]
+    // fn get_trials_diff_with_large_included_numbers() -> Result<()> {
+    //     let mut storage = init_storage()?;
+    //     let study_id = storage
+    //         .create_new_study("example", vec![Direction::Minimize])?
+    //         .id;
 
-        storage.create_new_trial(study_id)?;
+    //     storage.create_new_trial(study_id)?;
 
-        // A large inclusion list used to raise errors in some implementations.
-        // Check that it is not an issue. See https://github.com/optuna/optuna/issues/1457.
-        let large_numbers: Vec<u32> = (0..500000).collect();
-        let trials = storage.get_trials_diff(study_id, &large_numbers, 500000)?;
-        assert_eq!(trials.len(), 1);
+    //     // A large inclusion list used to raise errors in some implementations.
+    //     // Check that it is not an issue. See https://github.com/optuna/optuna/issues/1457.
+    //     let large_numbers: Vec<u32> = (0..500000).collect();
+    //     let trials = storage.get_trials_diff(study_id, &large_numbers, 500000)?;
+    //     assert_eq!(trials.len(), 1);
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     #[test]
     fn get_trials_diff_with_negative_trial_number_greater_than() -> Result<()> {
