@@ -81,8 +81,12 @@ impl PySampler {
     }
 
     #[getter]
-    fn support_joint_sampling(&self) -> bool {
-        self.sampler.lock().unwrap().support_joint_sampling()
+    fn support_joint_sampling(&self) -> PyResult<bool> {
+        let guard = self
+            .sampler
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire sampler lock"))?;
+        Ok(guard.support_joint_sampling())
     }
 
     fn sample_independent(
@@ -94,7 +98,7 @@ impl PySampler {
     ) -> PyResult<f64> {
         self.sampler
             .lock()
-            .unwrap()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the sampler guard"))?
             .sample_independent(
                 &ctx.context.clone(),
                 storage.storage.clone(),
@@ -112,7 +116,7 @@ impl PySampler {
     ) -> PyResult<HashMap<String, f64>> {
         self.sampler
             .lock()
-            .unwrap()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the sampler guard"))?
             .sample_joint(
                 &ctx.context.clone(),
                 storage.storage.clone(),
@@ -188,7 +192,9 @@ impl Sampler for PyObjectSampler {
         name: &str,
         distribution: &rustuna_core::distribution::Distribution,
     ) -> rustuna_core::Result<f64> {
-        let mut guard = storage.write().unwrap();
+        let mut guard = storage
+            .write()
+            .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
         let study = guard.get_study(ctx.study_id)?;
         let study_attrs = study.attrs.clone();
         drop(guard);
@@ -221,7 +227,7 @@ impl Sampler for PyObjectSampler {
         Python::with_gil(|py| {
             self.obj
                 .getattr(py, "support_joint_sampling")
-                .map(|x| x.extract::<bool>(py).unwrap())
+                .and_then(|x| x.extract::<bool>(py))
                 .unwrap_or(false)
         })
     }
@@ -232,7 +238,9 @@ impl Sampler for PyObjectSampler {
         storage: Arc<std::sync::RwLock<dyn Storage>>,
         search_space: &HashMap<String, rustuna_core::distribution::Distribution>,
     ) -> rustuna_core::Result<HashMap<String, f64>> {
-        let mut guard = storage.write().unwrap();
+        let mut guard = storage
+            .write()
+            .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
         let study = guard.get_study(ctx.study_id)?;
         let study_attrs = study.attrs.clone();
         drop(guard);
@@ -255,7 +263,9 @@ impl Sampler for PyObjectSampler {
                 .obj
                 .call_method1(py, "sample_joint", (py_ctx, py_storage, py_search_space))
                 .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::SamplerError))?;
-            let py_result = py_result.extract::<HashMap<String, f64>>(py).unwrap();
+            let py_result = py_result
+                .extract::<HashMap<String, f64>>(py)
+                .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::SamplerError))?;
             Ok(py_result)
         })
     }

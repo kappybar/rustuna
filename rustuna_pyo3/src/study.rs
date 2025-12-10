@@ -114,7 +114,9 @@ pub fn py_load_study(
         }
     });
     let storage = storage?;
-    let mut guard = storage.write().unwrap();
+    let mut guard = storage
+        .write()
+        .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
     let (study_id, directions) = guard
         .get_studies()
         .map_err(|e| PyRuntimeError::new_err(format!("Failed to get the studies: {:?}", e.kind)))?
@@ -320,7 +322,11 @@ impl PyStudy {
 
     #[getter]
     pub fn trials(&mut self) -> PyResult<Vec<PyPersistedTrial>> {
-        let mut guard = self.study.storage.write().unwrap();
+        let mut guard = self
+            .study
+            .storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
         let trials_vec = guard
             .get_trials(self.study.id)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to get trials: {:?}", e.kind)))?
@@ -364,7 +370,11 @@ impl PyStudy {
             PyRuntimeError::new_err(format!("Failed to get the pareto front: {:?}", e.kind))
         })?;
         let (trials_vec, study_attrs) = {
-            let mut guard = self.study.storage.write().unwrap();
+            let mut guard = self
+                .study
+                .storage
+                .write()
+                .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
             let trials_vec = guard
                 .get_trials(self.study.id)
                 .map_err(|e| {
