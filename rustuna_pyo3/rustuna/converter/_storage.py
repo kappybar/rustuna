@@ -1,18 +1,34 @@
 from __future__ import annotations
 
+import copy
+import datetime
+import json
 import typing
+import uuid
+from collections.abc import Container, Sequence
 
 import optuna
+from optuna.distributions import BaseDistribution
+from optuna.storages._base import DEFAULT_STUDY_NAME_PREFIX, BaseStorage
+from optuna.study import StudyDirection
+from optuna.study._frozen import FrozenStudy
+from optuna.trial import FrozenTrial, TrialState
 
 import rustuna
 
 from ._distribution import to_optuna_distribution, to_rustuna_distribution
-from ._study import to_optuna_directions, to_persisted_study
-from ._trial import to_frozen_trial, to_optuna_state, to_persisted_trial
+from ._study import to_frozen_study, to_optuna_directions, to_persisted_study
+from ._trial import (
+    to_frozen_trial,
+    to_optuna_state,
+    to_persisted_trial,
+    to_rustuna_state,
+)
 
 if typing.TYPE_CHECKING:
+    from typing import Any
+
     from optuna._typing import JSONSerializable
-    from optuna.storages import BaseStorage
 
 
 class ToRustunaStorage:
@@ -120,3 +136,207 @@ class ToRustunaStorage:
         )
         for key, value in attrs.items():
             self._storage.set_trial_user_attr(trial_id, key, value)
+
+
+class ToOptunaStorage(BaseStorage):
+    def __init__(self, storage: rustuna.OptunaStorageProtocol) -> None:
+        self._storage = storage
+
+    def create_new_study(
+        self, directions: Sequence[StudyDirection], study_name: str | None = None
+    ) -> int:
+        rustuna_directions: list[rustuna.StudyDirection] = []
+        for d in directions:
+            if d == StudyDirection.MINIMIZE:
+                rustuna_directions.append(rustuna.StudyDirection.MINIMIZE)
+            elif d == StudyDirection.MAXIMIZE:
+                rustuna_directions.append(rustuna.StudyDirection.MAXIMIZE)
+            else:
+                raise ValueError("Unexpected Study Direction")
+
+        study_name = study_name or DEFAULT_STUDY_NAME_PREFIX + str(uuid.uuid4())
+        try:
+            study = self._storage.create_new_study(study_name, rustuna_directions)
+        except rustuna.exceptions.DuplicatedStudyError as e:
+            raise optuna.exceptions.DuplicatedStudyError(f"{study_name} is duplicated")
+        return study.id
+
+    def delete_study(self, study_id: int) -> None:
+        self._storage.delete_study(study_id=study_id)
+
+    def set_study_user_attr(self, study_id: int, key: str, value: Any) -> None:
+        self._storage.set_study_user_attrs(study_id, {key: json.dumps(value)})
+
+    def set_study_system_attr(
+        self, study_id: int, key: str, value: JSONSerializable
+    ) -> None:
+        self._storage.set_study_system_attrs(study_id, {key: json.dumps(value)})
+
+    def get_study_id_from_name(self, study_name: str) -> int:
+        for study in self._storage.get_studies():
+            if study.name == study_name:
+                return study.id
+        raise KeyError(f"Study({study_name=}) not found")
+
+    def get_study_name_from_id(self, study_id: int) -> str:
+        # TODO(c-bata): Raise KeyError if study not found.
+        return self._storage.get_study(study_id).name
+
+    def get_study_directions(self, study_id: int) -> list[StudyDirection]:
+        rustuna_directions = self._storage.get_study(study_id).directions
+        return to_optuna_directions(rustuna_directions)
+
+    def get_study_user_attrs(self, study_id: int) -> dict[str, Any]:
+        study = self._storage.get_study(study_id)
+        return {key: json.loads(value) for key, value in study.user_attrs.items()}
+
+    def get_study_system_attrs(self, study_id: int) -> dict[str, Any]:
+        study = self._storage.get_study(study_id)
+        return {key: json.loads(value) for key, value in study.system_attrs.items()}
+
+    def get_all_studies(self) -> list[FrozenStudy]:
+        studies: list[FrozenStudy] = []
+        for study in self._storage.get_studies():
+            studies.append(to_frozen_study(study))
+        return studies
+
+    def create_new_trial(
+        self, study_id: int, template_trial: FrozenTrial | None = None
+    ) -> int:
+        trial = self._storage.create_new_trial(study_id)
+        trial_id = self._storage.get_trial_id_from_study_id_trial_number(
+            study_id, trial.number
+        )
+
+        if template_trial is None:
+            self._storage.set_trial_datetime(trial_id, datetime.datetime.now(), None)
+            return trial_id
+        if template_trial.user_attrs:
+            user_attrs = {
+                k: json.dumps(v) for k, v in template_trial.user_attrs.items()
+            }
+            self._storage.set_trial_user_attrs(study_id, trial.number, user_attrs)
+        if template_trial.system_attrs:
+            system_attrs = {
+                k: json.dumps(v) for k, v in template_trial.system_attrs.items()
+            }
+            self._storage.set_trial_system_attrs(study_id, trial.number, system_attrs)
+        if template_trial.distributions and template_trial.params:
+            for param_name in template_trial.distributions:
+                optuna_distribution = template_trial.distributions[param_name]
+                distribution = to_rustuna_distribution(optuna_distribution)
+                value = optuna_distribution.to_internal_repr(
+                    template_trial.params[param_name]
+                )
+                self._storage.set_trial_param(
+                    study_id, trial.number, param_name, distribution, value
+                )
+        if template_trial.intermediate_values:
+            for step in template_trial.intermediate_values:
+                self._storage.set_trial_intermediate_value(
+                    trial_id, step, template_trial.intermediate_values[step]
+                )
+        rustuna_state = to_rustuna_state(template_trial.state)
+        self._storage.set_trial_state_values(
+            study_id, trial.number, rustuna_state, template_trial.values
+        )
+        self._storage.set_trial_datetime(
+            trial_id, template_trial.datetime_start, template_trial.datetime_complete
+        )
+        return trial_id
+
+    def set_trial_param(
+        self,
+        trial_id: int,
+        param_name: str,
+        param_value_internal: float,
+        distribution: BaseDistribution,
+    ) -> None:
+        study_id, trial_number = self._storage.get_study_id_trial_number_from_trial_id(
+            trial_id
+        )
+        rustuna_distribution = to_rustuna_distribution(distribution)
+        try:
+            self._storage.set_trial_param(
+                study_id,
+                trial_number,
+                param_name,
+                rustuna_distribution,
+                param_value_internal,
+            )
+        except rustuna.exceptions.UpdateFinishedTrialError as e:
+            raise optuna.exceptions.UpdateFinishedTrialError(str(e)) from e
+
+    def set_trial_state_values(
+        self, trial_id: int, state: TrialState, values: Sequence[float] | None = None
+    ) -> bool:
+        study_id, trial_number = self._storage.get_study_id_trial_number_from_trial_id(
+            trial_id
+        )
+        rustuna_state = to_rustuna_state(state)
+        values = list(values) if values is not None else None
+
+        try:
+            self._storage.set_trial_state_values(
+                study_id, trial_number, rustuna_state, values
+            )
+        except rustuna.exceptions.UpdateFinishedTrialError as e:
+            raise optuna.exceptions.UpdateFinishedTrialError(str(e)) from e
+        # TODO(c-bata): Add support for pop waiting trial
+        return False
+
+    def set_trial_intermediate_value(
+        self, trial_id: int, step: int, intermediate_value: float
+    ) -> None:
+        try:
+            self._storage.set_trial_intermediate_value(
+                trial_id, step, intermediate_value
+            )
+        except rustuna.exceptions.UpdateFinishedTrialError as e:
+            raise optuna.exceptions.UpdateFinishedTrialError(str(e)) from e
+
+    def set_trial_user_attr(self, trial_id: int, key: str, value: Any) -> None:
+        study_id, trial_number = self._storage.get_study_id_trial_number_from_trial_id(
+            trial_id
+        )
+        try:
+            self._storage.set_trial_user_attrs(
+                study_id, trial_number, {key: json.dumps(value)}
+            )
+        except rustuna.exceptions.UpdateFinishedTrialError as e:
+            raise optuna.exceptions.UpdateFinishedTrialError(str(e)) from e
+
+    def set_trial_system_attr(
+        self, trial_id: int, key: str, value: JSONSerializable
+    ) -> None:
+        study_id, trial_number = self._storage.get_study_id_trial_number_from_trial_id(
+            trial_id
+        )
+        try:
+            self._storage.set_trial_system_attrs(
+                study_id, trial_number, {key: json.dumps(value)}
+            )
+        except rustuna.exceptions.UpdateFinishedTrialError as e:
+            raise optuna.exceptions.UpdateFinishedTrialError(str(e)) from e
+
+    def get_trial(self, trial_id: int) -> FrozenTrial:
+        study_id, trial_number = self._storage.get_study_id_trial_number_from_trial_id(
+            trial_id
+        )
+        persisted_trial = self._storage.get_trial(study_id, trial_number)
+        return to_frozen_trial(persisted_trial)
+
+    def get_all_trials(
+        self,
+        study_id: int,
+        deepcopy: bool = True,
+        states: Container[TrialState] | None = None,
+    ) -> list[FrozenTrial]:
+        rustuna_trials = self._storage.get_trials(study_id)
+
+        trials: list[FrozenTrial] = []
+        for t in rustuna_trials:
+            if states is not None and to_optuna_state(t.state) not in states:
+                continue
+            trials.append(to_frozen_trial(t))
+        return trials
