@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -152,9 +153,12 @@ impl PyTrial {
 #[derive(Debug)]
 #[pyclass(name = "PersistedTrial")]
 #[pyo3(module = "rustuna")]
-pub struct PyPersistedTrial(PersistedTrial, Attrs);
+pub struct PyPersistedTrial(PersistedTrial, Arc<Attrs>);
 impl PyPersistedTrial {
     pub fn new(trial: PersistedTrial, study_attrs: Attrs) -> Self {
+        PyPersistedTrial(trial, Arc::new(study_attrs))
+    }
+    pub fn new_with_arc(trial: PersistedTrial, study_attrs: Arc<Attrs>) -> Self {
         PyPersistedTrial(trial, study_attrs)
     }
 }
@@ -213,7 +217,7 @@ impl PyPersistedTrial {
         trial.attrs = trial_attrs;
 
         let study_attrs = Attrs::new();
-        Ok(PyPersistedTrial(trial, study_attrs))
+        Ok(PyPersistedTrial(trial, Arc::new(study_attrs)))
     }
 
     #[getter]

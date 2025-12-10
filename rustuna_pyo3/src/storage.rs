@@ -209,13 +209,13 @@ impl PyStorage {
         let mut guard = self.storage.write().unwrap();
         let study_attrs = {
             let study = guard.get_study(study_id).map_err(err_to_exceptions)?;
-            study.attrs.clone()
+            Arc::new(study.attrs.clone())
         };
         let trials = guard.get_trials(study_id).map_err(err_to_exceptions)?;
         // TODO(c-bata): Filter category_labels attrs and clone them only.
         let py_trials: Vec<PyPersistedTrial> = trials
             .iter()
-            .map(|t| PyPersistedTrial::new(t.clone(), study_attrs.clone()))
+            .map(|t| PyPersistedTrial::new_with_arc(t.clone(), study_attrs.clone()))
             .collect();
         Ok(py_trials)
     }
@@ -226,12 +226,14 @@ impl PyStorage {
             .get_trial(study_id, trial_number)
             .map_err(err_to_exceptions)?
             .clone();
-        let study_attrs = guard
-            .get_study(study_id)
-            .map_err(err_to_exceptions)?
-            .attrs
-            .clone();
-        Ok(PyPersistedTrial::new(trial, study_attrs))
+        let study_attrs = Arc::new(
+            guard
+                .get_study(study_id)
+                .map_err(err_to_exceptions)?
+                .attrs
+                .clone(),
+        );
+        Ok(PyPersistedTrial::new_with_arc(trial, study_attrs))
     }
 
     fn set_study_system_attrs(&mut self, study_id: u32, attrs: PyObject) -> PyResult<()> {
