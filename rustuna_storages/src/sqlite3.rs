@@ -437,6 +437,13 @@ impl CachedStorageBackend for SQLite3Storage {
             let (key, value) = row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
             attrs.insert(AttrKey::System(key), value);
         }
+        if let std::collections::hash_map::Entry::Vacant(e) =
+            attrs.entry(AttrKey::System("trial_id".to_string()))
+        {
+            let v = serde_json::to_string(&trial_id)
+                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            e.insert(v);
+        }
         if let Some(dt) = datetime_start {
             if let std::collections::hash_map::Entry::Vacant(e) =
                 attrs.entry(AttrKey::System("datetime_start".to_string()))
@@ -819,6 +826,13 @@ impl CachedStorageBackend for SQLite3Storage {
             for row in system_attr_rows {
                 let (key, value) = row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
                 attrs.insert(AttrKey::System(key), value);
+            }
+            if let std::collections::hash_map::Entry::Vacant(e) =
+                attrs.entry(AttrKey::System("trial_id".to_string()))
+            {
+                let v = serde_json::to_string(&trial_id)
+                    .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                e.insert(v);
             }
             if let Some(dt) = datetime_start.clone() {
                 if let std::collections::hash_map::Entry::Vacant(e) =

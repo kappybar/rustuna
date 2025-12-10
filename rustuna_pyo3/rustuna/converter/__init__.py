@@ -1,7 +1,3 @@
-from ._attr import (
-    to_optuna_attrs,
-    to_rustuna_attrs,
-)
 from ._direction import (
     to_optuna_direction,
     to_optuna_directions,
@@ -14,12 +10,16 @@ from ._distribution import (
     to_rustuna_distribution,
     to_rustuna_distributions,
 )
-from ._storage import ToRustunaStorage
+from ._storage import (
+    ToOptunaStorage,
+    ToRustunaStorage,
+)
 from ._study import (
     to_frozen_study,
     to_persisted_study,
 )
 from ._trial import (
+    FrozenTrialLike,
     to_frozen_trial,
     to_optuna_state,
     to_persisted_trial,

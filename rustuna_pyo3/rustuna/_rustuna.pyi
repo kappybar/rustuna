@@ -1,6 +1,7 @@
 import datetime
 import enum
-from typing import Callable, Literal, Protocol, TypedDict
+from collections.abc import Callable
+from typing import Literal, Protocol, TypedDict
 
 CategoricalChoiceType = float | int | str | bool | None
 DistributionDict = (

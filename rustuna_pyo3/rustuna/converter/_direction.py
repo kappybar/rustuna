@@ -1,18 +1,20 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import optuna
 
 import rustuna
 
 
 def to_rustuna_directions(
-    items: list[optuna.study.StudyDirection],
+    items: Sequence[optuna.study.StudyDirection],
 ) -> list[rustuna.StudyDirection]:
     return [to_rustuna_direction(item) for item in items]
 
 
 def to_optuna_directions(
-    items: list[rustuna.StudyDirection],
+    items: Sequence[rustuna.StudyDirection],
 ) -> list[optuna.study.StudyDirection]:
     return [to_optuna_direction(item) for item in items]
 
