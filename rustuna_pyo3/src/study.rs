@@ -305,12 +305,16 @@ impl PyStudy {
             .get_trial(self.study.id, trial_number)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to get trials: {:?}", e.kind)))?
             .clone();
-        let study_attrs = guard
-            .get_study(self.study.id)
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get the study: {:?}", e.kind)))?
-            .attrs
-            .clone();
-        let trial = PyPersistedTrial::new(trial, study_attrs);
+        let study_attrs = Arc::new(
+            guard
+                .get_study(self.study.id)
+                .map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to get the study: {:?}", e.kind))
+                })?
+                .attrs
+                .clone(),
+        );
+        let trial = PyPersistedTrial::new_with_arc(trial, study_attrs);
         Ok(trial)
     }
 
@@ -321,15 +325,19 @@ impl PyStudy {
             .get_trials(self.study.id)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to get trials: {:?}", e.kind)))?
             .clone();
-        let study_attrs = guard
-            .get_study(self.study.id)
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get the study: {:?}", e.kind)))?
-            .attrs
-            .clone();
+        let study_attrs = Arc::new(
+            guard
+                .get_study(self.study.id)
+                .map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to get the study: {:?}", e.kind))
+                })?
+                .attrs
+                .clone(),
+        );
 
         let trials: Vec<PyPersistedTrial> = trials_vec
             .iter()
-            .map(|t| PyPersistedTrial::new(t.clone(), study_attrs.clone()))
+            .map(|t| PyPersistedTrial::new_with_arc(t.clone(), study_attrs.clone()))
             .collect();
         Ok(trials)
     }
@@ -363,18 +371,22 @@ impl PyStudy {
                     PyRuntimeError::new_err(format!("Failed to get trials: {:?}", e.kind))
                 })?
                 .clone();
-            let study_attrs = guard
-                .get_study(self.study.id)
-                .map_err(|e| {
-                    PyRuntimeError::new_err(format!("Failed to get the study: {:?}", e.kind))
-                })?
-                .attrs
-                .clone();
+            let study_attrs = Arc::new(
+                guard
+                    .get_study(self.study.id)
+                    .map_err(|e| {
+                        PyRuntimeError::new_err(format!("Failed to get the study: {:?}", e.kind))
+                    })?
+                    .attrs
+                    .clone(),
+            );
             (trials_vec, study_attrs)
         };
         let best_trials = pareto_front_numbers
             .iter()
-            .map(|n| PyPersistedTrial::new(trials_vec[*n as usize].clone(), study_attrs.clone()))
+            .map(|n| {
+                PyPersistedTrial::new_with_arc(trials_vec[*n as usize].clone(), study_attrs.clone())
+            })
             .collect();
         Ok(best_trials)
     }
