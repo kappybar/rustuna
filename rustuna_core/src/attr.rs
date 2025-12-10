@@ -108,7 +108,7 @@ mod tests {
 
         for c in categories {
             let s = c.serialize();
-            let c2 = CategoryLabel::deserialize(&s).unwrap();
+            let c2 = CategoryLabel::deserialize(&s).expect("Failed to deserialize category label");
             assert_eq!(c, c2);
         }
     }

@@ -147,44 +147,44 @@ mod tests {
     }
 
     #[test]
-    fn test_joint_sampling_empty() {
+    fn test_joint_sampling_empty() -> Result<()> {
         let joint_params = HashMap::new();
         let sampler = Arc::new(Mutex::new(DummyJointSampler { joint_params }));
-        let mut study =
-            create_study("dummy", InMemoryStorage::new(), vec![Direction::Minimize]).unwrap();
-        study.optimize(objective, sampler, 2).unwrap();
+        let mut study = create_study("dummy", InMemoryStorage::new(), vec![Direction::Minimize])?;
+        study.optimize(objective, sampler, 2)?;
+        Ok(())
     }
 
     #[test]
-    fn test_joint_sampling_partially() {
+    fn test_joint_sampling_partially() -> Result<()> {
         let mut joint_params = HashMap::new();
         joint_params.insert(String::from("x"), 0.5);
 
         let sampler = Arc::new(Mutex::new(DummyJointSampler { joint_params }));
-        let mut study =
-            create_study("dummy", InMemoryStorage::new(), vec![Direction::Minimize]).unwrap();
-        study.optimize(objective, sampler, 2).unwrap();
+        let mut study = create_study("dummy", InMemoryStorage::new(), vec![Direction::Minimize])?;
+        study.optimize(objective, sampler, 2)?;
 
-        let trials = study.get_trials().unwrap();
+        let trials = study.get_trials()?;
         assert_eq!(trials.len(), 2);
         assert_eq!(trials[1].internal_params["x"], 0.5);
         assert!(trials[1].internal_params.contains_key("y"));
+        Ok(())
     }
 
     #[test]
-    fn test_joint_sampling_all() {
+    fn test_joint_sampling_all() -> Result<()> {
         let mut joint_params = HashMap::new();
         joint_params.insert(String::from("x"), 1.0);
         joint_params.insert(String::from("y"), 1.0);
 
         let sampler = Arc::new(Mutex::new(DummyJointSampler { joint_params }));
-        let mut study =
-            create_study("dummy", InMemoryStorage::new(), vec![Direction::Minimize]).unwrap();
-        study.optimize(objective, sampler, 2).unwrap();
+        let mut study = create_study("dummy", InMemoryStorage::new(), vec![Direction::Minimize])?;
+        study.optimize(objective, sampler, 2)?;
 
-        let trials = study.get_trials().unwrap();
+        let trials = study.get_trials()?;
         assert_eq!(trials.len(), 2);
         assert_eq!(trials[1].internal_params["x"], 1.0);
         assert_eq!(trials[1].internal_params["y"], 1.0);
+        Ok(())
     }
 }

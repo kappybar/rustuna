@@ -181,7 +181,10 @@ impl Study {
     }
 
     pub fn get_trials(&self) -> Result<Vec<PersistedTrial>> {
-        let mut guard = self.storage.write().unwrap();
+        let mut guard = self
+            .storage
+            .write()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
         let trials = guard.get_trials(self.id)?;
         Ok(trials.clone())
     }
@@ -254,7 +257,10 @@ impl PersistedStudy {
 }
 
 pub fn get_best_trial(study: &Study) -> Result<u32> {
-    let mut guard = study.storage.write().unwrap();
+    let mut guard = study
+        .storage
+        .write()
+        .map_err(|_| Error::new(ErrorKind::StorageError))?;
     let trials = guard.get_trials(study.id)?;
 
     let best_trial = trials
@@ -275,7 +281,9 @@ pub fn get_best_trial(study: &Study) -> Result<u32> {
                 }
                 _ => unreachable!("Unexpected state"),
             };
-            a_value.partial_cmp(&b_value).unwrap()
+            a_value
+                .partial_cmp(&b_value)
+                .unwrap_or(std::cmp::Ordering::Equal)
         })
         .ok_or(Error::new(ErrorKind::NoCompletedTrial))?;
     Ok(best_trial.number)
@@ -283,7 +291,10 @@ pub fn get_best_trial(study: &Study) -> Result<u32> {
 
 // TODO(HideakiImamura): Support the faster algorithm for `len(directions) == 2`.
 pub fn get_pareto_front(study: &Study) -> Result<Vec<u32>> {
-    let mut guard = study.storage.write().unwrap();
+    let mut guard = study
+        .storage
+        .write()
+        .map_err(|_| Error::new(ErrorKind::StorageError))?;
     let trials = guard
         .get_trials(study.id)?
         .iter()
@@ -348,34 +359,33 @@ mod tests {
     use crate::study::get_best_trial;
 
     #[test]
-    fn test_optimize() {
+    fn test_optimize() -> Result<()> {
         let storage = InMemoryStorage::new();
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let mut study = create_study("dummy", storage, directions).unwrap();
+        let mut study = create_study("dummy", storage, directions)?;
 
-        study
-            .optimize(
-                |mut t| {
-                    let x = t.suggest_float("x", 0.0, 10.0)?;
-                    let y = t.suggest_float("y", 0.0, 10.0)?;
-                    let z = t.suggest_int("z", 0, 10)?;
+        study.optimize(
+            |mut t| {
+                let x = t.suggest_float("x", 0.0, 10.0)?;
+                let y = t.suggest_float("y", 0.0, 10.0)?;
+                let z = t.suggest_int("z", 0, 10)?;
 
-                    let value = (x - 3.0).powi(2) + (y - 5.0).powi(2) + (z as f64);
-                    Ok(vec![value])
-                },
-                sampler,
-                100,
-            )
-            .unwrap();
+                let value = (x - 3.0).powi(2) + (y - 5.0).powi(2) + (z as f64);
+                Ok(vec![value])
+            },
+            sampler,
+            100,
+        )?;
         assert!(get_best_trial(&study).is_ok());
+        Ok(())
     }
 
     #[test]
-    fn test_optimize_parallel() {
+    fn test_optimize_parallel() -> Result<()> {
         let storage = InMemoryStorage::new();
         let directions = vec![Direction::Minimize];
-        let study = create_study("dummy-study", storage, directions).unwrap();
+        let study = create_study("dummy-study", storage, directions)?;
 
         thread::scope(|s| {
             for i in 0..4 {
@@ -396,81 +406,81 @@ mod tests {
                             sampler,
                             100,
                         )
-                        .unwrap();
+                        .expect("Optimization failed");
                 });
             }
         });
         assert!(get_best_trial(&study).is_ok());
-        assert!(study.get_trials().unwrap().len() == 400);
+        assert_eq!(study.get_trials()?.len(), 400);
+        Ok(())
     }
 
     #[test]
-    fn test_user_attr() {
+    fn test_user_attr() -> Result<()> {
         let storage = InMemoryStorage::new();
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let mut study = create_study("dummy", storage, directions).unwrap();
+        let mut study = create_study("dummy", storage, directions)?;
 
-        let mut trial = study.ask(sampler).unwrap();
-        trial.set_user_attr("key", String::from("bar")).unwrap();
-        let user_attr = trial.get_user_attr("key").unwrap();
+        let mut trial = study.ask(sampler)?;
+        trial.set_user_attr("key", String::from("bar"))?;
+        let user_attr = trial
+            .get_user_attr("key")
+            .ok_or_else(|| Error::new(ErrorKind::StorageError))?;
         assert_eq!(user_attr, "bar");
+        Ok(())
     }
 
     #[test]
-    fn test_get_best_trial() {
+    fn test_get_best_trial() -> Result<()> {
         let storage = InMemoryStorage::new();
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let mut study = create_study("dummy", storage, directions).unwrap();
+        let mut study = create_study("dummy", storage, directions)?;
 
-        study
-            .optimize(
-                |mut t| {
-                    let x = t.suggest_float("x", 0.0, 10.0)?;
-                    let y = t.suggest_float("y", 0.0, 10.0)?;
-                    let z = t.suggest_int("z", 0, 10)?;
+        study.optimize(
+            |mut t| {
+                let x = t.suggest_float("x", 0.0, 10.0)?;
+                let y = t.suggest_float("y", 0.0, 10.0)?;
+                let z = t.suggest_int("z", 0, 10)?;
 
-                    let value = (x - 3.0).powi(2) + (y - 5.0).powi(2) + (z as f64);
-                    Ok(vec![value])
-                },
-                sampler,
-                100,
-            )
-            .unwrap();
+                let value = (x - 3.0).powi(2) + (y - 5.0).powi(2) + (z as f64);
+                Ok(vec![value])
+            },
+            sampler,
+            100,
+        )?;
 
-        let best_trial_number = get_best_trial(&study);
-        assert!(best_trial_number.is_ok());
-        let best_trial_number = best_trial_number.unwrap();
+        let best_trial_number = get_best_trial(&study)?;
         assert!(best_trial_number < 100);
+        Ok(())
     }
 
     #[test]
-    fn test_get_pareto_front_trials() {
+    fn test_get_pareto_front_trials() -> Result<()> {
         let storage = InMemoryStorage::new();
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize, Direction::Maximize];
-        let mut study = create_study("dummy", storage, directions).unwrap();
+        let mut study = create_study("dummy", storage, directions)?;
 
-        study
-            .optimize(
-                |mut t| {
-                    let x = t.suggest_float("x", 0.0, 10.0)?;
-                    let y = t.suggest_float("y", 0.0, 10.0)?;
-                    let z = t.suggest_int("z", 0, 10)?;
+        study.optimize(
+            |mut t| {
+                let x = t.suggest_float("x", 0.0, 10.0)?;
+                let y = t.suggest_float("y", 0.0, 10.0)?;
+                let z = t.suggest_int("z", 0, 10)?;
 
-                    let value0 = (x - 3.0).powi(2) + (y - 5.0).powi(2) + (z as f64);
-                    let value1 = (x - 3.0).powi(2) + (y - 5.0).powi(2) + (z as f64) * 2.0;
-                    Ok(vec![value0, value1])
-                },
-                sampler,
-                100,
-            )
-            .unwrap();
+                let value0 = (x - 3.0).powi(2) + (y - 5.0).powi(2) + (z as f64);
+                let value1 = (x - 3.0).powi(2) + (y - 5.0).powi(2) + (z as f64) * 2.0;
+                Ok(vec![value0, value1])
+            },
+            sampler,
+            100,
+        )?;
 
-        let pareto_front_numbers = get_pareto_front(&study).unwrap();
+        let pareto_front_numbers = get_pareto_front(&study)?;
         assert!(!pareto_front_numbers.is_empty());
         assert!(pareto_front_numbers.len() <= 100);
+        Ok(())
     }
 
     #[test]
@@ -483,51 +493,46 @@ mod tests {
     }
 
     #[test]
-    fn test_dynamic_search_space() {
+    fn test_dynamic_search_space() -> Result<()> {
         let storage = InMemoryStorage::new();
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let mut study = create_study("dummy", storage, directions).unwrap();
+        let mut study = create_study("dummy", storage, directions)?;
 
-        study
-            .optimize(
-                |mut t| {
-                    t.suggest_float("x", 0.0, 10.0)?;
-                    Ok(vec![0.0])
-                },
-                sampler.clone(),
-                5,
-            )
-            .unwrap();
-        study
-            .optimize(
-                |mut t| {
-                    t.suggest_float("x", 1.0, 10.0)?;
-                    Ok(vec![0.0])
-                },
-                sampler.clone(),
-                5,
-            )
-            .unwrap();
+        study.optimize(
+            |mut t| {
+                t.suggest_float("x", 0.0, 10.0)?;
+                Ok(vec![0.0])
+            },
+            sampler.clone(),
+            5,
+        )?;
+        study.optimize(
+            |mut t| {
+                t.suggest_float("x", 1.0, 10.0)?;
+                Ok(vec![0.0])
+            },
+            sampler.clone(),
+            5,
+        )?;
+        Ok(())
     }
 
     #[test]
-    fn test_invalid_dynamic_search_space() {
+    fn test_invalid_dynamic_search_space() -> Result<()> {
         let storage = InMemoryStorage::new();
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let mut study = create_study("dummy", storage, directions).unwrap();
+        let mut study = create_study("dummy", storage, directions)?;
 
-        study
-            .optimize(
-                |mut t| {
-                    t.suggest_float("x", 0.0, 10.0)?;
-                    Ok(vec![0.0])
-                },
-                sampler.clone(),
-                5,
-            )
-            .unwrap();
+        study.optimize(
+            |mut t| {
+                t.suggest_float("x", 0.0, 10.0)?;
+                Ok(vec![0.0])
+            },
+            sampler.clone(),
+            5,
+        )?;
         let error = study
             .optimize(
                 |mut t| {
@@ -539,5 +544,6 @@ mod tests {
             )
             .unwrap_err();
         assert!(matches!(error.kind, ErrorKind::IncompatibleDistribution));
+        Ok(())
     }
 }

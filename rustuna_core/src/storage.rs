@@ -113,7 +113,9 @@ impl Storage for InMemoryStorage {
             directions,
         ));
         self.trials.insert(study_id, vec![]);
-        Ok(self.studies.last().unwrap())
+        self.studies
+            .last()
+            .ok_or_else(|| Error::new(ErrorKind::StorageError))
     }
 
     fn delete_study(&mut self, study_id: u32) -> Result<()> {
@@ -272,7 +274,10 @@ mod tests {
         storage.create_new_study("study2", vec![Direction::Minimize])?;
         storage.delete_study(study1_id)?;
 
-        let err = storage.get_study(study1_id).err().unwrap();
+        let err = storage
+            .get_study(study1_id)
+            .err()
+            .expect("Expected StudyNotFound error");
         assert!(matches!(err.kind, ErrorKind::StudyNotFound));
 
         let study3 = storage.create_new_study("study3", vec![Direction::Minimize])?;

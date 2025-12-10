@@ -43,7 +43,10 @@ impl Trial {
         if let Some((d, val)) = self.joint_params.get(name) {
             if *d == *distribution {
                 let param_value = *val;
-                let mut storage_guard = self.storage.write().unwrap();
+                let mut storage_guard = self
+                    .storage
+                    .write()
+                    .map_err(|_| Error::new(ErrorKind::StorageError))?;
                 storage_guard.set_trial_param(
                     self.study_id,
                     self.number,
@@ -61,12 +64,18 @@ impl Trial {
             trial_number: self.number,
             directions: self.directions.clone(),
         };
-        let mut sampler_guard = self.sampler.lock().unwrap();
+        let mut sampler_guard = self
+            .sampler
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::SamplerError))?;
         let param_value =
             sampler_guard.sample_independent(&context, self.storage.clone(), name, distribution)?;
         drop(sampler_guard);
 
-        let mut storage_guard = self.storage.write().unwrap();
+        let mut storage_guard = self
+            .storage
+            .write()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
         storage_guard.set_trial_param(
             self.study_id,
             self.number,
@@ -152,7 +161,10 @@ impl Trial {
     }
 
     pub fn set_user_attr(&mut self, key: &str, value: String) -> Result<()> {
-        let mut guard = self.storage.write().unwrap();
+        let mut guard = self
+            .storage
+            .write()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
         let mut attrs = Attrs::new();
 
         let key = AttrKey::User(key.to_string());
@@ -212,31 +224,34 @@ mod tests {
     use crate::study::create_study_with_arc;
 
     #[test]
-    fn test_trial_user_attr() {
+    fn test_trial_user_attr() -> Result<()> {
         let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let mut study = create_study_with_arc("dummy", storage.clone(), directions).unwrap();
+        let mut study = create_study_with_arc("dummy", storage.clone(), directions)?;
 
         // Set user attributes
-        let mut trial = study.ask(sampler.clone()).unwrap();
-        trial.set_user_attr("key", "user".to_string()).unwrap();
+        let mut trial = study.ask(sampler.clone())?;
+        trial.set_user_attr("key", "user".to_string())?;
 
         // Set system attributes
-        let mut guard = storage.write().unwrap();
+        let mut guard = storage
+            .write()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
         let mut attrs = Attrs::new();
         attrs.insert(AttrKey::System("key".to_string()), "system".to_string());
-        guard.set_trial_attrs(study.id, 0, attrs, false).unwrap();
+        guard.set_trial_attrs(study.id, 0, attrs, false)?;
 
         // Check the attributes
-        let trial = guard.get_trial(study.id, 0).unwrap();
-        assert!(trial.attrs.get(&AttrKey::User("key".to_string())).unwrap() == "user");
-        assert!(
-            trial
-                .attrs
-                .get(&AttrKey::System("key".to_string()))
-                .unwrap()
-                == "system"
+        let trial = guard.get_trial(study.id, 0)?;
+        assert_eq!(
+            trial.attrs.get(&AttrKey::User("key".to_string())),
+            Some(&"user".to_string())
         );
+        assert_eq!(
+            trial.attrs.get(&AttrKey::System("key".to_string())),
+            Some(&"system".to_string())
+        );
+        Ok(())
     }
 }
