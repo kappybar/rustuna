@@ -3,23 +3,34 @@ from __future__ import annotations
 import datetime
 import json
 import typing
+import warnings
+from typing import cast, overload
 
 import optuna
-from optuna.trial import FrozenTrial, TrialState
+from optuna import distributions
+from optuna.trial import FrozenTrial
 
 import rustuna
 
-from ._attr import to_optuna_attrs, to_rustuna_attrs
 from ._distribution import (
     to_optuna_distributions,
     to_rustuna_distribution,
-    to_rustuna_distributions,
 )
+
+if typing.TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+    from typing import Any
+
+    from optuna._typing import JSONSerializable
+    from optuna.distributions import BaseDistribution
+    from optuna.trial import TrialState
+
 
 # This is a dummy datetime since Rustuna does not store the datetime_start and datetime_complete.
 dummy_datetime = datetime.datetime(
     2023, 11, 26, 16, 56, 38
 )  # Date of the initial commit of Rustuna
+
 
 to_rustuna_state_map = {
     optuna.trial.TrialState.RUNNING: rustuna.TrialState.RUNNING,
@@ -83,55 +94,321 @@ def to_persisted_trial(
         values=trial.values,
         internal_params=internal_params,
         distributions=distributions,
-        user_attrs=to_rustuna_attrs(trial.user_attrs),
-        system_attrs=to_rustuna_attrs(optuna_system_attrs),
+        user_attrs={k: json.dumps(v) for k, v in trial.user_attrs.items()},
+        system_attrs={k: json.dumps(v) for k, v in optuna_system_attrs.items()},
     )
 
 
-def to_frozen_trial(
-    persisted_study: rustuna.PersistedStudy,
-    persisted_trial: rustuna.PersistedTrial,
-    trial_id: int,
-) -> FrozenTrial:
-    optuna_system_attrs = to_optuna_attrs(persisted_trial.system_attrs)
-    if "datetime_start" in optuna_system_attrs:
-        datetime_start = datetime.datetime.fromisoformat(
-            typing.cast(str, optuna_system_attrs["datetime_start"])
-        )
-    elif persisted_trial.state != rustuna.TrialState.WAITING:
-        datetime_start = dummy_datetime
-    else:
-        datetime_start = None
+class FrozenTrialLike(FrozenTrial):
+    def __init__(self, persisted_trial: rustuna.PersistedTrial) -> None:
+        self._persisted_trial = persisted_trial
 
-    if "datetime_complete" in optuna_system_attrs:
-        datetime_complete = datetime.datetime.fromisoformat(
-            typing.cast(str, optuna_system_attrs["datetime_complete"])
-        )
-    elif persisted_trial.state.is_finished():
-        # Add 1 second to pass the Optuna's trial validation.
-        datetime_complete = dummy_datetime + datetime.timedelta(seconds=1)
-    else:
-        datetime_complete = None
+        # The following field is defined to support property.setter
+        self.__trial_id: int | None = None
+        self.__number: int | None = None
+        self.__state: TrialState | None = None
+        self.__values: list[float] | None = None
+        self.__intermediate_values: dict[int, float] | None = None
+        self.__datetime_start: datetime.datetime | None = None
+        self.__datetime_complete: datetime.datetime | None = None
+        self.__params: dict[str, Any] | None = None
+        self.__distributions: dict[str, BaseDistribution] | None = None
+        self.__user_attrs: dict[str, Any] | None = None
+        self.__system_attrs: dict[str, Any] | None = None
 
-    intermediate_values = {}
-    if optuna_system_attrs.get("intermediate_values"):
-        intermediate_values = json.loads(
-            typing.cast(str, optuna_system_attrs["intermediate_values"])
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, FrozenTrial):
+            return NotImplemented
+        return all(
+            [
+                self._trial_id == other._trial_id,
+                self.number == other.number,
+                self.state == other.state,
+                self.params == other.params,
+                self.distributions == other.distributions,
+                self.values == other.values,
+                self.intermediate_values == other.intermediate_values,
+                self.user_attrs == other.user_attrs,
+                self.system_attrs == other.system_attrs,
+                self.datetime_start == other.datetime_start,
+                self.datetime_complete == other.datetime_complete,
+            ]
         )
-        intermediate_values = {
-            int(step): value for step, value in intermediate_values.items()
+
+    @property
+    def _trial_id(self) -> int:
+        if self.__trial_id is not None:
+            return self.__trial_id
+        return int(self._persisted_trial.system_attrs["trial_id"])
+
+    @_trial_id.setter
+    def _trial_id(self, value: int) -> None:
+        self.__trial_id = value
+
+    @property
+    def number(self) -> int:
+        if self.__number is not None:
+            return self._number
+        return self._persisted_trial.number
+
+    @number.setter
+    def number(self, value: int) -> None:
+        self.__number = value
+
+    @property
+    def state(self) -> TrialState:
+        return self.__state or to_optuna_state(self._persisted_trial.state)
+
+    @state.setter
+    def state(self, value: TrialState) -> None:
+        self.__state = value
+
+    @property
+    def value(self) -> float | None:
+        values = self.__values or self._persisted_trial.values
+        if values is None:
+            return None
+        if len(values) > 1:
+            raise RuntimeError(
+                "This attribute is not available during multi-objective optimization."
+            )
+        return values[0]
+
+    @value.setter
+    def value(self, v: float | None) -> None:
+        if self.__values is not None:
+            if len(self.__values) > 1:
+                raise RuntimeError(
+                    "This attribute is not available during multi-objective optimization."
+                )
+
+        if v is not None:
+            self.__values = [v]
+        else:
+            self.__values = None
+
+    # These `_get_values`, `_set_values`, and `values = property(_get_values, _set_values)` are
+    # defined to pass the mypy.
+    def _get_values(self) -> list[float] | None:
+        return self.__values or self._persisted_trial.values
+
+    def _set_values(self, v: Sequence[float] | None) -> None:
+        if v is not None:
+            self.__values = list(v)
+        else:
+            self.__values = None
+
+    values = property(_get_values, _set_values)
+
+    @property
+    def datetime_start(self) -> datetime.datetime | None:
+        if self.__datetime_start is not None:
+            return self._datetime_start
+        system_attrs = self._persisted_trial.system_attrs
+        if "datetime_start" in system_attrs:
+            datetime_start_raw = typing.cast(
+                str, json.loads(system_attrs["datetime_start"])
+            )
+            return datetime.datetime.fromisoformat(datetime_start_raw)
+        return None
+
+    @datetime_start.setter
+    def datetime_start(self, value: datetime.datetime | None) -> None:
+        self.__datetime_start = value
+
+    @property
+    def datetime_complete(self) -> datetime.datetime | None:
+        if self.__datetime_complete is not None:
+            return self.__datetime_complete
+        system_attrs = self._persisted_trial.system_attrs
+        if "datetime_complete" in system_attrs:
+            datetime_complete_raw = typing.cast(
+                str, json.loads(system_attrs["datetime_complete"])
+            )
+            return datetime.datetime.fromisoformat(datetime_complete_raw)
+        return None
+
+    @datetime_complete.setter
+    def datetime_complete(self, value: datetime.datetime | None) -> None:
+        self.__datetime_complete = value
+
+    @property
+    def params(self) -> dict[str, Any]:
+        return self.__params or self._persisted_trial.params
+
+    @params.setter
+    def params(self, params: dict[str, Any]) -> None:
+        self.__params = params
+
+    @property
+    def distributions(self) -> dict[str, BaseDistribution]:
+        return self.__distributions or to_optuna_distributions(
+            self._persisted_trial.distributions
+        )
+
+    @distributions.setter
+    def distributions(self, value: dict[str, BaseDistribution]) -> None:
+        self.__distributions = value
+
+    @property
+    def user_attrs(self) -> dict[str, Any]:
+        if self.__user_attrs is not None:
+            return self.__user_attrs
+
+        user_attrs = self._persisted_trial.user_attrs
+        return {k: json.loads(user_attrs[k]) for k in user_attrs}
+
+    @user_attrs.setter
+    def user_attrs(self, value: dict[str, Any]) -> None:
+        self.__user_attrs = value
+
+    @property
+    def system_attrs(self) -> dict[str, Any]:
+        return self.__system_attrs or {
+            key: json.loads(self._persisted_trial.system_attrs[key])
+            for key in self._persisted_trial.system_attrs
+            if not key.startswith("category_labels:")
+            and key != "trial_id"
+            and key != "datetime_start"
+            and key != "datetime_complete"
+            and key != "intermediate_values"
         }
+
+    @system_attrs.setter
+    def system_attrs(self, value: Mapping[str, JSONSerializable]) -> None:
+        self.__system_attrs = cast(dict[str, Any], value)
+
+    @property
+    def intermediate_values(self) -> dict[int, float]:
+        if self.__intermediate_values is not None:
+            return self.__intermediate_values
+
+        intermediate_values_raw = self._persisted_trial.system_attrs.get(
+            "intermediate_values"
+        )
+        if intermediate_values_raw is None:
+            return {}
+        intermediate_values_raw = json.loads(intermediate_values_raw)
+        assert isinstance(intermediate_values_raw, list)
+
+        intermediate_values: dict[int, float] = {}
+        for v in intermediate_values_raw:
+            assert isinstance(v, dict)
+            step = v["step"]
+            assert isinstance(step, int)
+            value_type = v["value_type"]
+            assert isinstance(value_type, str)
+            if value_type == "FINITE":
+                value = v["value"]
+                assert isinstance(value, (int, float))
+                intermediate_values[step] = float(value)
+            elif value_type == "INF_POS":
+                intermediate_values[step] = float("inf")
+            elif value_type == "INF_NEG":
+                intermediate_values[step] = float("-inf")
+            elif value_type == "NAN":
+                intermediate_values[step] = float("nan")
+            else:
+                assert False, f"Unknown value_type: {value_type}"
+        return intermediate_values
+
+    @intermediate_values.setter
+    def intermediate_values(self, values: dict[int, float]) -> None:
+        self._intermediate_values = values
+
+    @property
+    def last_step(self) -> int | None:
+        """Return the maximum step of :attr:`intermediate_values` in the trial.
+
+        Returns:
+            The maximum step of intermediates.
+        """
+
+        if len(self.intermediate_values) == 0:
+            return None
+        else:
+            return max(self.intermediate_values.keys())
+
+    @property
+    def duration(self) -> datetime.timedelta | None:
+        """Return the elapsed time taken to complete the trial.
+
+        Returns:
+            The duration.
+        """
+
+        if self.datetime_start and self.datetime_complete:
+            return self.datetime_complete - self.datetime_start
+        else:
+            return None
+
+    def __reduce__(self) -> str | tuple[Any, ...]:
+        """Convert to a real FrozenTrial for pickling."""
+        frozen_trial = FrozenTrial(
+            number=self.number,
+            state=self.state,
+            value=None,
+            values=self.values,
+            datetime_start=self.datetime_start,
+            datetime_complete=self.datetime_complete,
+            params=self.params,
+            distributions=self.distributions,
+            user_attrs=self.user_attrs,
+            system_attrs=self.system_attrs,
+            intermediate_values=self.intermediate_values,
+            trial_id=self._trial_id,
+        )
+        return frozen_trial.__reduce__()
+
+    def set_user_attr(self, key: str, value: Any) -> None:
+        raise NotImplementedError
+
+    def _validate(self) -> None:
+        raise NotImplementedError
+
+    def _suggest(self, name: str, distribution: BaseDistribution) -> Any:
+        if name not in self.params:
+            raise ValueError(
+                "The value of the parameter '{}' is not found. Please set it at "
+                "the construction of the FrozenTrial object.".format(name)
+            )
+
+        value = self.params[name]
+        param_value_in_internal_repr = distribution.to_internal_repr(value)
+        if not distribution._contains(param_value_in_internal_repr):
+            warnings.warn(
+                "The value {} of the parameter '{}' is out of "
+                "the range of the distribution {}.".format(value, name, distribution)
+            )
+
+        if name in self._distributions:
+            distributions.check_distribution_compatibility(
+                self._distributions[name], distribution
+            )
+
+        self.distributions[name] = distribution
+        return value
+
+
+def to_frozen_trial(
+    persisted_trial: rustuna.PersistedTrial,
+    *,
+    use_frozen_trial_like: bool = True,
+) -> FrozenTrial:
+    ft_like = FrozenTrialLike(persisted_trial)
+    if use_frozen_trial_like:
+        return ft_like
     return FrozenTrial(
-        trial_id=trial_id,
-        number=persisted_trial.number,
+        number=ft_like.number,
+        state=ft_like.state,
         value=None,
-        state=to_optuna_state(persisted_trial.state),
-        values=persisted_trial.values,
-        datetime_start=datetime_start,
-        datetime_complete=datetime_complete,
-        params=persisted_trial.params,
-        distributions=to_optuna_distributions(persisted_trial.distributions),
-        user_attrs=to_optuna_attrs(persisted_trial.user_attrs),
-        system_attrs=optuna_system_attrs,
-        intermediate_values=intermediate_values,
+        values=ft_like.values,
+        datetime_start=ft_like.datetime_start,
+        datetime_complete=ft_like.datetime_complete,
+        params=ft_like.params,
+        distributions=ft_like.distributions,
+        user_attrs=ft_like.user_attrs,
+        system_attrs=ft_like.system_attrs,
+        intermediate_values=ft_like.intermediate_values,
+        trial_id=ft_like._trial_id,
     )
