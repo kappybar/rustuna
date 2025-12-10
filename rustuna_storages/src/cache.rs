@@ -147,7 +147,9 @@ impl rustuna_core::storage::Storage for CachedStorage {
         self.study_caches.insert(study_id, StudyCache::new());
         self.unfinished_trials.insert(study_id, vec![]);
         self.last_finished_trial_number.insert(study_id, -1);
-        Ok(self.studies.last().unwrap())
+        self.studies
+            .last()
+            .ok_or_else(|| Error::new(ErrorKind::StorageError))
     }
 
     fn delete_study(&mut self, study_id: u32) -> Result<()> {
@@ -167,7 +169,9 @@ impl rustuna_core::storage::Storage for CachedStorage {
         let trials = self.trials.entry(study_id).or_default();
         let number = trial.number;
         trials.insert(number, trial);
-        let trial_ref = trials.get(&number).unwrap();
+        let trial_ref = trials
+            .get(&number)
+            .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
 
         let study_cache = self.study_caches.entry(study_id).or_default();
         let mut trials_vec: Vec<_> = trials.values().cloned().collect();
@@ -615,7 +619,10 @@ mod tests {
         storage.create_new_study("study2", vec![Direction::Minimize])?;
         storage.delete_study(study1_id)?;
 
-        let err = storage.get_study(study1_id).err().unwrap();
+        let err = storage
+            .get_study(study1_id)
+            .err()
+            .expect("Expected StudyNotFound error");
         assert!(matches!(err.kind, ErrorKind::StudyNotFound));
 
         let study3 = storage.create_new_study("study3", vec![Direction::Minimize])?;
@@ -650,7 +657,10 @@ mod tests {
         let t1_num = storage.create_new_trial(study)?.number;
         assert_eq!(t0_num, 0);
         assert_eq!(t1_num, 1);
-        let trials = storage.trials.get(&study).unwrap();
+        let trials = storage
+            .trials
+            .get(&study)
+            .expect("Trials map should contain study");
         assert_eq!(trials.len(), 2);
         Ok(())
     }
@@ -762,7 +772,10 @@ mod tests {
         storage.set_study_attrs(study_id, s_attrs, false)?;
         let study = storage.get_study(study_id)?;
         assert_eq!(
-            study.attrs.get(&AttrKey::User("foo".to_string())).unwrap(),
+            study
+                .attrs
+                .get(&AttrKey::User("foo".to_string()))
+                .expect("User attr 'foo' should exist"),
             "bar"
         );
 
@@ -774,7 +787,7 @@ mod tests {
             trial
                 .attrs
                 .get(&AttrKey::System("key".to_string()))
-                .unwrap(),
+                .expect("System attr 'key' should exist"),
             "val"
         );
         Ok(())
@@ -883,7 +896,7 @@ mod tests {
         let err = storage
             .set_trial_param(study_id, trial1.number, "x", &int_dist, 1.0)
             .err()
-            .unwrap();
+            .expect("Expected IncompatibleDistribution error");
         assert!(matches!(err.kind, ErrorKind::IncompatibleDistribution));
         Ok(())
     }
