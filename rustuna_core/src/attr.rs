@@ -21,7 +21,7 @@ pub enum CategoryLabel {
 impl CategoryLabel {
     pub fn serialize(&self) -> String {
         match self {
-            CategoryLabel::Float(f) => format!("f:{f:.18}"),
+            CategoryLabel::Float(f) => format!("f:0x{:016x}", f.to_bits()),
             CategoryLabel::Int(i) => format!("i:{i}"),
             CategoryLabel::String(s) => format!("s:{s}"),
             CategoryLabel::Bool(b) => {
@@ -45,8 +45,15 @@ impl CategoryLabel {
             return Some(CategoryLabel::Bool(false));
         }
         if let Some(f) = s.strip_prefix("f:") {
-            let f = f.parse::<f64>().ok()?;
-            return Some(CategoryLabel::Float(f));
+            if let Some(hex) = f.strip_prefix("0x") {
+                if let Ok(bits) = u64::from_str_radix(hex, 16) {
+                    return Some(CategoryLabel::Float(f64::from_bits(bits)));
+                }
+            }
+            if let Ok(f) = f.parse::<f64>() {
+                return Some(CategoryLabel::Float(f));
+            }
+            return None;
         }
         if let Some(i) = s.strip_prefix("i:") {
             let i = i.parse::<i64>().ok()?;
@@ -99,6 +106,7 @@ mod tests {
     fn test_category_label() {
         let categories = vec![
             CategoryLabel::Float(1.0),
+            CategoryLabel::Float(f64::from_bits(1)),
             CategoryLabel::Int(2),
             CategoryLabel::String("3".to_string()),
             CategoryLabel::Bool(true),
@@ -111,5 +119,13 @@ mod tests {
             let c2 = CategoryLabel::deserialize(&s).expect("Failed to deserialize category label");
             assert_eq!(c, c2);
         }
+    }
+
+    #[test]
+    fn test_category_label_deserialize_legacy_float_format() {
+        let value = 2.2250738585072014e-308_f64;
+        let serialized = format!("f:{value}");
+        let deserialized = CategoryLabel::deserialize(&serialized).unwrap();
+        assert_eq!(deserialized, CategoryLabel::Float(value));
     }
 }
