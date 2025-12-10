@@ -29,7 +29,8 @@ pub fn py_get_param_importance_from_list(
     // TODO(c-bata): Try using https://github.com/PyO3/rust-numpy to make this faster.
     let features_vec = features.iter().map(|x| x.as_slice()).collect();
     let targets_vec = targets.as_slice();
-    let trees = NonZeroUsize::new(n_trees).unwrap();
+    let trees = NonZeroUsize::new(n_trees)
+        .ok_or_else(|| PyValueError::new_err("n_trees must be greater than 0"))?;
     let mut fanova = FanovaOptions::new()
         .random_forest(RandomForestOptions::new().trees(trees).seed(0))
         .fit(features_vec, targets_vec)

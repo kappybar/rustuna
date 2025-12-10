@@ -77,13 +77,19 @@ impl PyStorage {
     }
 
     fn delete_study(&mut self, study_id: u32) -> PyResult<()> {
-        let mut guard = self.storage.write().unwrap();
+        let mut guard = self
+            .storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
         guard.delete_study(study_id).map_err(err_to_exceptions)?;
         Ok(())
     }
 
     fn create_new_trial(&mut self, study_id: u32) -> PyResult<PyPersistedTrial> {
-        let mut guard = self.storage.write().unwrap();
+        let mut guard = self
+            .storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
         let trial = guard
             .create_new_trial(study_id)
             .map_err(err_to_exceptions)?;
@@ -171,7 +177,10 @@ impl PyStorage {
         state: PyTrialState,
         values: Option<Vec<f64>>,
     ) -> PyResult<()> {
-        let mut guard = self.storage.write().unwrap();
+        let mut guard = self
+            .storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
 
         let state_values = match state {
             PyTrialState::COMPLETE => {
@@ -192,7 +201,10 @@ impl PyStorage {
     }
 
     fn get_studies(&mut self) -> PyResult<Vec<PyPersistedStudy>> {
-        let mut guard = self.storage.write().unwrap();
+        let mut guard = self
+            .storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
         let studies = guard
             .get_studies()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to get studies: {:?}", e.kind)))?;
@@ -200,13 +212,19 @@ impl PyStorage {
     }
 
     fn get_study(&mut self, study_id: u32) -> PyResult<PyPersistedStudy> {
-        let mut guard = self.storage.write().unwrap();
+        let mut guard = self
+            .storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
         let study = guard.get_study(study_id).map_err(err_to_exceptions)?;
         Ok(study.clone().into())
     }
 
     fn get_trials(&mut self, study_id: u32) -> PyResult<Vec<PyPersistedTrial>> {
-        let mut guard = self.storage.write().unwrap();
+        let mut guard = self
+            .storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
         let study_attrs = {
             let study = guard.get_study(study_id).map_err(err_to_exceptions)?;
             Arc::new(study.attrs.clone())
@@ -221,7 +239,10 @@ impl PyStorage {
     }
 
     fn get_trial(&mut self, study_id: u32, trial_number: u32) -> PyResult<PyPersistedTrial> {
-        let mut guard = self.storage.write().unwrap();
+        let mut guard = self
+            .storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
         let trial = guard
             .get_trial(study_id, trial_number)
             .map_err(err_to_exceptions)?
@@ -241,7 +262,10 @@ impl PyStorage {
             let attrs = attrs.as_ref(py);
             pyobj_to_system_attrs(attrs)
         })?;
-        let mut guard = self.storage.write().unwrap();
+        let mut guard = self
+            .storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
         guard
             .set_study_attrs(study_id, system_attrs, false)
             .map_err(err_to_exceptions)?;
@@ -253,7 +277,10 @@ impl PyStorage {
             let attrs = attrs.as_ref(py);
             pyobj_to_user_attrs(attrs)
         })?;
-        let mut guard = self.storage.write().unwrap();
+        let mut guard = self
+            .storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
         guard
             .set_study_attrs(study_id, user_attrs, false)
             .map_err(err_to_exceptions)?;
@@ -270,7 +297,10 @@ impl PyStorage {
             let attrs = attrs.as_ref(py);
             pyobj_to_system_attrs(attrs)
         })?;
-        let mut guard = self.storage.write().unwrap();
+        let mut guard = self
+            .storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
         guard
             .set_trial_attrs(study_id, trial_number, system_attrs, false)
             .map_err(err_to_exceptions)?;
@@ -287,7 +317,10 @@ impl PyStorage {
             let attrs = attrs.as_ref(py);
             pyobj_to_user_attrs(attrs)
         })?;
-        let mut guard = self.storage.write().unwrap();
+        let mut guard = self
+            .storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
         guard
             .set_trial_attrs(study_id, trial_number, user_attrs, false)
             .map_err(err_to_exceptions)?;
