@@ -27,14 +27,20 @@ impl SQLite3Storage {
     }
 
     pub fn create_database(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
         conn.execute_batch(SCHEMA_SQL)
             .map_err(|_e| Error::new(ErrorKind::StorageError))?;
         Ok(())
     }
 
     fn validate_study_id(&self, study_id: u32) -> Result<()> {
-        let guard = self.conn.lock().unwrap();
+        let guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
         let study_exists: Option<u32> = guard
             .query_row(
                 "SELECT study_id FROM studies WHERE study_id = ?",
@@ -57,7 +63,10 @@ impl CachedStorageBackend for SQLite3Storage {
         study_name: &str,
         directions: Vec<rustuna_core::study::Direction>,
     ) -> rustuna_core::Result<rustuna_core::study::PersistedStudy> {
-        let guard = self.conn.lock().unwrap();
+        let guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
 
         let existing: Option<u32> = guard
             .query_row(
@@ -104,7 +113,10 @@ impl CachedStorageBackend for SQLite3Storage {
     ) -> rustuna_core::Result<rustuna_core::trial::PersistedTrial> {
         self.validate_study_id(study_id)?;
 
-        let guard = self.conn.lock().unwrap();
+        let guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
         guard
             .execute(
                 "INSERT INTO trials (number, study_id, state, datetime_start, datetime_complete) \
@@ -157,7 +169,10 @@ impl CachedStorageBackend for SQLite3Storage {
         value: f64,
     ) -> rustuna_core::Result<()> {
         // Note: Compatibility between distributions across trials is enforced by CachedStorage.
-        let guard = self.conn.lock().unwrap();
+        let guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
         let trial_id: Option<u32> = guard
             .query_row(
                 "SELECT trial_id FROM trials WHERE study_id = ? AND number = ?",
@@ -187,7 +202,10 @@ impl CachedStorageBackend for SQLite3Storage {
         trial_number: u32,
         state_values: rustuna_core::trial::TrialStateValues,
     ) -> rustuna_core::Result<()> {
-        let guard = self.conn.lock().unwrap();
+        let guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
         let result: Option<(u32, String)> = guard
             .query_row(
                 "SELECT trial_id, state FROM trials WHERE study_id = ? AND number = ?",
@@ -267,7 +285,10 @@ impl CachedStorageBackend for SQLite3Storage {
     }
 
     fn get_studies(&mut self) -> rustuna_core::Result<Vec<rustuna_core::study::PersistedStudy>> {
-        let guard = self.conn.lock().unwrap();
+        let guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
 
         let mut studies = Vec::new();
         let mut stmt = guard
@@ -352,7 +373,10 @@ impl CachedStorageBackend for SQLite3Storage {
         study_id: u32,
         trial_number: u32,
     ) -> rustuna_core::Result<rustuna_core::trial::PersistedTrial> {
-        let guard = self.conn.lock().unwrap();
+        let guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
 
         // Query to trials table .
         let trial_row: Option<(u32, String, Option<String>, Option<String>)> = guard
@@ -520,7 +544,10 @@ impl CachedStorageBackend for SQLite3Storage {
             }
         }
 
-        let mut guard = self.conn.lock().unwrap();
+        let mut guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
         let tx = guard
             .transaction()
             .map_err(|_e| Error::new(ErrorKind::StorageError))?;
@@ -612,7 +639,10 @@ impl CachedStorageBackend for SQLite3Storage {
             }
         }
 
-        let mut guard = self.conn.lock().unwrap();
+        let mut guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
         let trial_id: Option<u32> = guard
             .query_row(
                 "SELECT trial_id FROM trials WHERE study_id = ? AND number = ?",
@@ -704,7 +734,10 @@ impl CachedStorageBackend for SQLite3Storage {
         included_numbers: &[u32],
         trial_number_greater_than: i32,
     ) -> rustuna_core::Result<Vec<rustuna_core::trial::PersistedTrial>> {
-        let guard = self.conn.lock().unwrap();
+        let guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
 
         // Build SQL query with filters
         let mut sql = String::from(
@@ -897,7 +930,10 @@ impl CachedStorageBackend for SQLite3Storage {
     }
 
     fn delete_study(&mut self, study_id: u32) -> Result<()> {
-        let guard = self.conn.lock().unwrap();
+        let guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
 
         // Delete trial-related records using subquery
         guard
@@ -973,7 +1009,10 @@ impl CachedStorageBackend for SQLite3Storage {
 
 impl OptunaCompatibleStorage for SQLite3Storage {
     fn get_study_id_trial_number_from_trial_id(&mut self, trial_id: u32) -> Result<(u32, u32)> {
-        let guard = self.conn.lock().unwrap();
+        let guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
         let result: Option<(u32, u32)> = guard
             .query_row(
                 "SELECT study_id, number FROM trials WHERE trial_id = ?",
@@ -990,7 +1029,10 @@ impl OptunaCompatibleStorage for SQLite3Storage {
         study_id: u32,
         trial_number: u32,
     ) -> Result<u32> {
-        let guard = self.conn.lock().unwrap();
+        let guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
         let trial_id: Option<u32> = guard
             .query_row(
                 "SELECT trial_id FROM trials WHERE study_id = ? AND number = ?",
@@ -1011,7 +1053,10 @@ impl OptunaCompatibleStorage for SQLite3Storage {
             return Ok(());
         }
 
-        let guard = self.conn.lock().unwrap();
+        let guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
 
         // TODO(c-bata): Check if Optuna enables PRAGMA foreign_keys and if we can skip this check
         // Explicitly check trial existence and state since the schema might be created by Optuna
@@ -1074,7 +1119,10 @@ impl OptunaCompatibleStorage for SQLite3Storage {
         datetime_start: Option<NaiveDateTime>,
         datetime_complete: Option<NaiveDateTime>,
     ) -> Result<()> {
-        let guard = self.conn.lock().unwrap();
+        let guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
         let exists: Option<u32> = guard
             .query_row(
                 "SELECT trial_id FROM trials WHERE trial_id = ?",
@@ -1324,7 +1372,7 @@ mod tests {
         let err = storage
             .create_new_study("dup", vec![Direction::Minimize])
             .err()
-            .unwrap();
+            .expect("Expected DuplicatedStudy error");
         assert!(matches!(err.kind, ErrorKind::DuplicatedStudy));
         Ok(())
     }
@@ -1467,7 +1515,7 @@ mod tests {
         let err = storage
             .set_study_attrs(study_id, overwrite, true)
             .err()
-            .unwrap();
+            .expect("Expected AttrOverwriteNotAllowed error");
         assert!(matches!(err.kind, ErrorKind::AttrOverwriteNotAllowed));
 
         let study = storage.get_study(study_id)?;
@@ -1545,7 +1593,7 @@ mod tests {
         let err = storage
             .set_trial_attrs(study_id, trial.number, overwrite, true)
             .err()
-            .unwrap();
+            .expect("Expected AttrOverwriteNotAllowed error");
         assert!(matches!(err.kind, ErrorKind::AttrOverwriteNotAllowed));
 
         let trial = storage.get_trial(study_id, trial.number)?;
@@ -1756,9 +1804,9 @@ mod tests {
         let intermediate_json = trial1_result
             .attrs
             .get(&AttrKey::System("intermediate_values".to_string()))
-            .unwrap();
+            .expect("intermediate_values should exist");
         let intermediate_entries: Vec<IntermediateValueEntry> =
-            serde_json::from_str(intermediate_json).unwrap();
+            serde_json::from_str(intermediate_json).expect("Failed to parse intermediate values");
         assert_eq!(intermediate_entries.len(), 2);
         assert_eq!(intermediate_entries[0].step, 0);
         assert_eq!(intermediate_entries[0].value, Some(0.3));
@@ -1778,9 +1826,9 @@ mod tests {
         let intermediate_json = trial3_result
             .attrs
             .get(&AttrKey::System("intermediate_values".to_string()))
-            .unwrap();
+            .expect("intermediate_values should exist");
         let intermediate_entries: Vec<IntermediateValueEntry> =
-            serde_json::from_str(intermediate_json).unwrap();
+            serde_json::from_str(intermediate_json).expect("Failed to parse intermediate values");
         assert_eq!(intermediate_entries.len(), 4);
         assert_eq!(intermediate_entries[0].step, 0);
         assert_eq!(intermediate_entries[0].value, Some(0.1));
@@ -1800,9 +1848,9 @@ mod tests {
         let intermediate_json = trial4_result
             .attrs
             .get(&AttrKey::System("intermediate_values".to_string()))
-            .unwrap();
+            .expect("intermediate_values should exist");
         let intermediate_entries: Vec<IntermediateValueEntry> =
-            serde_json::from_str(intermediate_json).unwrap();
+            serde_json::from_str(intermediate_json).expect("Failed to parse intermediate values");
         assert_eq!(intermediate_entries.len(), 1);
         assert_eq!(intermediate_entries[0].step, 0);
         assert_eq!(intermediate_entries[0].value, None);
@@ -1817,9 +1865,9 @@ mod tests {
         let intermediate_json = trial1_updated
             .attrs
             .get(&AttrKey::System("intermediate_values".to_string()))
-            .unwrap();
+            .expect("intermediate_values should exist");
         let intermediate_entries: Vec<IntermediateValueEntry> =
-            serde_json::from_str(intermediate_json).unwrap();
+            serde_json::from_str(intermediate_json).expect("Failed to parse intermediate values");
         assert_eq!(intermediate_entries.len(), 2);
         assert_eq!(intermediate_entries[0].step, 0);
         assert_eq!(intermediate_entries[0].value, Some(0.2));
@@ -1835,7 +1883,7 @@ mod tests {
         let err = storage
             .set_trial_intermediate_values(non_existent_trial_id, invalid_values)
             .err()
-            .unwrap();
+            .expect("Expected TrialNotFound error");
         assert!(matches!(err.kind, ErrorKind::TrialNotFound));
 
         Ok(())
