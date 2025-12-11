@@ -132,8 +132,8 @@ impl PyObjectStorage {
 
     fn obj_set_study_attrs(&mut self, study_id: u32, attrs: Attrs) -> PyResult<()> {
         Python::with_gil(|py| {
-            let py_system_attrs = pyo3::types::PyDict::new_bound(py);
-            let py_user_attrs = pyo3::types::PyDict::new_bound(py);
+            let py_system_attrs = pyo3::types::PyDict::new(py);
+            let py_user_attrs = pyo3::types::PyDict::new(py);
             for (k, v) in attrs.into_iter() {
                 match k {
                     AttrKey::System(k) => {
@@ -159,8 +159,8 @@ impl PyObjectStorage {
         attrs: Attrs,
     ) -> PyResult<()> {
         Python::with_gil(|py| {
-            let py_system_attrs = pyo3::types::PyDict::new_bound(py);
-            let py_user_attrs = pyo3::types::PyDict::new_bound(py);
+            let py_system_attrs = pyo3::types::PyDict::new(py);
+            let py_user_attrs = pyo3::types::PyDict::new(py);
             for (k, v) in attrs.into_iter() {
                 match k {
                     AttrKey::System(k) => {

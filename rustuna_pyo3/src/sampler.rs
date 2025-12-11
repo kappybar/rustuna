@@ -252,9 +252,10 @@ impl Sampler for PyObjectSampler {
                 optuna_compatible: None,
                 kind: "unset",
             };
-            let py_search_space = PyDict::new_bound(py);
+            let py_search_space = PyDict::new(py);
             for (k, v) in search_space {
-                let py_distribution = PyDistribution::new(v.clone(), k, &study_attrs).into_py(py);
+                let py_distribution = Py::new(py, PyDistribution::new(v.clone(), k, &study_attrs))
+                    .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::SamplerError))?;
                 py_search_space
                     .set_item(k, py_distribution)
                     .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::SamplerError))?;

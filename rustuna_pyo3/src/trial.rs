@@ -138,8 +138,7 @@ impl PyTrial {
                 }
             })?;
 
-        let return_value = Python::with_gil(|py| category_label_to_pyobject(py, label));
-        Ok(return_value)
+        Python::with_gil(|py| category_label_to_pyobject(py, label))
     }
     #[pyo3(signature = (key, value))]
     pub fn set_user_attr(&mut self, key: &str, value: String) -> PyResult<()> {
@@ -303,23 +302,21 @@ impl PyPersistedTrial {
 
     fn __repr__(slf: &Bound<'_, Self>) -> PyResult<String> {
         let type_obj = slf.get_type();
-        let class_name = type_obj.name()?;
-        Ok(format!(
-            "{}({})",
-            class_name.as_ref(),
-            slf.borrow().__str__()?
-        ))
+        let class_name = type_obj.name()?.to_string_lossy().into_owned();
+        Ok(format!("{}({})", class_name, slf.borrow().__str__()?))
     }
 
     fn __str__(&self) -> PyResult<String> {
-        let params: PyResult<String> =
-            Python::with_gil(|py| Ok(self.params()?.to_object(py).to_string()));
+        let params = Python::with_gil(|py| -> PyResult<String> {
+            let py_params = self.params()?.into_pyobject(py)?;
+            Ok(py_params.str()?.to_str()?.to_owned())
+        })?;
         Ok(format!(
             "number={} state={:?} values={:?} params={} distributions={:?} user_attrs={:?} system_attrs={:?}",
             self.number()?,
             self.state()?,
             self.values(),
-            params?,
+            params,
             self.distributions()?,
             self.user_attrs()?,
             self.system_attrs()?,

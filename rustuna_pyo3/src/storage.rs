@@ -159,9 +159,9 @@ impl PyStorage {
                         let c = labels.get(i).ok_or(PyValueError::new_err(
                             "Internal representation of categorical value is out of range",
                         ))?;
-                        elements.push(category_label_to_pyobject(py, c));
+                        elements.push(category_label_to_pyobject(py, c)?);
                     }
-                    let choices = PyList::new_bound(py, &elements);
+                    let choices = PyList::new(py, &elements)?;
                     Ok(choices.into())
                 }
                 None => Ok(py.None()),

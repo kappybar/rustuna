@@ -101,7 +101,7 @@ impl PyDistribution {
                 step,
                 log,
             } => {
-                let dist = PyDict::new_bound(py);
+                let dist = PyDict::new(py);
                 dist.set_item("type", "FloatDistribution")?;
                 dist.set_item("low", low)?;
                 dist.set_item("high", high)?;
@@ -119,7 +119,7 @@ impl PyDistribution {
                 step,
                 log,
             } => {
-                let dist = PyDict::new_bound(py);
+                let dist = PyDict::new(py);
                 dist.set_item("type", "IntDistribution")?;
                 dist.set_item("low", low)?;
                 dist.set_item("high", high)?;
@@ -128,7 +128,7 @@ impl PyDistribution {
                 Ok(dist.into())
             }
             Distribution::Categorical { cardinality } => {
-                let dist = PyDict::new_bound(py);
+                let dist = PyDict::new(py);
                 dist.set_item("type", "CategoricalDistribution")?;
 
                 let mut elements: Vec<PyObject> = Vec::with_capacity(*cardinality);
@@ -146,9 +146,9 @@ impl PyDistribution {
                     let c = labels.get(i).ok_or(PyValueError::new_err(
                         "Internal representation of categorical value is out of range",
                     ))?;
-                    elements.push(category_label_to_pyobject(py, c));
+                    elements.push(category_label_to_pyobject(py, c)?);
                 }
-                let choices = PyList::new_bound(py, &elements);
+                let choices = PyList::new(py, &elements)?;
                 dist.set_item("choices", choices)?;
                 Ok(dist.into())
             }
@@ -166,13 +166,13 @@ impl PyDistribution {
     }
 }
 
-pub fn category_label_to_pyobject(py: Python, label: &CategoryLabel) -> PyObject {
+pub fn category_label_to_pyobject(py: Python, label: &CategoryLabel) -> PyResult<PyObject> {
     match label {
-        CategoryLabel::String(s) => s.into_py(py),
-        CategoryLabel::Int(i) => i.into_py(py),
-        CategoryLabel::Float(f) => f.into_py(py),
-        CategoryLabel::Bool(b) => b.into_py(py),
-        CategoryLabel::None => py.None(),
+        CategoryLabel::String(s) => Ok(s.into_pyobject(py)?.into_any().unbind()),
+        CategoryLabel::Int(i) => Ok(i.into_pyobject(py)?.into_any().unbind()),
+        CategoryLabel::Float(f) => Ok(f.into_pyobject(py)?.into_any().unbind()),
+        CategoryLabel::Bool(b) => Ok(PyBool::new(py, *b).to_owned().into()),
+        CategoryLabel::None => Ok(py.None()),
     }
 }
 
@@ -215,11 +215,16 @@ pub fn py_to_external_repr(
 ) -> PyResult<PyObject> {
     match dist {
         Distribution::Float { .. } => {
-            let external_value = Python::with_gil(|py| internal_repr.into_py(py));
+            let external_value =
+                Python::with_gil(|py| internal_repr.into_pyobject(py).map(|o| o.unbind().into()))?;
             Ok(external_value)
         }
         Distribution::Int { .. } => {
-            let external_value = Python::with_gil(|py| (internal_repr as i64).into_py(py));
+            let external_value = Python::with_gil(|py| {
+                (internal_repr as i64)
+                    .into_pyobject(py)
+                    .map(|o| o.unbind().into())
+            })?;
             Ok(external_value)
         }
         Distribution::Categorical { cardinality } => {
@@ -230,11 +235,15 @@ pub fn py_to_external_repr(
                         .ok_or(PyValueError::new_err(
                             "Internal representation of categorical value is out of range",
                         ))?;
-                    let external_value = Python::with_gil(|py| category_label_to_pyobject(py, c));
+                    let external_value = Python::with_gil(|py| category_label_to_pyobject(py, c))?;
                     Ok(external_value)
                 }
                 None => {
-                    let external_value = Python::with_gil(|py| (internal_repr as i64).into_py(py));
+                    let external_value = Python::with_gil(|py| {
+                        (internal_repr as i64)
+                            .into_pyobject(py)
+                            .map(|o| o.unbind().into())
+                    })?;
                     Ok(external_value)
                 }
             }
