@@ -110,7 +110,7 @@ study.optimize(objective, n_trials=10)
             low: -10,
             high: 10,
             log: false,
-            step: Some(1)
+            step: 1
         }
     );
     assert_eq!(
@@ -175,7 +175,7 @@ study.optimize(objective, n_trials=10)
         Distribution::Int {
             low: -10,
             high: 10,
-            step: Some(1),
+            step: 1,
             log: false
         }
     );

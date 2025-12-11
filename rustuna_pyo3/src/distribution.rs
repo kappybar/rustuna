@@ -54,8 +54,8 @@ impl PyDistribution {
     }
 
     #[classmethod]
-    #[pyo3(signature = (low, high, log=false, step=None))]
-    pub fn int(_cls: &PyType, low: i64, high: i64, log: bool, step: Option<i64>) -> Self {
+    #[pyo3(signature = (low, high, log=false, step=1))]
+    pub fn int(_cls: &PyType, low: i64, high: i64, log: bool, step: i64) -> Self {
         PyDistribution {
             distribution: Distribution::Int {
                 low,
@@ -118,11 +118,7 @@ impl PyDistribution {
                 dist.set_item("low", low)?;
                 dist.set_item("high", high)?;
                 dist.set_item("log", log)?;
-                if let Some(step) = step {
-                    dist.set_item("step", step)?;
-                } else {
-                    dist.set_item("step", py.None())?;
-                }
+                dist.set_item("step", step)?;
                 Ok(dist.into())
             }
             Distribution::Categorical { cardinality } => {
