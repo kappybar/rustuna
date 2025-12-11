@@ -417,8 +417,8 @@ impl PyStudy {
     }
 }
 
-#[derive(Clone, Debug)]
-#[pyclass(name = "StudyDirection")]
+#[derive(Clone, Debug, PartialEq)]
+#[pyclass(name = "StudyDirection", eq, eq_int)]
 #[pyo3(module = "rustuna")]
 pub enum PyDirection {
     #[pyo3(name = "MINIMIZE")]

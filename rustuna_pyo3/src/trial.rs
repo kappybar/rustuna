@@ -14,8 +14,8 @@ use crate::distribution::{
     category_label_to_pyobject, py_to_external_repr, pyobject_to_category_label, PyDistribution,
 };
 
-#[derive(Clone, Debug)]
-#[pyclass(name = "TrialState")]
+#[derive(Clone, Debug, PartialEq)]
+#[pyclass(name = "TrialState", eq, eq_int)]
 #[pyo3(module = "rustuna")]
 #[allow(clippy::upper_case_acronyms)]
 pub enum PyTrialState {
