@@ -119,7 +119,7 @@ impl PyTrial {
         let mut category_labels: Vec<CategoryLabel> = Vec::with_capacity(choices.len());
         let category_labels = Python::with_gil(|py| {
             for choice in choices {
-                match pyobject_to_category_label(py, choice) {
+                match pyobject_to_category_label(choice.bind(py)) {
                     Ok(label) => category_labels.push(label),
                     Err(e) => return Err(e),
                 }
@@ -138,7 +138,7 @@ impl PyTrial {
                 }
             })?;
 
-        Python::with_gil(|py| category_label_to_pyobject(py, label))
+        Python::with_gil(|py| category_label_to_pyobject(py, label).map(|b| b.unbind()))
     }
     #[pyo3(signature = (key, value))]
     pub fn set_user_attr(&mut self, key: &str, value: String) -> PyResult<()> {
@@ -259,17 +259,20 @@ impl PyPersistedTrial {
 
     #[getter]
     fn params(&self) -> PyResult<HashMap<String, PyObject>> {
-        self.0
-            .internal_params
-            .iter()
-            .map(|(name, internal_repr)| {
-                let maybe_pyobj: PyResult<PyObject> = match self.0.distributions.get(name) {
-                    Some(dist) => py_to_external_repr(dist, *internal_repr, name, &self.1),
-                    None => Err(PyValueError::new_err(format!("No distribution for {name}"))),
-                };
-                maybe_pyobj.map(|v| (name.to_string(), v))
-            })
-            .collect()
+        Python::with_gil(|py| {
+            self.0
+                .internal_params
+                .iter()
+                .map(|(name, internal_repr)| {
+                    let maybe_pyobj: PyResult<PyObject> = match self.0.distributions.get(name) {
+                        Some(dist) => py_to_external_repr(py, dist, *internal_repr, name, &self.1)
+                            .map(|b| b.unbind()),
+                        None => Err(PyValueError::new_err(format!("No distribution for {name}"))),
+                    };
+                    maybe_pyobj.map(|v| (name.to_string(), v))
+                })
+                .collect()
+        })
     }
 
     #[getter]

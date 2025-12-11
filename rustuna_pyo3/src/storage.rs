@@ -127,13 +127,11 @@ impl PyStorage {
         param_name: String,
         choices: Vec<PyObject>,
     ) -> PyResult<()> {
-        let category_labels = Python::with_gil(|py| {
+        let category_labels = Python::with_gil(|py| -> PyResult<Vec<CategoryLabel>> {
             let mut labels: Vec<CategoryLabel> = Vec::with_capacity(choices.len());
             for choice in choices {
-                match pyobject_to_category_label(py, choice) {
-                    Ok(label) => labels.push(label),
-                    Err(e) => return Err(e),
-                }
+                let label = pyobject_to_category_label(choice.bind(py))?;
+                labels.push(label);
             }
             Ok(labels)
         })?;
@@ -154,15 +152,16 @@ impl PyStorage {
         Python::with_gil(
             |py| match get_category_labels(&study.attrs, &param_name, cardinality) {
                 Some(labels) => {
-                    let mut elements: Vec<PyObject> = Vec::with_capacity(cardinality);
-                    for i in 0..cardinality {
-                        let c = labels.get(i).ok_or(PyValueError::new_err(
-                            "Internal representation of categorical value is out of range",
-                        ))?;
-                        elements.push(category_label_to_pyobject(py, c)?);
-                    }
-                    let choices = PyList::new(py, &elements)?;
-                    Ok(choices.into())
+                    let elements: PyResult<Vec<_>> = (0..cardinality)
+                        .map(|i| {
+                            let c = labels.get(i).ok_or(PyValueError::new_err(
+                                "Internal representation of categorical value is out of range",
+                            ))?;
+                            category_label_to_pyobject(py, c)
+                        })
+                        .collect();
+                    let choices = PyList::new(py, elements?)?;
+                    Ok(choices.unbind().into_any())
                 }
                 None => Ok(py.None()),
             },
