@@ -83,7 +83,7 @@ impl PyObjectStorage {
     fn obj_create_new_trial(&mut self, study_id: u32) -> PyResult<PersistedTrial> {
         Python::with_gil(|py| {
             let py_trial = self.obj.call_method1(py, "create_new_trial", (study_id,))?;
-            let py_trial = py_trial.as_ref(py);
+            let py_trial = py_trial.bind(py);
             pyobject_to_persisted_trial(py_trial, study_id)
         })
     }
@@ -132,8 +132,8 @@ impl PyObjectStorage {
 
     fn obj_set_study_attrs(&mut self, study_id: u32, attrs: Attrs) -> PyResult<()> {
         Python::with_gil(|py| {
-            let py_system_attrs = pyo3::types::PyDict::new(py);
-            let py_user_attrs = pyo3::types::PyDict::new(py);
+            let py_system_attrs = pyo3::types::PyDict::new_bound(py);
+            let py_user_attrs = pyo3::types::PyDict::new_bound(py);
             for (k, v) in attrs.into_iter() {
                 match k {
                     AttrKey::System(k) => {
@@ -147,7 +147,7 @@ impl PyObjectStorage {
             self.obj
                 .call_method1(py, "set_study_system_attrs", (study_id, py_system_attrs))?;
             self.obj
-                .call_method1(py, "set_study_user_attrs", (study_id, py_system_attrs))?;
+                .call_method1(py, "set_study_user_attrs", (study_id, py_user_attrs))?;
             Ok(())
         })
     }
@@ -159,8 +159,8 @@ impl PyObjectStorage {
         attrs: Attrs,
     ) -> PyResult<()> {
         Python::with_gil(|py| {
-            let py_system_attrs = pyo3::types::PyDict::new(py);
-            let py_user_attrs = pyo3::types::PyDict::new(py);
+            let py_system_attrs = pyo3::types::PyDict::new_bound(py);
+            let py_user_attrs = pyo3::types::PyDict::new_bound(py);
             for (k, v) in attrs.into_iter() {
                 match k {
                     AttrKey::System(k) => {
@@ -179,7 +179,7 @@ impl PyObjectStorage {
             self.obj.call_method1(
                 py,
                 "set_trial_user_attrs",
-                (study_id, trial_number, py_system_attrs),
+                (study_id, trial_number, py_user_attrs),
             )?;
             Ok(())
         })
@@ -188,7 +188,7 @@ impl PyObjectStorage {
     fn obj_get_study(&self, study_id: u32) -> PyResult<PersistedStudy> {
         Python::with_gil(|py| {
             let study = self.obj.call_method1(py, "get_study", (study_id,))?;
-            let study = study.as_ref(py);
+            let study = study.bind(py);
             pyobject_to_persisted_study(study)
         })
     }
@@ -196,14 +196,14 @@ impl PyObjectStorage {
     fn obj_get_studies(&self) -> PyResult<Vec<PersistedStudy>> {
         Python::with_gil(|py| {
             let studies = self.obj.call_method1(py, "get_studies", ())?;
-            let studies_ref = studies.as_ref(py);
+            let studies_ref = studies.bind(py);
             if !studies_ref.is_instance_of::<PyList>() {
                 return Err(PyRuntimeError::new_err("studies must be a list"));
             }
             let studies = studies_ref.downcast::<PyList>()?;
             let mut persisted_studies: Vec<PersistedStudy> = Vec::with_capacity(studies.len());
             for study in studies.iter() {
-                persisted_studies.push(pyobject_to_persisted_study(study)?);
+                persisted_studies.push(pyobject_to_persisted_study(&study)?);
             }
             Ok(persisted_studies)
         })
@@ -212,14 +212,14 @@ impl PyObjectStorage {
     fn obj_get_trials(&self, study_id: u32) -> PyResult<Vec<PersistedTrial>> {
         Python::with_gil(|py| {
             let trials = self.obj.call_method1(py, "get_trials", (study_id,))?;
-            let trials_ref = trials.as_ref(py);
+            let trials_ref = trials.bind(py);
             if !trials_ref.is_instance_of::<PyList>() {
                 return Err(PyRuntimeError::new_err("studies must be a list"));
             }
             let trials = trials_ref.downcast::<PyList>()?;
             let mut persisted_trials: Vec<PersistedTrial> = Vec::with_capacity(trials.len());
             for trial in trials.iter() {
-                persisted_trials.push(pyobject_to_persisted_trial(trial, study_id)?);
+                persisted_trials.push(pyobject_to_persisted_trial(&trial, study_id)?);
             }
             Ok(persisted_trials)
         })
@@ -297,7 +297,7 @@ impl PyObjectStorage {
                     let trial = self
                         .obj
                         .call_method1(py, "get_trial", (*src_study_id, number))?;
-                    let trial = trial.as_ref(py);
+                    let trial = trial.bind(py);
                     pyobject_to_persisted_trial(trial, *src_study_id)
                 })
                 .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?

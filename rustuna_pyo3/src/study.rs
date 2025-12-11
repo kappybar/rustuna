@@ -38,7 +38,7 @@ pub fn py_create_study(
     };
     let storage: PyResult<Arc<RwLock<dyn Storage>>> = match storage {
         Some(storage_obj) => Python::with_gil(|py| {
-            let storage_ref = storage_obj.as_ref(py);
+            let storage_ref = storage_obj.bind(py);
             if storage_ref.is_instance_of::<PyStorage>() {
                 let storage = storage_ref.extract::<PyStorage>().map_err(|e| {
                     PyValueError::new_err(format!("Failed to extract PyStorage: {e:?}"))
@@ -64,7 +64,7 @@ pub fn py_create_study(
         create_study_with_arc(&study_name, storage?, directions).map_err(err_to_exceptions)?;
     let sampler: PyResult<Arc<Mutex<dyn Sampler>>> = match sampler {
         Some(sampler_obj) => Python::with_gil(|py| {
-            let sampler_ref = sampler_obj.as_ref(py);
+            let sampler_ref = sampler_obj.bind(py);
             if sampler_ref.is_instance_of::<PySampler>() {
                 let sampler = sampler_ref.extract::<PySampler>().map_err(|e| {
                     PyValueError::new_err(format!("Failed to extract PySampler: {e:?}"))
@@ -99,7 +99,7 @@ pub fn py_load_study(
     sampler: Option<PyObject>,
 ) -> PyResult<PyStudy> {
     let storage: PyResult<Arc<RwLock<dyn Storage>>> = Python::with_gil(|py| {
-        let storage_ref = storage.as_ref(py);
+        let storage_ref = storage.bind(py);
         if storage_ref.is_instance_of::<PyStorage>() {
             let storage = storage_ref.extract::<PyStorage>().map_err(|e| {
                 PyValueError::new_err(format!("Failed to extract PyStorage: {e:?}"))
@@ -131,7 +131,7 @@ pub fn py_load_study(
     let study = Study::new(study_id, study_name, directions, storage);
     let sampler: PyResult<Arc<Mutex<dyn Sampler>>> = match sampler {
         Some(sampler_obj) => Python::with_gil(|py| {
-            let sampler_ref = sampler_obj.as_ref(py);
+            let sampler_ref = sampler_obj.bind(py);
             if sampler_ref.is_instance_of::<PySampler>() {
                 let sampler = sampler_ref.extract::<PySampler>().map_err(|e| {
                     PyValueError::new_err(format!("Failed to extract PySampler: {e:?}"))
@@ -199,7 +199,7 @@ impl PyStudy {
             // Call an objective function
             let result: PyResult<Vec<f64>> = Python::with_gil(|py| {
                 let val = objective.call1(py, (trial,))?;
-                let val_ref = val.as_ref(py);
+                let val_ref = val.bind(py);
                 if val_ref.is_instance_of::<PyFloat>() {
                     let val = val_ref.extract::<f64>().map_err(|e| {
                         PyRuntimeError::new_err(format!("Failed to extract f64: {e:?}"))
@@ -263,7 +263,7 @@ impl PyStudy {
             )),
             (Some(PyTrialState::COMPLETE), Some(values)) => {
                 let state_values: PyResult<TrialStateValues> = Python::with_gil(|py| {
-                    let val = values.as_ref(py);
+                    let val = values.bind(py);
                     if val.is_instance_of::<PyFloat>() {
                         let val = val.extract::<f64>()?;
                         Ok(TrialStateValues::Complete(vec![val]))
@@ -276,7 +276,7 @@ impl PyStudy {
             }
             (None, Some(values)) => {
                 let state_values: PyResult<TrialStateValues> = Python::with_gil(|py| {
-                    let val = values.as_ref(py);
+                    let val = values.bind(py);
                     if val.is_instance_of::<PyFloat>() {
                         let val = val.extract::<f64>()?;
                         Ok(TrialStateValues::Complete(vec![val]))
@@ -401,8 +401,9 @@ impl PyStudy {
         Ok(best_trials)
     }
 
-    fn __repr__(slf: &PyCell<Self>) -> PyResult<String> {
-        let class_name: &str = slf.get_type().name()?;
+    fn __repr__(slf: &Bound<'_, Self>) -> PyResult<String> {
+        let type_obj = slf.get_type();
+        let class_name = type_obj.name()?;
         Ok(format!("{}({})", class_name, slf.borrow().__str__()?))
     }
 
@@ -535,8 +536,9 @@ impl PyPersistedStudy {
         }
     }
 
-    fn __repr__(slf: &PyCell<Self>) -> PyResult<String> {
-        let class_name: &str = slf.get_type().name()?;
+    fn __repr__(slf: &Bound<'_, Self>) -> PyResult<String> {
+        let type_obj = slf.get_type();
+        let class_name = type_obj.name()?;
         Ok(format!("{}({:?})", class_name, slf.borrow().__str__()?))
     }
 
@@ -548,7 +550,7 @@ impl PyPersistedStudy {
     }
 }
 
-pub fn pyobject_to_persisted_study(study: &PyAny) -> PyResult<PersistedStudy> {
+pub fn pyobject_to_persisted_study(study: &Bound<'_, PyAny>) -> PyResult<PersistedStudy> {
     let study_id = study.getattr("id")?.extract::<u32>()?;
     let name = study.getattr("name")?.extract::<String>()?;
     let directions = study.getattr("directions")?.extract::<Vec<PyDirection>>()?;
@@ -561,7 +563,7 @@ pub fn pyobject_to_persisted_study(study: &PyAny) -> PyResult<PersistedStudy> {
             "user_attrs and system_attrs must be a dict",
         ));
     }
-    let attrs = pyobj_to_attrs(user_attrs, system_attrs)?;
+    let attrs = pyobj_to_attrs(&user_attrs, &system_attrs)?;
     Ok(PersistedStudy::new_with_attrs(
         study_id, name, directions, attrs,
     ))
