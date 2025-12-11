@@ -89,8 +89,8 @@ impl PyDistribution {
         Ok(py_dist)
     }
 
-    pub fn to_dict(&self) -> PyResult<PyObject> {
-        Python::with_gil(|py| match &self.distribution {
+    pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        match &self.distribution {
             Distribution::Float {
                 low,
                 high,
@@ -107,7 +107,7 @@ impl PyDistribution {
                 } else {
                     dist.set_item("step", py.None())?;
                 }
-                Ok(dist.into())
+                Ok(dist)
             }
             Distribution::Int {
                 low,
@@ -121,7 +121,7 @@ impl PyDistribution {
                 dist.set_item("high", high)?;
                 dist.set_item("log", log)?;
                 dist.set_item("step", step)?;
-                Ok(dist.into())
+                Ok(dist)
             }
             Distribution::Categorical { cardinality } => {
                 let dist = PyDict::new(py);
@@ -146,9 +146,9 @@ impl PyDistribution {
                 }
                 let choices = PyList::new(py, &elements)?;
                 dist.set_item("choices", choices)?;
-                Ok(dist.into())
+                Ok(dist)
             }
-        })
+        }
     }
 
     fn __repr__(slf: &Bound<'_, Self>) -> PyResult<String> {
@@ -158,7 +158,7 @@ impl PyDistribution {
     }
 
     fn __str__(&self) -> PyResult<String> {
-        Python::with_gil(|_py| Ok(self.to_dict()?.to_string()))
+        Python::with_gil(|py| Ok(self.to_dict(py)?.to_string()))
     }
 }
 
