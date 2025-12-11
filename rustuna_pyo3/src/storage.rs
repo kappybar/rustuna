@@ -32,7 +32,7 @@ pub struct PyStorage {
 #[pymethods]
 impl PyStorage {
     #[classmethod]
-    fn in_memory(_cls: &PyType) -> PyResult<Self> {
+    fn in_memory(_cls: &Bound<'_, PyType>) -> PyResult<Self> {
         Ok(PyStorage {
             storage: Arc::new(RwLock::new(InMemoryStorage::new())),
             optuna_compatible: None,
@@ -42,7 +42,7 @@ impl PyStorage {
 
     #[classmethod]
     #[pyo3(name = "sqlite3", signature = (file_path, *, create_database = false))]
-    fn sqlite3(_cls: &PyType, file_path: &str, create_database: bool) -> PyResult<Self> {
+    fn sqlite3(_cls: &Bound<'_, PyType>, file_path: &str, create_database: bool) -> PyResult<Self> {
         let backend = SQLite3Storage::new(file_path).map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to open the SQLite3 file: {e:?}"))
         })?;
@@ -161,7 +161,7 @@ impl PyStorage {
                         ))?;
                         elements.push(category_label_to_pyobject(py, c));
                     }
-                    let choices = PyList::new(py, &elements);
+                    let choices = PyList::new_bound(py, &elements);
                     Ok(choices.into())
                 }
                 None => Ok(py.None()),
@@ -259,7 +259,7 @@ impl PyStorage {
 
     fn set_study_system_attrs(&mut self, study_id: u32, attrs: PyObject) -> PyResult<()> {
         let system_attrs = Python::with_gil(|py| {
-            let attrs = attrs.as_ref(py);
+            let attrs = attrs.bind(py);
             pyobj_to_system_attrs(attrs)
         })?;
         let mut guard = self
@@ -274,7 +274,7 @@ impl PyStorage {
 
     fn set_study_user_attrs(&mut self, study_id: u32, attrs: PyObject) -> PyResult<()> {
         let user_attrs = Python::with_gil(|py| {
-            let attrs = attrs.as_ref(py);
+            let attrs = attrs.bind(py);
             pyobj_to_user_attrs(attrs)
         })?;
         let mut guard = self
@@ -294,7 +294,7 @@ impl PyStorage {
         attrs: PyObject,
     ) -> PyResult<()> {
         let system_attrs = Python::with_gil(|py| {
-            let attrs = attrs.as_ref(py);
+            let attrs = attrs.bind(py);
             pyobj_to_system_attrs(attrs)
         })?;
         let mut guard = self
@@ -314,7 +314,7 @@ impl PyStorage {
         attrs: PyObject,
     ) -> PyResult<()> {
         let user_attrs = Python::with_gil(|py| {
-            let attrs = attrs.as_ref(py);
+            let attrs = attrs.bind(py);
             pyobj_to_user_attrs(attrs)
         })?;
         let mut guard = self

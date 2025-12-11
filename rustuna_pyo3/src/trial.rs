@@ -301,9 +301,14 @@ impl PyPersistedTrial {
         Ok(system_attrs)
     }
 
-    fn __repr__(slf: &PyCell<Self>) -> PyResult<String> {
-        let class_name: &str = slf.get_type().name()?;
-        Ok(format!("{}({})", class_name, slf.borrow().__str__()?))
+    fn __repr__(slf: &Bound<'_, Self>) -> PyResult<String> {
+        let type_obj = slf.get_type();
+        let class_name = type_obj.name()?;
+        Ok(format!(
+            "{}({})",
+            class_name.as_ref(),
+            slf.borrow().__str__()?
+        ))
     }
 
     fn __str__(&self) -> PyResult<String> {
@@ -322,7 +327,10 @@ impl PyPersistedTrial {
     }
 }
 
-pub fn pyobject_to_persisted_trial(trial: &PyAny, study_id: u32) -> PyResult<PersistedTrial> {
+pub fn pyobject_to_persisted_trial(
+    trial: &Bound<'_, PyAny>,
+    study_id: u32,
+) -> PyResult<PersistedTrial> {
     let number = trial.getattr("number")?.extract::<u32>()?;
     let mut persisted_trial = PersistedTrial::new(study_id, number);
 
@@ -376,6 +384,6 @@ pub fn pyobject_to_persisted_trial(trial: &PyAny, study_id: u32) -> PyResult<Per
             "user_attrs and system_attrs must be a dict",
         ));
     }
-    persisted_trial.attrs = pyobj_to_attrs(user_attrs, system_attrs)?;
+    persisted_trial.attrs = pyobj_to_attrs(&user_attrs, &system_attrs)?;
     Ok(persisted_trial)
 }

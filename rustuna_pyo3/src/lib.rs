@@ -15,7 +15,7 @@ mod trial;
 /// A Python module implemented in Rust.
 #[pymodule]
 #[pyo3(name = "_rustuna")]
-fn rustuna(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+fn rustuna(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // trial
     m.add_class::<trial::PyTrial>()?;
     m.add_class::<trial::PyPersistedTrial>()?;

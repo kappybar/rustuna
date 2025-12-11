@@ -25,7 +25,7 @@ pub struct PySampler {
 impl PySampler {
     #[classmethod]
     #[pyo3(signature = (seed = None))]
-    fn tpe(_cls: &PyType, seed: Option<u64>) -> PyResult<Self> {
+    fn tpe(_cls: &Bound<'_, PyType>, seed: Option<u64>) -> PyResult<Self> {
         let rs_sampler = match seed {
             Some(seed) => TpeSampler::seed_from_u64(seed),
             None => TpeSampler::new(),
@@ -38,7 +38,7 @@ impl PySampler {
 
     #[classmethod]
     #[pyo3(signature = (seed = None))]
-    fn random(_cls: &PyType, seed: Option<u64>) -> PyResult<Self> {
+    fn random(_cls: &Bound<'_, PyType>, seed: Option<u64>) -> PyResult<Self> {
         let rs_sampler = match seed {
             Some(seed) => RandomSampler::seed_from_u64(seed),
             None => RandomSampler::new(),
@@ -52,7 +52,7 @@ impl PySampler {
     #[classmethod]
     #[pyo3(signature = (seed = None, population_size = 50, mutation_prob = None, crossover_prob = 0.9, swapping_prob = 0.1))]
     fn nsgaii(
-        _cls: &PyType,
+        _cls: &Bound<'_, PyType>,
         seed: Option<u64>,
         population_size: usize,
         mutation_prob: Option<f64>,
@@ -215,7 +215,7 @@ impl Sampler for PyObjectSampler {
                     (py_ctx, py_storage, name, py_distribution),
                 )
                 .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::SamplerError))?;
-            let py_result_ref = py_result.as_ref(py);
+            let py_result_ref = py_result.bind(py);
             let ret = py_result_ref
                 .extract::<f64>()
                 .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::SamplerError))?;
@@ -252,7 +252,7 @@ impl Sampler for PyObjectSampler {
                 optuna_compatible: None,
                 kind: "unset",
             };
-            let py_search_space = PyDict::new(py);
+            let py_search_space = PyDict::new_bound(py);
             for (k, v) in search_space {
                 let py_distribution = PyDistribution::new(v.clone(), k, &study_attrs).into_py(py);
                 py_search_space

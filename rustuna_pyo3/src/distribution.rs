@@ -41,7 +41,13 @@ impl From<PyDistribution> for Distribution {
 impl PyDistribution {
     #[classmethod]
     #[pyo3(signature = (low, high, log=false, step=None))]
-    pub fn float(_cls: &PyType, low: f64, high: f64, log: bool, step: Option<f64>) -> Self {
+    pub fn float(
+        _cls: &Bound<'_, PyType>,
+        low: f64,
+        high: f64,
+        log: bool,
+        step: Option<f64>,
+    ) -> Self {
         PyDistribution {
             distribution: Distribution::Float {
                 low,
@@ -55,7 +61,7 @@ impl PyDistribution {
 
     #[classmethod]
     #[pyo3(signature = (low, high, log=false, step=1))]
-    pub fn int(_cls: &PyType, low: i64, high: i64, log: bool, step: i64) -> Self {
+    pub fn int(_cls: &Bound<'_, PyType>, low: i64, high: i64, log: bool, step: i64) -> Self {
         PyDistribution {
             distribution: Distribution::Int {
                 low,
@@ -68,7 +74,7 @@ impl PyDistribution {
     }
 
     #[classmethod]
-    pub fn categorical(_cls: &PyType, choices: Vec<PyObject>) -> PyResult<Self> {
+    pub fn categorical(_cls: &Bound<'_, PyType>, choices: Vec<PyObject>) -> PyResult<Self> {
         let cardinality = choices.len();
         let category_labels = Python::with_gil(|py| {
             let mut labels: Vec<CategoryLabel> = Vec::with_capacity(choices.len());
@@ -95,7 +101,7 @@ impl PyDistribution {
                 step,
                 log,
             } => {
-                let dist = PyDict::new(py);
+                let dist = PyDict::new_bound(py);
                 dist.set_item("type", "FloatDistribution")?;
                 dist.set_item("low", low)?;
                 dist.set_item("high", high)?;
@@ -113,7 +119,7 @@ impl PyDistribution {
                 step,
                 log,
             } => {
-                let dist = PyDict::new(py);
+                let dist = PyDict::new_bound(py);
                 dist.set_item("type", "IntDistribution")?;
                 dist.set_item("low", low)?;
                 dist.set_item("high", high)?;
@@ -122,7 +128,7 @@ impl PyDistribution {
                 Ok(dist.into())
             }
             Distribution::Categorical { cardinality } => {
-                let dist = PyDict::new(py);
+                let dist = PyDict::new_bound(py);
                 dist.set_item("type", "CategoricalDistribution")?;
 
                 let mut elements: Vec<PyObject> = Vec::with_capacity(*cardinality);
@@ -142,15 +148,16 @@ impl PyDistribution {
                     ))?;
                     elements.push(category_label_to_pyobject(py, c));
                 }
-                let choices = PyList::new(py, &elements);
+                let choices = PyList::new_bound(py, &elements);
                 dist.set_item("choices", choices)?;
                 Ok(dist.into())
             }
         })
     }
 
-    fn __repr__(slf: &PyCell<Self>) -> PyResult<String> {
-        let class_name: &str = slf.get_type().name()?;
+    fn __repr__(slf: &Bound<'_, Self>) -> PyResult<String> {
+        let class_obj = slf.get_type();
+        let class_name = class_obj.name()?;
         Ok(format!("{}({:?})", class_name, slf.borrow().__str__()?))
     }
 
@@ -170,7 +177,7 @@ pub fn category_label_to_pyobject(py: Python, label: &CategoryLabel) -> PyObject
 }
 
 pub fn pyobject_to_category_label(py: Python, obj: PyObject) -> PyResult<CategoryLabel> {
-    let py_any = obj.as_ref(py);
+    let py_any = obj.bind(py);
     if py_any.is_instance_of::<PyBool>() {
         let x = py_any
             .extract::<bool>()
