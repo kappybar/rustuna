@@ -61,7 +61,7 @@ impl JsFloatDistribution {
     // For error handling, we define this function instead of `impl Into<JsValue> for ... {}`.
     pub fn to_js_value(&self) -> JsResult<JsValue> {
         let js_distribution = serde_wasm_bindgen::to_value(&self)
-            .map_err(|e| JsError::new(&format!("Failed to serialize distribution: {:?}", e)))?;
+            .map_err(|e| JsError::new(&format!("Failed to serialize distribution: {e:?}")))?;
         Ok(js_distribution)
     }
 }
@@ -88,7 +88,7 @@ impl JsIntDistribution {
 
     pub fn to_js_value(&self) -> JsResult<JsValue> {
         let js_distribution = serde_wasm_bindgen::to_value(&self)
-            .map_err(|e| JsError::new(&format!("Failed to serialize distribution: {:?}", e)))?;
+            .map_err(|e| JsError::new(&format!("Failed to serialize distribution: {e:?}")))?;
         Ok(js_distribution)
     }
 }
@@ -112,7 +112,7 @@ impl JsCategoricalDistribution {
     }
     pub fn to_js_value(&self) -> JsResult<JsValue> {
         let js_distribution = serde_wasm_bindgen::to_value(&self)
-            .map_err(|e| JsError::new(&format!("Failed to serialize distribution: {:?}", e)))?;
+            .map_err(|e| JsError::new(&format!("Failed to serialize distribution: {e:?}")))?;
         Ok(js_distribution)
     }
 }

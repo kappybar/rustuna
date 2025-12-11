@@ -29,7 +29,7 @@ impl JsTrial {
     pub fn suggest_float(&mut self, name: &str, low: f64, high: f64) -> JsResult<f64> {
         match self.0.suggest_float(name, low, high) {
             Ok(value) => Ok(value),
-            Err(err) => Err(JsError::new(&format!("{:?}", err))),
+            Err(err) => Err(JsError::new(&format!("{err:?}"))),
         }
     }
     // Use i32 since ECMAScript's number type can represent the values in [-2^53, 2^53].
@@ -38,7 +38,7 @@ impl JsTrial {
     pub fn suggest_int(&mut self, name: &str, low: i32, high: i32) -> JsResult<i32> {
         match self.0.suggest_int(name, low as i64, high as i64) {
             Ok(value) => Ok(value as i32),
-            Err(err) => Err(JsError::new(&format!("{:?}", err))),
+            Err(err) => Err(JsError::new(&format!("{err:?}"))),
         }
     }
     /// Suggest a value for a categorical parameter.
@@ -69,14 +69,14 @@ impl JsTrial {
 
         match self.0.suggest_categorical_enum(name, &category_labels) {
             Ok(value) => Ok(category_label_to_js_value(value)),
-            Err(err) => Err(JsError::new(&format!("{:?}", err))),
+            Err(err) => Err(JsError::new(&format!("{err:?}"))),
         }
     }
 
     pub fn set_user_attr(&mut self, key: &str, value: String) -> JsResult<()> {
         match self.0.set_user_attr(key, value) {
             Ok(_) => Ok(()),
-            Err(err) => Err(JsError::new(&format!("{:?}", err))),
+            Err(err) => Err(JsError::new(&format!("{err:?}"))),
         }
     }
 }
@@ -164,9 +164,9 @@ impl JsPersistedTrial {
         for (key, value) in user_attrs {
             let obj = js_sys::Object::new();
             js_sys::Reflect::set(&obj, &JsValue::from_str("key"), &JsValue::from_str(key))
-                .map_err(|e| JsError::new(&format!("Failed to set a property: {:?}", e)))?;
+                .map_err(|e| JsError::new(&format!("Failed to set a property: {e:?}")))?;
             js_sys::Reflect::set(&obj, &JsValue::from_str("value"), &JsValue::from_str(value))
-                .map_err(|e| JsError::new(&format!("Failed to set a property: {:?}", e)))?;
+                .map_err(|e| JsError::new(&format!("Failed to set a property: {e:?}")))?;
             attrs.push(&obj);
         }
         Ok(attrs.into())
@@ -183,13 +183,13 @@ impl JsPersistedTrial {
                 &JsValue::from_str("name"),
                 &JsValue::from_str(param_name),
             )
-            .map_err(|e| JsError::new(&format!("Failed to set a property: {:?}", e)))?;
+            .map_err(|e| JsError::new(&format!("Failed to set a property: {e:?}")))?;
             js_sys::Reflect::set(
                 &param_obj,
                 &JsValue::from_str("internal_value"),
                 &JsValue::from_f64(*internal_value),
             )
-            .map_err(|e| JsError::new(&format!("Failed to set a property: {:?}", e)))?;
+            .map_err(|e| JsError::new(&format!("Failed to set a property: {e:?}")))?;
 
             let distribution = self
                 .0
@@ -208,14 +208,14 @@ impl JsPersistedTrial {
                         &JsValue::from_str("external_value"),
                         &JsValue::from_f64(*internal_value),
                     )
-                    .map_err(|e| JsError::new(&format!("Failed to set a property: {:?}", e)))?;
+                    .map_err(|e| JsError::new(&format!("Failed to set a property: {e:?}")))?;
 
                     js_sys::Reflect::set(
                         &param_obj,
                         &JsValue::from_str("distribution"),
                         &JsFloatDistribution::new(*low, *high, *step, *log).to_js_value()?,
                     )
-                    .map_err(|e| JsError::new(&format!("Failed to set a property: {:?}", e)))?;
+                    .map_err(|e| JsError::new(&format!("Failed to set a property: {e:?}")))?;
                 }
                 Distribution::Int {
                     low,
@@ -228,14 +228,14 @@ impl JsPersistedTrial {
                         &JsValue::from_str("external_value"),
                         &JsValue::from_f64(*internal_value),
                     )
-                    .map_err(|e| JsError::new(&format!("Failed to set a property: {:?}", e)))?;
+                    .map_err(|e| JsError::new(&format!("Failed to set a property: {e:?}")))?;
 
                     js_sys::Reflect::set(
                         &param_obj,
                         &JsValue::from_str("distribution"),
                         &JsIntDistribution::new(*low, *high, *step, *log).to_js_value()?,
                     )
-                    .map_err(|e| JsError::new(&format!("Failed to set a property: {:?}", e)))?;
+                    .map_err(|e| JsError::new(&format!("Failed to set a property: {e:?}")))?;
                 }
                 Distribution::Categorical { cardinality } => {
                     let labels = match get_category_labels(&self.1, param_name, *cardinality) {
@@ -258,14 +258,14 @@ impl JsPersistedTrial {
                         }
                     };
                     js_sys::Reflect::set(&param_obj, &JsValue::from_str("external_value"), &c)
-                        .map_err(|e| JsError::new(&format!("Failed to set a property: {:?}", e)))?;
+                        .map_err(|e| JsError::new(&format!("Failed to set a property: {e:?}")))?;
 
                     js_sys::Reflect::set(
                         &param_obj,
                         &JsValue::from_str("distribution"),
                         &JsCategoricalDistribution::new(labels).to_js_value()?,
                     )
-                    .map_err(|e| JsError::new(&format!("Failed to set a property: {:?}", e)))?;
+                    .map_err(|e| JsError::new(&format!("Failed to set a property: {e:?}")))?;
                 }
             }
             params.push(&param_obj);
