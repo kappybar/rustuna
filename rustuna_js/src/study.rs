@@ -34,15 +34,15 @@ impl JsStudy {
                 sampler,
                 n_trials,
             )
-            .map_err(|err| JsError::new(&format!("{:?}", err)))
+            .map_err(|err| JsError::new(&format!("{err:?}")))
     }
 
     #[wasm_bindgen(getter)]
     pub fn best_trial(&mut self) -> JsResult<JsPersistedTrial> {
-        let number = get_best_trial(&self.0).map_err(|e| JsError::new(&format!("{:?}", e)))?;
+        let number = get_best_trial(&self.0).map_err(|e| JsError::new(&format!("{e:?}")))?;
         let (trials, study_attrs) = {
             let mut guard = self.0.storage.write().map_err(|e| {
-                JsError::new(&format!("Failed to acquire the storage guard: {:?}", e))
+                JsError::new(&format!("Failed to acquire the storage guard: {e:?}"))
             })?;
             let trials = guard
                 .get_trials(self.0.id)
@@ -72,6 +72,6 @@ pub fn js_create_study(study_name: String) -> JsResult<JsStudy> {
     let study = create_study(&study_name, storage, directions);
     match study {
         Ok(study) => Ok(study.into()),
-        Err(err) => Err(JsError::new(&format!("{:?}", err))),
+        Err(err) => Err(JsError::new(&format!("{err:?}"))),
     }
 }
