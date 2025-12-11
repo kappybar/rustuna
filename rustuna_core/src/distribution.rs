@@ -11,7 +11,7 @@ pub enum Distribution {
     Int {
         low: i64,
         high: i64,
-        step: Option<i64>,
+        step: i64,
         log: bool,
     },
     Categorical {
@@ -74,7 +74,7 @@ mod tests {
         let i = Distribution::Int {
             low: 0,
             high: 1,
-            step: None,
+            step: 1,
             log: false,
         };
         let c = Distribution::Categorical { cardinality: 3 };
@@ -117,13 +117,13 @@ mod tests {
         let i1 = Distribution::Int {
             low: 0,
             high: 1,
-            step: None,
+            step: 1,
             log: false,
         };
         let i2 = Distribution::Int {
             low: 0,
             high: 2,
-            step: None,
+            step: 1,
             log: false,
         };
         assert!(i1.check_compatibility(&i1).is_ok());
@@ -132,7 +132,7 @@ mod tests {
         let i1_log = Distribution::Int {
             low: 0,
             high: 1,
-            step: None,
+            step: 1,
             log: true,
         };
         assert!(i1.check_compatibility(&i1_log).is_err());

@@ -72,11 +72,11 @@ pub struct JsIntDistribution {
     pub type_: &'static str,
     pub low: i64,
     pub high: i64,
-    pub step: Option<i64>,
+    pub step: i64,
     pub log: bool,
 }
 impl JsIntDistribution {
-    pub fn new(low: i64, high: i64, step: Option<i64>, log: bool) -> Self {
+    pub fn new(low: i64, high: i64, step: i64, log: bool) -> Self {
         JsIntDistribution {
             type_: "IntDistribution",
             low,

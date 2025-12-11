@@ -885,7 +885,7 @@ mod tests {
         let int_dist = Distribution::Int {
             low: 0,
             high: 5,
-            step: None,
+            step: 1,
             log: false,
         };
 

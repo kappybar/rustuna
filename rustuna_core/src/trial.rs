@@ -113,7 +113,7 @@ impl Trial {
         let distribution = Distribution::Int {
             low,
             high,
-            step: None,
+            step: 1,
             log: false,
         };
         let param_value = self.suggest(name, &distribution)?;

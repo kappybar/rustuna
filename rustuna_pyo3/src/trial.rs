@@ -87,13 +87,13 @@ impl PyTrial {
         })?;
         Ok(value)
     }
-    #[pyo3(signature = (name, low, high, step=None, log=false))]
+    #[pyo3(signature = (name, low, high, step=1, log=false))]
     pub fn suggest_int(
         &mut self,
         name: &str,
         low: i64,
         high: i64,
-        step: Option<i64>,
+        step: i64,
         log: bool,
     ) -> PyResult<i64> {
         let dist = Distribution::Int {

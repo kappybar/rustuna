@@ -1277,10 +1277,10 @@ fn json_to_distribution(
                 .and_then(|v| v.as_bool())
                 .ok_or_else(|| Error::new(ErrorKind::StorageError))?;
             let step = match attributes.get("step") {
-                Some(Value::Null) | None => None,
-                Some(Value::Number(n)) => n.as_i64(),
-                Some(Value::String(s)) => s.parse::<i64>().ok(),
-                _ => None,
+                Some(Value::Null) | None => 1,
+                Some(Value::Number(n)) => n.as_i64().unwrap_or(1),
+                Some(Value::String(s)) => s.parse::<i64>().unwrap_or(1),
+                _ => 1,
             };
             Ok((
                 Distribution::Int {
@@ -1433,7 +1433,7 @@ mod tests {
         let int_dist = Distribution::Int {
             low: 0,
             high: 10,
-            step: None,
+            step: 1,
             log: false,
         };
         storage.set_trial_param(study_id, trial.number, "int", &int_dist, 5.0)?;
