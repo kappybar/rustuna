@@ -14,8 +14,8 @@ use crate::distribution::{
     category_label_to_pyobject, py_to_external_repr, pyobject_to_category_label, PyDistribution,
 };
 
-#[derive(Clone, Debug)]
-#[pyclass(name = "TrialState")]
+#[derive(Clone, Debug, PartialEq)]
+#[pyclass(name = "TrialState", eq, eq_int)]
 #[pyo3(module = "rustuna")]
 #[allow(clippy::upper_case_acronyms)]
 pub enum PyTrialState {
@@ -119,7 +119,7 @@ impl PyTrial {
         let mut category_labels: Vec<CategoryLabel> = Vec::with_capacity(choices.len());
         let category_labels = Python::with_gil(|py| {
             for choice in choices {
-                match pyobject_to_category_label(py, choice) {
+                match pyobject_to_category_label(choice.bind(py)) {
                     Ok(label) => category_labels.push(label),
                     Err(e) => return Err(e),
                 }
@@ -138,8 +138,7 @@ impl PyTrial {
                 }
             })?;
 
-        let return_value = Python::with_gil(|py| category_label_to_pyobject(py, label));
-        Ok(return_value)
+        Python::with_gil(|py| category_label_to_pyobject(py, label).map(|b| b.unbind()))
     }
     #[pyo3(signature = (key, value))]
     pub fn set_user_attr(&mut self, key: &str, value: String) -> PyResult<()> {
@@ -260,17 +259,20 @@ impl PyPersistedTrial {
 
     #[getter]
     fn params(&self) -> PyResult<HashMap<String, PyObject>> {
-        self.0
-            .internal_params
-            .iter()
-            .map(|(name, internal_repr)| {
-                let maybe_pyobj: PyResult<PyObject> = match self.0.distributions.get(name) {
-                    Some(dist) => py_to_external_repr(dist, *internal_repr, name, &self.1),
-                    None => Err(PyValueError::new_err(format!("No distribution for {name}"))),
-                };
-                maybe_pyobj.map(|v| (name.to_string(), v))
-            })
-            .collect()
+        Python::with_gil(|py| {
+            self.0
+                .internal_params
+                .iter()
+                .map(|(name, internal_repr)| {
+                    let maybe_pyobj: PyResult<PyObject> = match self.0.distributions.get(name) {
+                        Some(dist) => py_to_external_repr(py, dist, *internal_repr, name, &self.1)
+                            .map(|b| b.unbind()),
+                        None => Err(PyValueError::new_err(format!("No distribution for {name}"))),
+                    };
+                    maybe_pyobj.map(|v| (name.to_string(), v))
+                })
+                .collect()
+        })
     }
 
     #[getter]
@@ -303,23 +305,21 @@ impl PyPersistedTrial {
 
     fn __repr__(slf: &Bound<'_, Self>) -> PyResult<String> {
         let type_obj = slf.get_type();
-        let class_name = type_obj.name()?;
-        Ok(format!(
-            "{}({})",
-            class_name.as_ref(),
-            slf.borrow().__str__()?
-        ))
+        let class_name = type_obj.name()?.to_string_lossy().into_owned();
+        Ok(format!("{}({})", class_name, slf.borrow().__str__()?))
     }
 
     fn __str__(&self) -> PyResult<String> {
-        let params: PyResult<String> =
-            Python::with_gil(|py| Ok(self.params()?.to_object(py).to_string()));
+        let params = Python::with_gil(|py| -> PyResult<String> {
+            let py_params = self.params()?.into_pyobject(py)?;
+            Ok(py_params.str()?.to_str()?.to_owned())
+        })?;
         Ok(format!(
             "number={} state={:?} values={:?} params={} distributions={:?} user_attrs={:?} system_attrs={:?}",
             self.number()?,
             self.state()?,
             self.values(),
-            params?,
+            params,
             self.distributions()?,
             self.user_attrs()?,
             self.system_attrs()?,

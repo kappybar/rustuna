@@ -76,32 +76,28 @@ impl PyDistribution {
     #[classmethod]
     pub fn categorical(_cls: &Bound<'_, PyType>, choices: Vec<PyObject>) -> PyResult<Self> {
         let cardinality = choices.len();
-        let category_labels = Python::with_gil(|py| {
-            let mut labels: Vec<CategoryLabel> = Vec::with_capacity(choices.len());
-            for choice in choices {
-                match pyobject_to_category_label(py, choice) {
-                    Ok(label) => labels.push(label),
-                    Err(e) => return Err(e),
-                }
-            }
-            Ok(labels)
-        })?;
+        let mut labels: Vec<CategoryLabel> = Vec::with_capacity(choices.len());
+        let py = _cls.py();
+        for choice in choices {
+            let label = pyobject_to_category_label(choice.bind(py).as_any())?;
+            labels.push(label);
+        }
         let py_dist = PyDistribution {
             distribution: Distribution::Categorical { cardinality },
-            category_labels: Some(category_labels),
+            category_labels: Some(labels),
         };
         Ok(py_dist)
     }
 
-    pub fn to_dict(&self) -> PyResult<PyObject> {
-        Python::with_gil(|py| match &self.distribution {
+    pub fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        match &self.distribution {
             Distribution::Float {
                 low,
                 high,
                 step,
                 log,
             } => {
-                let dist = PyDict::new_bound(py);
+                let dist = PyDict::new(py);
                 dist.set_item("type", "FloatDistribution")?;
                 dist.set_item("low", low)?;
                 dist.set_item("high", high)?;
@@ -111,7 +107,7 @@ impl PyDistribution {
                 } else {
                     dist.set_item("step", py.None())?;
                 }
-                Ok(dist.into())
+                Ok(dist)
             }
             Distribution::Int {
                 low,
@@ -119,16 +115,16 @@ impl PyDistribution {
                 step,
                 log,
             } => {
-                let dist = PyDict::new_bound(py);
+                let dist = PyDict::new(py);
                 dist.set_item("type", "IntDistribution")?;
                 dist.set_item("low", low)?;
                 dist.set_item("high", high)?;
                 dist.set_item("log", log)?;
                 dist.set_item("step", step)?;
-                Ok(dist.into())
+                Ok(dist)
             }
             Distribution::Categorical { cardinality } => {
-                let dist = PyDict::new_bound(py);
+                let dist = PyDict::new(py);
                 dist.set_item("type", "CategoricalDistribution")?;
 
                 let mut elements: Vec<PyObject> = Vec::with_capacity(*cardinality);
@@ -146,13 +142,13 @@ impl PyDistribution {
                     let c = labels.get(i).ok_or(PyValueError::new_err(
                         "Internal representation of categorical value is out of range",
                     ))?;
-                    elements.push(category_label_to_pyobject(py, c));
+                    elements.push(category_label_to_pyobject(py, c)?.unbind());
                 }
-                let choices = PyList::new_bound(py, &elements);
+                let choices = PyList::new(py, &elements)?;
                 dist.set_item("choices", choices)?;
-                Ok(dist.into())
+                Ok(dist)
             }
-        })
+        }
     }
 
     fn __repr__(slf: &Bound<'_, Self>) -> PyResult<String> {
@@ -162,43 +158,45 @@ impl PyDistribution {
     }
 
     fn __str__(&self) -> PyResult<String> {
-        Python::with_gil(|_py| Ok(self.to_dict()?.to_string()))
+        Python::with_gil(|py| Ok(self.to_dict(py)?.to_string()))
     }
 }
 
-pub fn category_label_to_pyobject(py: Python, label: &CategoryLabel) -> PyObject {
+pub fn category_label_to_pyobject<'py>(
+    py: Python<'py>,
+    label: &CategoryLabel,
+) -> PyResult<Bound<'py, PyAny>> {
     match label {
-        CategoryLabel::String(s) => s.into_py(py),
-        CategoryLabel::Int(i) => i.into_py(py),
-        CategoryLabel::Float(f) => f.into_py(py),
-        CategoryLabel::Bool(b) => b.into_py(py),
-        CategoryLabel::None => py.None(),
+        CategoryLabel::String(s) => Ok(s.into_pyobject(py)?.into_any()),
+        CategoryLabel::Int(i) => Ok(i.into_pyobject(py)?.into_any()),
+        CategoryLabel::Float(f) => Ok(f.into_pyobject(py)?.into_any()),
+        CategoryLabel::Bool(b) => Ok(PyBool::new(py, *b).to_owned().into_any()),
+        CategoryLabel::None => Ok(py.None().into_bound(py)),
     }
 }
 
-pub fn pyobject_to_category_label(py: Python, obj: PyObject) -> PyResult<CategoryLabel> {
-    let py_any = obj.bind(py);
-    if py_any.is_instance_of::<PyBool>() {
-        let x = py_any
+pub fn pyobject_to_category_label(obj: &Bound<'_, PyAny>) -> PyResult<CategoryLabel> {
+    if obj.is_instance_of::<PyBool>() {
+        let x = obj
             .extract::<bool>()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to extract bool: {e:?}")))?;
         Ok(CategoryLabel::Bool(x))
-    } else if py_any.is_instance_of::<PyInt>() {
-        let x = py_any
+    } else if obj.is_instance_of::<PyInt>() {
+        let x = obj
             .extract::<i64>()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to extract i64: {e:?}")))?;
         Ok(CategoryLabel::Int(x))
-    } else if py_any.is_instance_of::<PyFloat>() {
-        let x = py_any
+    } else if obj.is_instance_of::<PyFloat>() {
+        let x = obj
             .extract::<f64>()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to extract f64: {e:?}")))?;
         Ok(CategoryLabel::Float(x))
-    } else if py_any.is_instance_of::<PyString>() {
-        let x = py_any
+    } else if obj.is_instance_of::<PyString>() {
+        let x = obj
             .extract::<String>()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to extract String: {e:?}")))?;
         Ok(CategoryLabel::String(x))
-    } else if py_any.is_none() {
+    } else if obj.is_none() {
         Ok(CategoryLabel::None)
     } else {
         Err(PyRuntimeError::new_err(
@@ -207,21 +205,16 @@ pub fn pyobject_to_category_label(py: Python, obj: PyObject) -> PyResult<Categor
     }
 }
 
-pub fn py_to_external_repr(
+pub fn py_to_external_repr<'py>(
+    py: Python<'py>,
     dist: &Distribution,
     internal_repr: f64,
     param_name: &str,
     study_attrs: &Attrs,
-) -> PyResult<PyObject> {
+) -> PyResult<Bound<'py, PyAny>> {
     match dist {
-        Distribution::Float { .. } => {
-            let external_value = Python::with_gil(|py| internal_repr.into_py(py));
-            Ok(external_value)
-        }
-        Distribution::Int { .. } => {
-            let external_value = Python::with_gil(|py| (internal_repr as i64).into_py(py));
-            Ok(external_value)
-        }
+        Distribution::Float { .. } => Ok(internal_repr.into_pyobject(py)?.into_any()),
+        Distribution::Int { .. } => Ok((internal_repr as i64).into_pyobject(py)?.into_any()),
         Distribution::Categorical { cardinality } => {
             match get_category_labels(study_attrs, param_name, *cardinality) {
                 Some(labels) => {
@@ -230,13 +223,9 @@ pub fn py_to_external_repr(
                         .ok_or(PyValueError::new_err(
                             "Internal representation of categorical value is out of range",
                         ))?;
-                    let external_value = Python::with_gil(|py| category_label_to_pyobject(py, c));
-                    Ok(external_value)
+                    category_label_to_pyobject(py, c)
                 }
-                None => {
-                    let external_value = Python::with_gil(|py| (internal_repr as i64).into_py(py));
-                    Ok(external_value)
-                }
+                None => Ok((internal_repr as i64).into_pyobject(py)?.into_any()),
             }
         }
     }

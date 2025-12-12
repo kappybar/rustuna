@@ -369,12 +369,7 @@ fn calc_crowding_distance(
             .collect::<Vec<_>>();
 
         let min_value = values.iter().cloned().find(|v| v.is_finite()).unwrap();
-        let max_value = values
-            .iter()
-            .cloned()
-            .filter(|v| v.is_finite())
-            .next_back()
-            .unwrap();
+        let max_value = values.iter().cloned().rfind(|v| v.is_finite()).unwrap();
 
         let mut width = max_value - min_value;
         if width <= 0.0 {
