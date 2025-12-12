@@ -264,6 +264,7 @@ fn check_trial_is_updatable(trial: &PersistedTrial) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::distribution::Distribution;
 
     #[test]
     fn test_create_study_does_not_reuse_study_id() -> Result<()> {
@@ -285,6 +286,38 @@ mod tests {
         assert_ne!(study3.id, study1_id);
 
         assert_eq!(storage.get_studies()?.len(), 2);
+        Ok(())
+    }
+
+    #[test]
+    fn set_trial_param_rejects_incompatible_distribution_across_trials() -> Result<()> {
+        let mut storage = InMemoryStorage::new();
+        let study_id = storage
+            .create_new_study("study", vec![Direction::Minimize])?
+            .id;
+
+        let float_dist = Distribution::Float {
+            low: 0.0,
+            high: 1.0,
+            step: None,
+            log: false,
+        };
+        let int_dist = Distribution::Int {
+            low: 0,
+            high: 5,
+            step: 1,
+            log: false,
+        };
+
+        let trial0_number = storage.create_new_trial(study_id)?.number;
+        storage.set_trial_param(study_id, trial0_number, "x", &float_dist, 0.5)?;
+
+        let trial1_number = storage.create_new_trial(study_id)?.number;
+        let err = storage
+            .set_trial_param(study_id, trial1_number, "x", &int_dist, 1.0)
+            .err()
+            .unwrap();
+        assert!(matches!(err.kind, ErrorKind::IncompatibleDistribution));
         Ok(())
     }
 }
