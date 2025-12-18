@@ -27,4 +27,3 @@ rustuna_storages = { path = "./rustuna_storages" }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 fanova = "0.2.0"
 rand = "0.8.5"
-tpe = "0.2.0"

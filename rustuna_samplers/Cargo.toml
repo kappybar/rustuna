@@ -11,4 +11,3 @@ license.workspace = true
 [dependencies]
 rand = { workspace = true }
 rustuna_core = { workspace = true }
-tpe = { workspace = true }

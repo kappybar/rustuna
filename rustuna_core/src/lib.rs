@@ -2,6 +2,7 @@ pub use error::{Error, ErrorKind};
 
 pub mod attr;
 pub mod distribution;
+pub mod parzen_estimator;
 pub mod sampler;
 pub mod storage;
 pub mod study;

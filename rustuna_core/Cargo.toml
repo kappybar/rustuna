@@ -11,3 +11,5 @@ readme = "README.md"
 
 [dependencies]
 rand = { workspace = true }
+rand_distr = "0.4.3"
+statrs = "0.18.0"
