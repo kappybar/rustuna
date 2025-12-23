@@ -26,7 +26,7 @@ fn log_diff_cdf(a: f64, b: f64) -> Result<f64, TruncNormError> {
     let fb = std_normal.cdf(b);
 
     // Require positive mass
-    if !(fb > fa) {
+    if fb <= fa {
         return Err(TruncNormError::TinyProbabilityMass(a, b));
     }
 
@@ -76,7 +76,7 @@ pub fn rvs<R: Rng + ?Sized>(
     let fb = std_normal.cdf(b); // Φ(b)
 
     let mass = fb - fa;
-    if !(mass > 0.0) {
+    if mass <= 0.0 {
         return Err(TruncNormError::TinyProbabilityMass(fa, fb));
     }
 
@@ -139,7 +139,7 @@ pub fn log_mass_interval(
     // Intersection of observed interval and truncation interval
     let a_adjusted = a.max(a_trunc);
     let b_adjusted = b.min(b_trunc);
-    if !(a_adjusted < b_adjusted) {
+    if a_adjusted >= b_adjusted {
         return Ok(f64::NEG_INFINITY);
     }
 

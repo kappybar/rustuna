@@ -246,8 +246,8 @@ impl MixtureOfProductDistribution {
 
             match dist {
                 Distributions::TruncNorm(d) => {
-                    for k in 0..n {
-                        if weighted_log_pdf[k] == f64::NEG_INFINITY {
+                    for (k, weight) in weighted_log_pdf.iter_mut().enumerate().take(n) {
+                        if *weight == f64::NEG_INFINITY {
                             continue;
                         }
                         let mu_k = d.mus[k];
@@ -260,7 +260,7 @@ impl MixtureOfProductDistribution {
                             sigma_k,
                         )
                         .unwrap_or(f64::NEG_INFINITY);
-                        weighted_log_pdf[k] += val;
+                        *weight += val;
                     }
                 }
                 Distributions::TruncLogNorm(d) => {
@@ -268,8 +268,8 @@ impl MixtureOfProductDistribution {
                         return f64::NEG_INFINITY;
                     }
                     let ln_x = x_val.ln();
-                    for k in 0..n {
-                        if weighted_log_pdf[k] == f64::NEG_INFINITY {
+                    for (k, weight) in weighted_log_pdf.iter_mut().enumerate().take(n) {
+                        if *weight == f64::NEG_INFINITY {
                             continue;
                         }
                         let mu_k = d.mus[k];
@@ -282,12 +282,12 @@ impl MixtureOfProductDistribution {
                             sigma_k,
                         )
                         .unwrap_or(f64::NEG_INFINITY);
-                        weighted_log_pdf[k] += val - ln_x;
+                        *weight += val - ln_x;
                     }
                 }
                 Distributions::DiscreteTruncNorm(d) => {
-                    for k in 0..n {
-                        if weighted_log_pdf[k] == f64::NEG_INFINITY {
+                    for (k, weight) in weighted_log_pdf.iter_mut().enumerate().take(n) {
+                        if *weight == f64::NEG_INFINITY {
                             continue;
                         }
                         let mu_k = d.mus[k];
@@ -305,8 +305,8 @@ impl MixtureOfProductDistribution {
                         let a_trunc = (d.low - mu_k) / sigma_k;
                         let b_trunc = (d.high - mu_k) / sigma_k;
                         match truncnorm::log_mass_interval(a, b, a_trunc, b_trunc) {
-                            Ok(v) => weighted_log_pdf[k] += v,
-                            Err(_) => weighted_log_pdf[k] = f64::NEG_INFINITY,
+                            Ok(v) => *weight += v,
+                            Err(_) => *weight = f64::NEG_INFINITY,
                         }
                     }
                 }
@@ -314,8 +314,8 @@ impl MixtureOfProductDistribution {
                     if x_val <= 0.0 {
                         return f64::NEG_INFINITY;
                     }
-                    for k in 0..n {
-                        if weighted_log_pdf[k] == f64::NEG_INFINITY {
+                    for (k, weight) in weighted_log_pdf.iter_mut().enumerate().take(n) {
+                        if *weight == f64::NEG_INFINITY {
                             continue;
                         }
                         let mu_k = d.mus[k];
@@ -335,15 +335,15 @@ impl MixtureOfProductDistribution {
                         let a_trunc = (d.low.ln() - mu_k) / sigma_k;
                         let b_trunc = (d.high.ln() - mu_k) / sigma_k;
                         match truncnorm::log_mass_interval(a, b, a_trunc, b_trunc) {
-                            Ok(v) => weighted_log_pdf[k] += v,
-                            Err(_) => weighted_log_pdf[k] = f64::NEG_INFINITY,
+                            Ok(v) => *weight += v,
+                            Err(_) => *weight = f64::NEG_INFINITY,
                         }
                     }
                 }
                 Distributions::Categorical(d) => {
                     let xi = x_val as usize;
-                    for k in 0..n {
-                        if weighted_log_pdf[k] == f64::NEG_INFINITY {
+                    for (k, weight) in weighted_log_pdf.iter_mut().enumerate().take(n) {
+                        if *weight == f64::NEG_INFINITY {
                             continue;
                         }
                         if xi >= d.weights[k].len() {
@@ -351,9 +351,9 @@ impl MixtureOfProductDistribution {
                         }
                         let p = d.weights[k][xi];
                         if p <= 0.0 {
-                            weighted_log_pdf[k] = f64::NEG_INFINITY;
+                            *weight = f64::NEG_INFINITY;
                         } else {
-                            weighted_log_pdf[k] += p.ln();
+                            *weight += p.ln();
                         }
                     }
                 }
@@ -361,12 +361,12 @@ impl MixtureOfProductDistribution {
         }
 
         // Add log weights
-        for k in 0..n {
+        for (k, weight) in weighted_log_pdf.iter_mut().enumerate().take(n) {
             let lw = self.log_weights[k];
             if lw.is_infinite() && lw.is_sign_negative() {
-                weighted_log_pdf[k] = f64::NEG_INFINITY;
+                *weight = f64::NEG_INFINITY;
             } else {
-                weighted_log_pdf[k] += lw;
+                *weight += lw;
             }
         }
 

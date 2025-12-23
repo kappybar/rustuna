@@ -1,5 +1,5 @@
-mod parzen_estimator;
+mod model;
 mod probability_distributions;
 mod truncnorm;
 
-pub use parzen_estimator::ParzenEstimator;
+pub use model::ParzenEstimator;

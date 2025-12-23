@@ -90,7 +90,7 @@ impl TpeSampler {
         let n_ei_candidates = 24;
         let samples_good = pe_good.sample(&mut self.rng, n_ei_candidates);
         let mut best_idx = 0usize;
-        let mut best_val = std::f64::NEG_INFINITY;
+        let mut best_val = f64::NEG_INFINITY;
         for (i, s) in samples_good.iter().enumerate() {
             let acquisition = pe_good.log_pdf(s) - pe_poor.log_pdf(s);
             if acquisition > best_val {
@@ -181,8 +181,8 @@ impl TpeSampler {
 
     fn gamma_for_single_objective(n: usize) -> usize {
         let threashold: usize = 25;
-        let gamma = std::cmp::min(((0.1 * n as f64).ceil()) as usize, threashold);
-        gamma
+
+        std::cmp::min(((0.1 * n as f64).ceil()) as usize, threashold)
     }
 
     fn weights_for_single_objective(x: usize) -> Vec<f64> {
