@@ -356,6 +356,41 @@ impl PyStorage {
         Ok((study_id, trial_number))
     }
 
+    fn get_trials_diff(
+        &mut self,
+        study_id: u32,
+        included_numbers: Vec<u32>,
+        trial_number_greater_than: i32,
+    ) -> PyResult<Vec<PyPersistedTrial>> {
+        let study_attrs = {
+            let mut guard = self
+                .storage
+                .write()
+                .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+            Arc::new(
+                guard
+                    .get_study(study_id)
+                    .map_err(err_to_exceptions)?
+                    .attrs
+                    .clone(),
+            )
+        };
+        let optuna_storage = self.optuna_compatible.as_ref().ok_or_else(|| {
+            PyRuntimeError::new_err("This storage does not support Optuna-compatible operations")
+        })?;
+        let mut guard = optuna_storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+        let trials = guard
+            .get_trials_diff_optuna(study_id, &included_numbers, trial_number_greater_than)
+            .map_err(err_to_exceptions)?;
+        let py_trials = trials
+            .into_iter()
+            .map(|t| PyPersistedTrial::new_with_arc(t, study_attrs.clone()))
+            .collect();
+        Ok(py_trials)
+    }
+
     fn set_trial_intermediate_value(
         &mut self,
         trial_id: u32,

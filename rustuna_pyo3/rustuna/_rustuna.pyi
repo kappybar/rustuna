@@ -246,6 +246,9 @@ class OptunaStorageProtocol(StorageProtocol, Protocol):
     def set_trial_intermediate_value(
         self, trial_id: int, step: int, intermediate_value: float
     ) -> None: ...
+    def get_trials_diff(
+        self, study_id: int, included_numbers: list[int], trial_number_greater_than: int
+    ) -> list[PersistedTrial]: ...
 
 class Storage:
     @classmethod
