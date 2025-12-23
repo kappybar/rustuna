@@ -93,108 +93,136 @@ impl Clone for Distributions {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct MixtureOfProductDistribution {
-    pub distributions: HashMap<String, Distributions>,
-    pub weights: Vec<f64>,
-    log_sum_weights: f64,
+    pub param_names: Vec<String>,          // Sorted param names
+    pub distributions: Vec<Distributions>, // Sorted distributions
+    pub log_weights: Vec<f64>,             // ln(w_i)
+    pub log_sum_weights: f64,              // ln(sum weights)
+    pub alias: WeightedAliasIndex<f64>,
+    pub n_kernels: usize,
 }
+
 impl MixtureOfProductDistribution {
-    pub fn new(distributions: HashMap<String, Distributions>, weights: Vec<f64>) -> Self {
-        let log_sum_weights = weights.iter().sum::<f64>().ln();
+    pub fn new(distributions_map: HashMap<String, Distributions>, weights: Vec<f64>) -> Self {
+        let sum_w = weights.iter().sum::<f64>();
+        let log_sum_weights = if sum_w > 0.0 {
+            sum_w.ln()
+        } else {
+            0.0_f64.ln()
+        };
+        let log_weights = weights
+            .iter()
+            .map(|&w| if w > 0.0 { w.ln() } else { f64::NEG_INFINITY })
+            .collect::<Vec<_>>();
+
+        let alias = WeightedAliasIndex::new(weights.clone())
+            .expect("weights must be non-empty and non-negative");
+
+        let mut param_names: Vec<String> = distributions_map.keys().cloned().collect();
+        param_names.sort();
+
+        let mut distributions: Vec<Distributions> = Vec::with_capacity(param_names.len());
+        for name in param_names.iter() {
+            distributions.push(distributions_map.get(name).unwrap().clone());
+        }
+
+        let n_kernels = weights.len();
+
         MixtureOfProductDistribution {
+            param_names,
             distributions,
-            weights,
-            log_sum_weights: log_sum_weights,
+            log_weights,
+            log_sum_weights,
+            alias,
+            n_kernels,
         }
     }
 
     pub fn sample(&self, rng: &mut StdRng, size: usize) -> Vec<HashMap<String, f64>> {
-        let indices_distribution = WeightedAliasIndex::new(self.weights.clone()).unwrap();
-        let active_indices: Vec<usize> = (0..size)
-            .map(|_| indices_distribution.sample(rng))
-            .collect();
+        let mut samples: Vec<HashMap<String, f64>> = Vec::with_capacity(size);
 
-        let mut samples: Vec<HashMap<String, f64>> = vec![];
-        let mut sorted_params: Vec<_> = self.distributions.keys().collect();
-        sorted_params.sort();
-        for i in active_indices.iter() {
-            let mut sample: HashMap<String, f64> = HashMap::new();
-            for param in sorted_params.iter() {
-                let distribution = &self.distributions[*param];
-                match distribution {
+        for _ in 0..size {
+            let k = self.alias.sample(rng); // Active kernel index
+            let mut sample = HashMap::with_capacity(self.param_names.len());
+            for (param, dist) in self.param_names.iter().zip(self.distributions.iter()) {
+                match dist {
                     Distributions::TruncNorm(d) => {
+                        let mu = d.mus[k];
+                        let sigma = d.sigmas[k];
                         let value = truncnorm::rvs(
                             rng,
-                            (d.low - d.mus[*i]) / d.sigmas[*i],
-                            (d.high - d.mus[*i]) / d.sigmas[*i],
-                            d.mus[*i],
-                            d.sigmas[*i],
+                            (d.low - mu) / sigma,
+                            (d.high - mu) / sigma,
+                            mu,
+                            sigma,
                         )
-                        .unwrap();
-                        sample.insert((*param).clone(), value);
+                        .unwrap(); // 実運用では unwrap を避けてエラー処理を
+                        sample.insert(param.clone(), value);
                     }
                     Distributions::TruncLogNorm(d) => {
-                        let log_scale_value = truncnorm::rvs(
+                        let mu = d.mus[k];
+                        let sigma = d.sigmas[k];
+                        let log_value = truncnorm::rvs(
                             rng,
-                            (d.low.ln() - d.mus[*i]) / d.sigmas[*i],
-                            (d.high.ln() - d.mus[*i]) / d.sigmas[*i],
-                            d.mus[*i],
-                            d.sigmas[*i],
+                            (d.low.ln() - mu) / sigma,
+                            (d.high.ln() - mu) / sigma,
+                            mu,
+                            sigma,
                         )
                         .unwrap();
-                        sample.insert((*param).clone(), log_scale_value.exp());
+                        sample.insert(param.clone(), log_value.exp());
                     }
                     Distributions::DiscreteTruncNorm(d) => {
+                        let mu = d.mus[k];
+                        let sigma = d.sigmas[k];
                         let value = truncnorm::rvs(
                             rng,
-                            (d.low - d.step / 2.0 - d.mus[*i]) / d.sigmas[*i],
-                            (d.high + d.step / 2.0 - d.mus[*i]) / d.sigmas[*i],
-                            d.mus[*i],
-                            d.sigmas[*i],
+                            (d.low - d.step / 2.0 - mu) / sigma,
+                            (d.high + d.step / 2.0 - mu) / sigma,
+                            mu,
+                            sigma,
                         )
                         .unwrap();
                         let discrete_value = (d.low + ((value - d.low) / d.step).round() * d.step)
                             .max(d.low)
                             .min(d.high);
-                        sample.insert((*param).clone(), discrete_value);
+                        sample.insert(param.clone(), discrete_value);
                     }
                     Distributions::DiscreteTruncLogNorm(d) => {
-                        let log_scale_value = truncnorm::rvs(
+                        let mu = d.mus[k];
+                        let sigma = d.sigmas[k];
+                        let log_value = truncnorm::rvs(
                             rng,
-                            ((d.low - d.step / 2.0).max(f64::MIN_POSITIVE).ln() - d.mus[*i])
-                                / d.sigmas[*i],
-                            ((d.high + d.step / 2.0).max(f64::MIN_POSITIVE).ln() - d.mus[*i])
-                                / d.sigmas[*i],
-                            d.mus[*i],
-                            d.sigmas[*i],
+                            ((d.low - d.step / 2.0).max(f64::MIN_POSITIVE).ln() - mu) / sigma,
+                            ((d.high + d.step / 2.0).max(f64::MIN_POSITIVE).ln() - mu) / sigma,
+                            mu,
+                            sigma,
                         )
                         .unwrap();
-                        let original_scale_value = log_scale_value.exp();
+                        let original = log_value.exp();
                         let discrete_value = (d.low
-                            + ((original_scale_value - d.low) / d.step).round() * d.step)
+                            + ((original - d.low) / d.step).round() * d.step)
                             .max(d.low)
                             .min(d.high);
-                        sample.insert((*param).clone(), discrete_value);
+                        sample.insert(param.clone(), discrete_value);
                     }
                     Distributions::Categorical(d) => {
-                        let probs = &d.weights[*i];
-
+                        let probs = &d.weights[k];
                         let sum: f64 = probs.iter().sum();
-                        assert!(sum >= 0.0, "Categorical distribution has negative total probability for parameter {}", param);
+                        assert!(sum > 0.0, "Categorical distribution has non-positive total probability for param {}", param);
 
+                        let u = rng.gen::<f64>() * sum;
                         let mut cum = 0.0;
-                        let u: f64 = rng.gen::<f64>() * sum; // No need to normalize, multiply by sum
-                        let mut chosen = None;
+                        let mut chosen = (probs.len() - 1) as f64; // fallback
                         for (category, &p) in probs.iter().enumerate() {
                             cum += p;
                             if u <= cum {
-                                chosen = Some(category as f64);
+                                chosen = category as f64;
                                 break;
                             }
                         }
-                        // Fallback: choose the last category if none was chosen due to ordering
-                        let cat = chosen.unwrap_or((probs.len() - 1) as f64);
-                        sample.insert((*param).clone(), cat);
+                        sample.insert(param.clone(), chosen);
                     }
                 }
             }
@@ -205,48 +233,45 @@ impl MixtureOfProductDistribution {
     }
 
     pub fn log_pdf(&self, x: &HashMap<String, f64>) -> f64 {
-        let n_kernels = self.weights.len();
-        let mut weighted_log_pdf = vec![0.0_f64; n_kernels];
+        let n = self.n_kernels;
+        let mut weighted_log_pdf = vec![0.0_f64; n];
 
-        let mut sorted_params: Vec<_> = self.distributions.keys().collect();
-        sorted_params.sort();
-        for param in sorted_params.iter() {
-            let distribution = &self.distributions[*param];
-            match distribution {
+        for (param, dist) in self.param_names.iter().zip(self.distributions.iter()) {
+            let x_val = match x.get(param) {
+                Some(v) => *v,
+                None => {
+                    return f64::NEG_INFINITY;
+                }
+            };
+
+            match dist {
                 Distributions::TruncNorm(d) => {
-                    for k in 0..n_kernels {
+                    for k in 0..n {
                         if weighted_log_pdf[k] == f64::NEG_INFINITY {
                             continue;
                         }
-
                         let mu_k = d.mus[k];
                         let sigma_k = d.sigmas[k];
                         let val = truncnorm::log_pdf(
-                            x[*param],
+                            x_val,
                             (d.low - mu_k) / sigma_k,
                             (d.high - mu_k) / sigma_k,
                             mu_k,
                             sigma_k,
                         )
                         .unwrap_or(f64::NEG_INFINITY);
-
                         weighted_log_pdf[k] += val;
                     }
                 }
                 Distributions::TruncLogNorm(d) => {
-                    let x_val = x[*param];
                     if x_val <= 0.0 {
-                        for k in 0..n_kernels {
-                            weighted_log_pdf[k] = f64::NEG_INFINITY;
-                        }
-                        continue;
+                        return f64::NEG_INFINITY;
                     }
                     let ln_x = x_val.ln();
-                    for k in 0..n_kernels {
+                    for k in 0..n {
                         if weighted_log_pdf[k] == f64::NEG_INFINITY {
                             continue;
                         }
-
                         let mu_k = d.mus[k];
                         let sigma_k = d.sigmas[k];
                         let val = truncnorm::log_pdf(
@@ -257,17 +282,14 @@ impl MixtureOfProductDistribution {
                             sigma_k,
                         )
                         .unwrap_or(f64::NEG_INFINITY);
-
                         weighted_log_pdf[k] += val - ln_x;
                     }
                 }
                 Distributions::DiscreteTruncNorm(d) => {
-                    let x_val = x[*param];
-                    for k in 0..n_kernels {
+                    for k in 0..n {
                         if weighted_log_pdf[k] == f64::NEG_INFINITY {
                             continue;
                         }
-
                         let mu_k = d.mus[k];
                         let sigma_k = d.sigmas[k];
                         let a = if x_val <= d.low {
@@ -282,31 +304,24 @@ impl MixtureOfProductDistribution {
                         };
                         let a_trunc = (d.low - mu_k) / sigma_k;
                         let b_trunc = (d.high - mu_k) / sigma_k;
-
                         match truncnorm::log_mass_interval(a, b, a_trunc, b_trunc) {
-                            Ok(val) => weighted_log_pdf[k] += val,
+                            Ok(v) => weighted_log_pdf[k] += v,
                             Err(_) => weighted_log_pdf[k] = f64::NEG_INFINITY,
                         }
                     }
                 }
                 Distributions::DiscreteTruncLogNorm(d) => {
-                    let x_val = x[*param];
                     if x_val <= 0.0 {
-                        for k in 0..n_kernels {
-                            weighted_log_pdf[k] = f64::NEG_INFINITY;
-                        }
-                        continue;
+                        return f64::NEG_INFINITY;
                     }
-                    for k in 0..n_kernels {
+                    for k in 0..n {
                         if weighted_log_pdf[k] == f64::NEG_INFINITY {
                             continue;
                         }
-
                         let mu_k = d.mus[k];
                         let sigma_k = d.sigmas[k];
                         let low_bound = (x_val - d.step / 2.0).max(f64::MIN_POSITIVE);
                         let high_bound = x_val + d.step / 2.0;
-
                         let a = if x_val <= d.low {
                             f64::NEG_INFINITY
                         } else {
@@ -319,21 +334,21 @@ impl MixtureOfProductDistribution {
                         };
                         let a_trunc = (d.low.ln() - mu_k) / sigma_k;
                         let b_trunc = (d.high.ln() - mu_k) / sigma_k;
-
                         match truncnorm::log_mass_interval(a, b, a_trunc, b_trunc) {
-                            Ok(val) => weighted_log_pdf[k] += val,
+                            Ok(v) => weighted_log_pdf[k] += v,
                             Err(_) => weighted_log_pdf[k] = f64::NEG_INFINITY,
                         }
                     }
                 }
                 Distributions::Categorical(d) => {
-                    let xi = x[*param] as usize;
-                    for k in 0..n_kernels {
+                    let xi = x_val as usize;
+                    for k in 0..n {
                         if weighted_log_pdf[k] == f64::NEG_INFINITY {
                             continue;
                         }
-
-                        assert!(xi < d.weights[k].len(), "Categorical index out of bounds");
+                        if xi >= d.weights[k].len() {
+                            return f64::NEG_INFINITY;
+                        }
                         let p = d.weights[k][xi];
                         if p <= 0.0 {
                             weighted_log_pdf[k] = f64::NEG_INFINITY;
@@ -345,13 +360,13 @@ impl MixtureOfProductDistribution {
             }
         }
 
-        // Add log mixture weights
-        for k in 0..n_kernels {
-            let w = self.weights[k];
-            if w <= 0.0 {
+        // Add log weights
+        for k in 0..n {
+            let lw = self.log_weights[k];
+            if lw.is_infinite() && lw.is_sign_negative() {
                 weighted_log_pdf[k] = f64::NEG_INFINITY;
             } else {
-                weighted_log_pdf[k] += w.ln();
+                weighted_log_pdf[k] += lw;
             }
         }
 
@@ -359,16 +374,15 @@ impl MixtureOfProductDistribution {
         let max = weighted_log_pdf
             .iter()
             .cloned()
-            .fold(f64::NEG_INFINITY, |a, b| if a > b { a } else { b });
+            .fold(f64::NEG_INFINITY, f64::max);
         if max.is_infinite() && max.is_sign_negative() {
             // All -inf -> return -inf
+
             return f64::NEG_INFINITY;
         }
         let sum_exp: f64 = weighted_log_pdf.iter().map(|v| (v - max).exp()).sum();
-
         // Weights are basically normalized, but sum to 1 may not hold due to float rounding error
-        let log_total_weight = self.log_sum_weights;
-        (max + sum_exp.ln()) - log_total_weight // Normalize by total weight to avoid float rounding error
+        (max + sum_exp.ln()) - self.log_sum_weights // Normalize by total weight to avoid float rounding error
     }
 }
 

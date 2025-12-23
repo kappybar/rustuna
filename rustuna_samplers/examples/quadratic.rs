@@ -24,7 +24,7 @@ fn main() -> Result<()> {
             Ok(vec![value])
         },
         sampler,
-        20,
+        50,
     )?;
 
     let best_trial_number = get_best_trial(&study)?;

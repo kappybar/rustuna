@@ -1,4 +1,5 @@
 use core::panic;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -88,86 +89,94 @@ impl TpeSampler {
 
         let n_ei_candidates = 24;
         let samples_good = pe_good.sample(&mut self.rng, n_ei_candidates);
-        let log_ei_values = samples_good
-            .iter()
-            .map(|s| pe_good.log_pdf(s) - pe_poor.log_pdf(s))
-            .collect::<Vec<f64>>();
-        let max_index = log_ei_values
-            .iter()
-            .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
-            .map(|(i, _)| i)
-            .unwrap();
-
-        Ok(samples_good[max_index].clone())
+        let mut best_idx = 0usize;
+        let mut best_val = std::f64::NEG_INFINITY;
+        for (i, s) in samples_good.iter().enumerate() {
+            let acquisition = pe_good.log_pdf(s) - pe_poor.log_pdf(s);
+            if acquisition > best_val {
+                best_val = acquisition;
+                best_idx = i;
+            }
+        }
+        Ok(samples_good[best_idx].clone())
     }
 
     fn split_trials_for_single_objective(
-        trials: &Vec<rustuna_core::trial::PersistedTrial>,
+        trials: &[rustuna_core::trial::PersistedTrial],
         direction: &Direction,
         gamma: usize,
     ) -> (
         Vec<rustuna_core::trial::PersistedTrial>,
         Vec<rustuna_core::trial::PersistedTrial>,
     ) {
-        let mut sorted_trials = trials.clone();
-        sorted_trials.sort_by(|a, b| {
-            let a_value = match &a.state_values {
+        let n = trials.len();
+        assert!(
+            gamma <= n,
+            "gamma must be less than or equal to the number of trials"
+        );
+
+        if n == 0 {
+            return (Vec::new(), Vec::new());
+        }
+
+        fn value_for(t: &rustuna_core::trial::PersistedTrial) -> f64 {
+            match &t.state_values {
                 TrialStateValues::Complete(v) => v[0],
                 _ => panic!("Unexpected non-complete trial found during TPE sampling"),
-            };
-            let b_value = match &b.state_values {
-                TrialStateValues::Complete(v) => v[0],
-                _ => panic!("Unexpected non-complete trial found during TPE sampling"),
-            };
+            }
+        }
+
+        let mut idx: Vec<usize> = (0..n).collect();
+        idx.select_nth_unstable_by(gamma, |&i, &j| {
+            let vi = value_for(&trials[i]);
+            let vj = value_for(&trials[j]);
+            let ord = vi.partial_cmp(&vj).unwrap_or(Ordering::Equal);
             match direction {
-                Direction::Minimize => a_value.partial_cmp(&b_value).unwrap(),
-                Direction::Maximize => b_value.partial_cmp(&a_value).unwrap(),
+                Direction::Minimize => ord,
+                Direction::Maximize => ord.reverse(),
             }
         });
-        let good_trials = sorted_trials
-            .iter()
-            .take(gamma)
-            .cloned()
-            .collect::<Vec<_>>();
-        let poor_trials = sorted_trials
-            .iter()
-            .skip(gamma)
-            .cloned()
-            .collect::<Vec<_>>();
+
+        let mut good_trials = Vec::with_capacity(gamma);
+        let mut poor_trials = Vec::with_capacity(n - gamma);
+        for &i in idx.iter().take(gamma) {
+            good_trials.push(trials[i].clone());
+        }
+        for &i in idx.iter().skip(gamma) {
+            poor_trials.push(trials[i].clone());
+        }
         (good_trials, poor_trials)
     }
 
     fn build_parzen_estimator(
-        trials: &Vec<rustuna_core::trial::PersistedTrial>,
+        trials: &[rustuna_core::trial::PersistedTrial],
         search_space: &HashMap<String, Distribution>,
     ) -> ParzenEstimator {
-        let mut sorted_keys: Vec<_> = search_space.keys().collect();
+        let mut sorted_keys: Vec<&String> = search_space.keys().collect();
         sorted_keys.sort();
-        let mut observations: HashMap<String, Vec<f64>> = HashMap::new();
+        let mut observations: HashMap<String, Vec<f64>> = HashMap::with_capacity(sorted_keys.len());
+
         for key in sorted_keys.iter() {
-            let mut vals = Vec::new();
-            for t in trials {
+            let mut vals = Vec::with_capacity(trials.len());
+            for t in trials.iter() {
                 if let Some(&v) = t.internal_params.get(*key) {
                     vals.push(v);
                 }
             }
             observations.insert((*key).clone(), vals);
         }
-        let n_weights = match observations.values().next() {
-            None => 0,
-            Some(first) => {
-                let first_len = first.len();
-                assert!(
-                    observations.values().all(|v| v.len() == first_len),
-                    "Observations have inconsistent lengths"
-                );
-                first_len
-            }
-        };
+
+        let n_weights = observations.values().next().map_or(0, |v| {
+            assert!(
+                observations.values().all(|w| w.len() == v.len()),
+                "Observations have inconsistent lengths"
+            );
+            v.len()
+        });
+
         let weights = Self::weights_for_single_objective(n_weights);
         let prior_weight = 1.0;
-        ParzenEstimator::new(observations, search_space.clone(), weights, prior_weight)
+        ParzenEstimator::new(&observations, search_space, &weights, prior_weight)
     }
 
     fn gamma_for_single_objective(n: usize) -> usize {

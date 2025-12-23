@@ -1,4 +1,5 @@
 use rand::rngs::StdRng;
+use std::cmp::Ordering;
 use std::{collections::HashMap, vec};
 
 use super::probability_distributions::CategoricalDistributions;
@@ -14,39 +15,42 @@ pub struct ParzenEstimator {
 
 impl ParzenEstimator {
     pub fn new(
-        observations: HashMap<String, Vec<f64>>,
-        search_space: HashMap<String, Distribution>,
-        weights: Vec<f64>,
+        observations: &HashMap<String, Vec<f64>>,
+        search_space: &HashMap<String, Distribution>,
+        weights: &[f64],
         prior_weight: f64,
     ) -> Self {
-        let n_observations = match observations.values().next() {
-            None => 0,
-            Some(first) => {
-                let first_len = first.len();
-                assert!(
-                    observations.values().all(|v| v.len() == first_len),
-                    "Parameter observations have inconsistent lengths"
-                );
-                first_len
-            }
-        };
+        let n_observations = observations.values().next().map_or(0, |v| {
+            assert!(
+                observations.values().all(|w| w.len() == v.len()),
+                "Observations have inconsistent lengths"
+            );
+            v.len()
+        });
         assert!(
             n_observations == weights.len(),
             "Number of observations and length of weights must be equal"
         );
 
-        let mut distributions = HashMap::<String, Distributions>::new();
-        for param_name in search_space.keys() {
-            distributions.insert(
-                param_name.clone(),
-                Self::calculate_distribution(&observations[param_name], &search_space[param_name]),
-            );
+        let mut keys: Vec<&String> = search_space.keys().collect();
+        keys.sort();
+
+        let mut distributions = HashMap::<String, Distributions>::with_capacity(keys.len());
+        for key in keys.iter() {
+            let obs_vec = observations.get(*key).map(|v| v.as_slice()).unwrap_or(&[]);
+            let dist = Self::calculate_distribution(obs_vec, &search_space[*key]);
+            distributions.insert((*key).clone(), dist);
         }
-        let weights_with_prior_weight = {
-            let mut w = weights.clone();
-            w.push(prior_weight);
-            w.iter().map(|&x| x / w.iter().sum::<f64>()).collect()
-        };
+
+        let mut weights_sum = weights.iter().sum::<f64>() + prior_weight;
+        if weights_sum == 0.0 {
+            weights_sum = (weights.len() + 1) as f64;
+        }
+        let mut weights_with_prior_weight: Vec<f64> = Vec::with_capacity(weights.len() + 1);
+        for &w in weights.iter() {
+            weights_with_prior_weight.push(w / weights_sum);
+        }
+        weights_with_prior_weight.push(prior_weight / weights_sum);
 
         ParzenEstimator {
             mixuture_distribution: MixtureOfProductDistribution::new(
@@ -56,10 +60,7 @@ impl ParzenEstimator {
         }
     }
 
-    fn calculate_distribution(
-        observations: &Vec<f64>,
-        search_space: &Distribution,
-    ) -> Distributions {
+    fn calculate_distribution(observations: &[f64], search_space: &Distribution) -> Distributions {
         match search_space {
             Distribution::Float { .. } | Distribution::Int { .. } => {
                 Self::calculate_numerical_distribution(observations, search_space)
@@ -71,11 +72,11 @@ impl ParzenEstimator {
     }
 
     fn calculate_numerical_distribution(
-        observations: &Vec<f64>,
+        observations: &[f64],
         search_space: &Distribution,
     ) -> Distributions {
         // Currently, we assume consider_prior=True, consider_endpoints=True, and consider_magic_clip=True.
-        let (low, high, step, log) = match search_space {
+        let (low, high, step_opt, log) = match search_space {
             Distribution::Float {
                 low,
                 high,
@@ -92,60 +93,63 @@ impl ParzenEstimator {
         };
 
         // Handle step
-        let (adjusted_low, adjusted_high) = match step {
+        let (mut adj_low, mut adj_high) = match step_opt {
             Some(s) => (low - s / 2.0, high + s / 2.0),
             None => (low, high),
         };
 
         // Handle log scale
-        let (adjusted_low, adjusted_high) = if log {
-            (adjusted_low.ln(), adjusted_high.ln())
-        } else {
-            (adjusted_low, adjusted_high)
-        };
-        let mus: Vec<f64> = observations
-            .iter()
-            .map(|&m| if log { m.ln() } else { m })
-            .chain(std::iter::once((adjusted_low + adjusted_high) / 2.0)) // Add prior
-            .collect();
+        if log {
+            adj_low = adj_low.ln();
+            adj_high = adj_high.ln();
+        }
 
-        let sigmas = {
-            let mus = &mus[0..mus.len() - 1]; // Exclude prior for sigma calculation
-            let sorted_indices = {
-                let mut indices: Vec<usize> = (0..mus.len()).collect();
-                indices.sort_by(|&i, &j| mus[i].partial_cmp(&mus[j]).unwrap());
-                indices
-            };
-            let sorted_mus = sorted_indices.iter().map(|&i| mus[i]).collect::<Vec<f64>>();
-            let sorted_mus_with_endpoints: Vec<f64> = {
-                let mut v = vec![adjusted_low];
-                v.extend(sorted_mus.iter());
-                v.push(adjusted_high);
-                v
-            };
-            let mut sorted_sigmas = Vec::<f64>::new();
-            for i in 1..(sorted_mus_with_endpoints.len() - 1) {
-                let left_diff = sorted_mus_with_endpoints[i] - sorted_mus_with_endpoints[i - 1];
-                let right_diff = sorted_mus_with_endpoints[i + 1] - sorted_mus_with_endpoints[i];
+        let mut mus: Vec<f64> = Vec::with_capacity(observations.len() + 1);
+        for &m in observations.iter() {
+            mus.push(if log { m.ln() } else { m });
+        }
+        mus.push((adj_low + adj_high) / 2.0); // Add prior
+
+        let mut sigmas: Vec<f64> = Vec::with_capacity(mus.len());
+        if mus.len() == 1 {
+            // Case: prior only
+            sigmas.push(adj_high - adj_low);
+        } else {
+            let m = mus.len() - 1; // exclude prior
+            let mut idx_vals: Vec<(usize, f64)> = (0..m).map(|i| (i, mus[i])).collect();
+            idx_vals.sort_by(|a, b| match a.1.partial_cmp(&b.1) {
+                Some(ord) => ord,
+                None => Ordering::Equal,
+            });
+            let sorted_mus: Vec<f64> = idx_vals.iter().map(|&(_, v)| v).collect();
+            let mut extended = Vec::with_capacity(sorted_mus.len() + 2);
+            extended.push(adj_low);
+            extended.extend_from_slice(&sorted_mus);
+            extended.push(adj_high);
+
+            let mut sorted_sigmas: Vec<f64> = Vec::with_capacity(m);
+            for i in 1..(extended.len() - 1) {
+                let left_diff = extended[i] - extended[i - 1];
+                let right_diff = extended[i + 1] - extended[i];
                 sorted_sigmas.push(left_diff.max(right_diff));
             }
-            // Reorder sigmas to match original mus order
-            let mut sigmas = vec![0.0; sorted_sigmas.len()];
-            for (i, &sorted_idx) in sorted_indices.iter().enumerate() {
-                sigmas[sorted_idx] = sorted_sigmas[i];
+
+            sigmas.resize(m, 0.0);
+            for (i, &(orig_idx, _)) in idx_vals.iter().enumerate() {
+                sigmas[orig_idx] = sorted_sigmas[i];
             }
-            sigmas.push(adjusted_high - adjusted_low); // Sigma for prior
+            // Sigma for prior
+            sigmas.push(adj_high - adj_low);
 
-            let maxsigma = adjusted_high - adjusted_low;
-            let minsigma =
-                (adjusted_high - adjusted_low) / (100.0f64.min(1.0 + sigmas.len() as f64));
-            sigmas
-                .iter()
-                .map(|&s| s.clamp(minsigma, maxsigma))
-                .collect()
-        };
+            // Clamp (minsigma, maxsigma)
+            let maxsigma = adj_high - adj_low;
+            let minsigma = (adj_high - adj_low) / (100.0f64.min(1.0 + sigmas.len() as f64));
+            for s in sigmas.iter_mut() {
+                *s = s.clamp(minsigma, maxsigma);
+            }
+        }
 
-        match (step, log) {
+        match (step_opt, log) {
             (None, false) => Distributions::TruncNorm(TruncNormDistributions {
                 mus,
                 sigmas,
@@ -180,7 +184,7 @@ impl ParzenEstimator {
     }
 
     fn calculate_categorical_distribution(
-        observations: &Vec<f64>,
+        observations: &[f64],
         search_space: &Distribution,
     ) -> Distributions {
         let cardinality = match search_space {
@@ -189,16 +193,18 @@ impl ParzenEstimator {
         };
 
         if observations.is_empty() {
-            // Return uniform distribution if there is no observation
-            let weights: Vec<Vec<f64>> = vec![vec![1.0 / cardinality as f64; cardinality]];
-            return Distributions::Categorical(CategoricalDistributions { weights });
+            // Case: prior only
+            let weights_row = vec![1.0 / cardinality as f64; cardinality];
+            return Distributions::Categorical(CategoricalDistributions {
+                weights: vec![weights_row],
+            });
         }
 
         let n_kernels = observations.len() + 1; // +1 for prior
         let prior_mass_per_kernel = 1.0 / (n_kernels as f64);
         let mut weights: Vec<Vec<f64>> = vec![vec![prior_mass_per_kernel; cardinality]; n_kernels];
-        let observed_indices: Vec<usize> = observations.iter().map(|&v| v as usize).collect();
-        for (i, &col) in observed_indices.iter().enumerate() {
+        for (i, &v) in observations.iter().enumerate() {
+            let col = v as usize;
             assert!(
                 col < cardinality,
                 "Observed index {} out of range (cardinality = {})",
@@ -207,13 +213,14 @@ impl ParzenEstimator {
             );
             weights[i][col] += 1.0;
         }
-        let row_sums: Vec<f64> = weights.iter().map(|row| row.iter().sum::<f64>()).collect();
-        for i in 0..weights.len() {
-            let denom = if row_sums[i] == 0.0 { 1.0 } else { row_sums[i] };
-            for j in 0..weights[i].len() {
-                weights[i][j] /= denom;
+        for row in weights.iter_mut() {
+            let s = row.iter().sum::<f64>();
+            let denom = if s == 0.0 { 1.0 } else { s };
+            for x in row.iter_mut() {
+                *x /= denom;
             }
         }
+
         Distributions::Categorical(CategoricalDistributions { weights })
     }
 
@@ -283,7 +290,7 @@ mod tests {
         );
 
         let parzen_estimator =
-            ParzenEstimator::new(observations, search_space, vec![0.2, 0.5, 0.3], 1.0);
+            ParzenEstimator::new(&observations, &search_space, &vec![0.2, 0.5, 0.3], 1.0);
         let mut rng = StdRng::seed_from_u64(42);
         let samples = parzen_estimator.sample(&mut rng, 10);
         assert_eq!(samples.len(), 10);
