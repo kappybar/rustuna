@@ -18,13 +18,13 @@ fn main() -> Result<()> {
     study.optimize(
         |mut t| {
             let x = t.suggest_float("x", 0.0, 10.0)?;
-            let y = t.suggest_float("y", 0.0, 10.0)?;
-            let value = (x - 3.0).powi(2) + (y - 5.0).powi(2);
+            let y = t.suggest_int("y", 0, 10)?;
+            let value = (x - 3.0).powi(2) + (y - 5).pow(2) as f64;
             println!("{:2} x: {}, y: {}, value: {}", t.number, x, y, value);
             Ok(vec![value])
         },
         sampler,
-        100,
+        50,
     )?;
 
     let best_trial_number = get_best_trial(&study)?;

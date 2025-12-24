@@ -8,7 +8,7 @@ use pyo3::{prelude::*, types::PyType};
 
 use rustuna_core::sampler::{Context as SamplerContext, RandomSampler, Sampler};
 use rustuna_core::storage::Storage;
-use rustuna_samplers::tpe::TpeSampler;
+use rustuna_samplers::tpe::{TpeConfig, TpeSampler};
 
 use crate::distribution::PyDistribution;
 use crate::storage::PyStorage;
@@ -24,10 +24,19 @@ pub struct PySampler {
 #[pymethods]
 impl PySampler {
     #[classmethod]
-    #[pyo3(signature = (seed = None))]
-    fn tpe(_cls: &Bound<'_, PyType>, seed: Option<u64>) -> PyResult<Self> {
+    #[pyo3(signature = (seed = None, n_startup_trials = 10, multivariate = true))]
+    fn tpe(
+        _cls: &Bound<'_, PyType>,
+        seed: Option<u64>,
+        n_startup_trials: usize,
+        multivariate: bool,
+    ) -> PyResult<Self> {
         let rs_sampler = match seed {
-            Some(seed) => TpeSampler::seed_from_u64(seed),
+            Some(seed) => TpeSampler::from_config(TpeConfig {
+                seed: Some(seed),
+                n_startup_trials,
+                multivariate,
+            }),
             None => TpeSampler::new(),
         };
         Ok(PySampler {
