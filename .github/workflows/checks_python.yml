@@ -37,7 +37,6 @@ jobs:
         working-directory: rustuna_pyo3
         run: |
           uv sync --group dev
-          uv pip install -U git+https://github.com/c-bata/optuna.git@follow-up-storage-test-case
       - name: Run tests
         working-directory: rustuna_pyo3
         run: uv run --no-sync pytest tests/

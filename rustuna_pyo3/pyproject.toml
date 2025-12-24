@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "rustuna"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
@@ -22,7 +22,8 @@ ignore = ["E501"]
 
 [dependency-groups]
 dev = [
-    "optuna",
+    # TODO(c-bata): Change to optuna/optuna@master after merging Optuna PR #6391.
+    "optuna @ git+https://github.com/c-bata/optuna.git@follow-up-storage-test-case",
     "ruff",
     "pytest",
     "mypy",
