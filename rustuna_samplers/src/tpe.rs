@@ -118,6 +118,9 @@ impl TpeSampler {
         if n == 0 {
             return (Vec::new(), Vec::new());
         }
+        if gamma == n {
+            return (trials.to_vec(), Vec::new());
+        }
 
         fn value_for(t: &rustuna_core::trial::PersistedTrial) -> f64 {
             match &t.state_values {
