@@ -22,8 +22,7 @@ ignore = ["E501"]
 
 [dependency-groups]
 dev = [
-    # TODO(c-bata): Change to optuna/optuna@master after merging Optuna PR #6391.
-    "optuna @ git+https://github.com/c-bata/optuna.git@follow-up-storage-test-case",
+    "optuna @ git+https://github.com/optuna/optuna.git@master",
     "ruff",
     "pytest",
     "mypy",
