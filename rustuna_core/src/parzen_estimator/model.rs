@@ -27,17 +27,17 @@ impl ParzenEstimator {
             );
             v.len()
         });
-        assert!(
-            n_observations == weights.len(),
+        assert_eq!(
+            n_observations, weights.len(),
             "Number of observations and length of weights must be equal"
         );
 
-        let mut keys: Vec<&String> = search_space.keys().collect();
+        let mut keys: Vec<_> = search_space.keys().collect();
         keys.sort();
 
-        let mut distributions = HashMap::<String, Distributions>::with_capacity(keys.len());
+        let mut distributions = HashMap::with_capacity(keys.len());
         for key in keys.iter() {
-            let obs_vec = observations.get(*key).map(|v| v.as_slice()).unwrap_or(&[]);
+            let obs_vec = observations.get(*key).map(Vec::as_slice).unwrap_or(&[]);
             let dist = Self::calculate_distribution(obs_vec, &search_space[*key]);
             distributions.insert((*key).clone(), dist);
         }
@@ -53,7 +53,7 @@ impl ParzenEstimator {
             .map(|w| w / weights_sum)
             .collect();
 
-        ParzenEstimator {
+        Self {
             mixuture_distribution: MixtureOfProductDistribution::new(
                 distributions,
                 weights_with_prior_weight,
