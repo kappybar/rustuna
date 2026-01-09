@@ -103,35 +103,34 @@ impl ParzenEstimator {
             adj_high = adj_high.ln();
         }
 
-        let mut mus: Vec<f64> = Vec::with_capacity(observations.len() + 1);
-        for &m in observations.iter() {
-            mus.push(if log { m.ln() } else { m });
-        }
-        mus.push((adj_low + adj_high) / 2.0); // Add prior
+        let mus = observations
+            .iter()
+            .map(|&m| if log { m.ln() } else { m })
+            .chain(std::iter::once((adj_low + adj_high) / 2.0)) // Add prior
+            .collect::<Vec<_>>();
 
-        let mut sigmas: Vec<f64> = Vec::with_capacity(mus.len());
+        let mut sigmas = Vec::with_capacity(mus.len());
         if mus.len() == 1 {
             // Case: prior only
             sigmas.push(adj_high - adj_low);
         } else {
             let m = mus.len() - 1; // exclude prior
             let mut idx_vals: Vec<(usize, f64)> = (0..m).map(|i| (i, mus[i])).collect();
-            idx_vals.sort_by(|a, b| match a.1.partial_cmp(&b.1) {
-                Some(ord) => ord,
-                None => Ordering::Equal,
-            });
-            let sorted_mus: Vec<f64> = idx_vals.iter().map(|&(_, v)| v).collect();
-            let mut extended = Vec::with_capacity(sorted_mus.len() + 2);
-            extended.push(adj_low);
-            extended.extend_from_slice(&sorted_mus);
-            extended.push(adj_high);
+            idx_vals.sort_by(|a, b| a.1.total_cmp(&b.1));
+            let sorted_mus = idx_vals.iter().map(|&(_, v)| v);
+            
+            let extended = std::iter::once(adj_low)
+                .chain(sorted_mus)
+                .chain(std::iter::once(adj_high))
+                .collect::<Vec<_>>();
 
-            let mut sorted_sigmas: Vec<f64> = Vec::with_capacity(m);
-            for i in 1..(extended.len() - 1) {
-                let left_diff = extended[i] - extended[i - 1];
-                let right_diff = extended[i + 1] - extended[i];
-                sorted_sigmas.push(left_diff.max(right_diff));
-            }
+            let sorted_sigmas = (1..(extended.len() - 1))
+                .map(|i| {
+                    let left_diff = extended[i] - extended[i - 1];
+                    let right_diff = extended[i + 1] - extended[i];
+                    left_diff.max(right_diff)
+                })
+                .collect::<Vec<_>>();
 
             sigmas.resize(m, 0.0);
             for (i, &(orig_idx, _)) in idx_vals.iter().enumerate() {
@@ -142,7 +141,7 @@ impl ParzenEstimator {
 
             // Clamp (minsigma, maxsigma)
             let maxsigma = adj_high - adj_low;
-            let minsigma = (adj_high - adj_low) / (100.0f64.min(1.0 + sigmas.len() as f64));
+            let minsigma = (adj_high - adj_low) / (100.0_f64.min(1.0 + sigmas.len() as f64));
             for s in sigmas.iter_mut() {
                 *s = s.clamp(minsigma, maxsigma);
             }
