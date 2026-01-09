@@ -42,15 +42,16 @@ impl ParzenEstimator {
             distributions.insert((*key).clone(), dist);
         }
 
-        let mut weights_sum = weights.iter().sum::<f64>() + prior_weight;
-        if weights_sum == 0.0 {
-            weights_sum = (weights.len() + 1) as f64;
-        }
-        let mut weights_with_prior_weight: Vec<f64> = Vec::with_capacity(weights.len() + 1);
-        for &w in weights.iter() {
-            weights_with_prior_weight.push(w / weights_sum);
-        }
-        weights_with_prior_weight.push(prior_weight / weights_sum);
+        let weights_sum = {
+            let s = weights.iter().sum::<f64>() + prior_weight;
+            if s == 0.0 { (weights.len() + 1) as f64 } else { s }
+        };
+
+        let weights_with_prior_weight= weights
+            .iter()
+            .chain(std::iter::once(&prior_weight))
+            .map(|w| w / weights_sum)
+            .collect();
 
         ParzenEstimator {
             mixuture_distribution: MixtureOfProductDistribution::new(
