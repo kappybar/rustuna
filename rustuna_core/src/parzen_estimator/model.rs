@@ -93,13 +93,11 @@ impl ParzenEstimator {
             _ => unreachable!("Invalid distribution type for numerical calculation"),
         };
 
-        // Handle step
         let (mut adj_low, mut adj_high) = match step_opt {
             Some(s) => (low - s / 2.0, high + s / 2.0),
             None => (low, high),
         };
 
-        // Handle log scale
         if log {
             adj_low = adj_low.ln();
             adj_high = adj_high.ln();
