@@ -133,8 +133,8 @@ impl ParzenEstimator {
                 .collect::<Vec<_>>();
 
             sigmas.resize(m, 0.0);
-            for (i, &(orig_idx, _)) in idx_vals.iter().enumerate() {
-                sigmas[orig_idx] = sorted_sigmas[i];
+            for (&(orig_idx, _), &sigma) in idx_vals.iter().zip(sorted_sigmas.iter()) {
+                sigmas[orig_idx] = sigma;
             }
             // Sigma for prior
             sigmas.push(adj_high - adj_low);
@@ -160,22 +160,22 @@ impl ParzenEstimator {
                 low,
                 high,
             }),
-            (Some(value), false) => {
+            (Some(step), false) => {
                 Distributions::DiscreteTruncNorm(DiscreteTruncNormDistributions {
                     mus,
                     sigmas,
                     low,
                     high,
-                    step: value,
+                    step,
                 })
             }
-            (Some(value), true) => {
+            (Some(step), true) => {
                 Distributions::DiscreteTruncLogNorm(DiscreteTruncLogNormDistributions {
                     mus,
                     sigmas,
                     low,
                     high,
-                    step: value,
+                    step,
                 })
             }
         }
