@@ -95,7 +95,7 @@ impl ParzenEstimator {
     }
 }
 
-pub trait NumericalDistributionBuilder {
+pub(crate) trait NumericalDistributionBuilder {
     fn calculate_numerical_distribution(
         &self,
         observations: &[f64],
@@ -103,7 +103,7 @@ pub trait NumericalDistributionBuilder {
     ) -> Distributions;
 }
 
-pub trait CategoricalDistributionBuilder {
+pub(crate) trait CategoricalDistributionBuilder {
     fn calculate_categorical_distribution(
         &self,
         observations: &[f64],
