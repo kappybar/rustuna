@@ -247,14 +247,12 @@ impl CategoricalDistributionBuilder for DefaultCategoricalDistributionBuilder {
 
         let n_kernels = observations.len() + 1; // +1 for prior
         let prior_mass_per_kernel = 1.0 / (n_kernels as f64);
-        let mut weights: Vec<Vec<f64>> = vec![vec![prior_mass_per_kernel; cardinality]; n_kernels];
+        let mut weights = vec![vec![prior_mass_per_kernel; cardinality]; n_kernels];
         for (i, &v) in observations.iter().enumerate() {
             let col = v as usize;
             assert!(
                 col < cardinality,
-                "Observed index {} out of range (cardinality = {})",
-                col,
-                cardinality
+                "Observed index {col} out of range (cardinality = {cardinality})",
             );
             weights[i][col] += 1.0;
         }
