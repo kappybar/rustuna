@@ -20,7 +20,12 @@ const SCHEMA_SQL: &str = include_str!("sqlite3_schema.sql");
 
 impl SQLite3Storage {
     pub fn new(file_path: &str) -> Result<SQLite3Storage> {
-        let conn = Connection::open(file_path).map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        let conn = Connection::open(file_path).map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Failed to open {}: {}", file_path, e),
+            )
+        })?;
         Ok(SQLite3Storage {
             conn: Mutex::new(conn),
         })
@@ -31,8 +36,12 @@ impl SQLite3Storage {
             .conn
             .lock()
             .map_err(|_| Error::new(ErrorKind::StorageError))?;
-        conn.execute_batch(SCHEMA_SQL)
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        conn.execute_batch(SCHEMA_SQL).map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Failed to create database: {}", e),
+            )
+        })?;
         Ok(())
     }
 
@@ -48,7 +57,12 @@ impl SQLite3Storage {
                 |row| row.get(0),
             )
             .optional()
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
         if study_exists.is_none() {
             return Err(Error::new(ErrorKind::StudyNotFound));
         }
@@ -75,7 +89,12 @@ impl CachedStorageBackend for SQLite3Storage {
                 |row| row.get(0),
             )
             .optional()
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
         if existing.is_some() {
             return Err(Error::new(ErrorKind::DuplicatedStudy));
         }
@@ -85,7 +104,12 @@ impl CachedStorageBackend for SQLite3Storage {
                 "INSERT INTO studies (study_name) VALUES (?)",
                 params![study_name],
             )
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
 
         let study_id = guard.last_insert_rowid() as u32;
 
@@ -99,7 +123,7 @@ impl CachedStorageBackend for SQLite3Storage {
                 "INSERT INTO study_directions (direction, study_id, objective) VALUES (?, ?, ?)",
                 params![direction_str, study_id, objective as u32],
             )
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {}", e)))?;
         }
         drop(guard);
 
@@ -123,7 +147,12 @@ impl CachedStorageBackend for SQLite3Storage {
              VALUES (NULL, ?, ?, datetime('now','localtime'), NULL)",
                 params![study_id, "RUNNING"],
             )
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
 
         let trial_id = guard.last_insert_rowid() as u32;
         let number: u32 = guard
@@ -132,14 +161,24 @@ impl CachedStorageBackend for SQLite3Storage {
                 params![study_id, trial_id],
                 |row| row.get(0),
             )
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
 
         guard
             .execute(
                 "UPDATE trials SET number = ? WHERE trial_id = ?",
                 params![number, trial_id],
             )
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
 
         let datetime_start: Option<String> = guard
             .query_row(
@@ -148,11 +187,21 @@ impl CachedStorageBackend for SQLite3Storage {
                 |row| row.get(0),
             )
             .optional()
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
 
         let mut trial = PersistedTrial::new(study_id, number);
         if let Some(dt) = datetime_start {
-            let v = serde_json::to_string(&dt).map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            let v = serde_json::to_string(&dt).map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("JSON serialization failed: {}", e),
+                )
+            })?;
             trial
                 .attrs
                 .insert(AttrKey::System("datetime_start".to_string()), v);
@@ -180,7 +229,12 @@ impl CachedStorageBackend for SQLite3Storage {
                 |row| row.get(0),
             )
             .optional()
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
         let trial_id = trial_id.ok_or(Error::new(ErrorKind::TrialNotFound))?;
 
         let distribution_json = distribution_to_json(distribution, None);
@@ -192,7 +246,12 @@ impl CachedStorageBackend for SQLite3Storage {
                  param_value=excluded.param_value, distribution_json=excluded.distribution_json",
                 params![trial_id, name, value, distribution_json],
             )
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
         Ok(())
     }
 
@@ -213,7 +272,12 @@ impl CachedStorageBackend for SQLite3Storage {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
         let (trial_id, current_state) = result.ok_or(Error::new(ErrorKind::TrialNotFound))?;
 
         if matches!(current_state.as_str(), "COMPLETE" | "FAIL" | "PRUNED") {
@@ -227,7 +291,7 @@ impl CachedStorageBackend for SQLite3Storage {
                         "UPDATE trials SET state = ?, datetime_complete = CURRENT_TIMESTAMP WHERE trial_id = ?",
                         params!["COMPLETE", trial_id],
                     )
-                    .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                    .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {}", e)))?;
 
                 if !values.is_empty() {
                     let placeholders = values
@@ -242,9 +306,12 @@ impl CachedStorageBackend for SQLite3Storage {
                     );
                     let params: Vec<&dyn rusqlite::ToSql> =
                         values.iter().map(|v| v as &dyn rusqlite::ToSql).collect();
-                    guard
-                        .execute(&sql, params.as_slice())
-                        .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                    guard.execute(&sql, params.as_slice()).map_err(|e| {
+                        Error::with_reason(
+                            ErrorKind::StorageError,
+                            format!("Database query failed: {}", e),
+                        )
+                    })?;
                 }
             }
             TrialStateValues::Pruned => {
@@ -253,7 +320,7 @@ impl CachedStorageBackend for SQLite3Storage {
                         "UPDATE trials SET state = ?, datetime_complete = CURRENT_TIMESTAMP WHERE trial_id = ?",
                         params!["PRUNED", trial_id],
                     )
-                    .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                    .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {}", e)))?;
             }
             TrialStateValues::Fail => {
                 guard
@@ -261,7 +328,7 @@ impl CachedStorageBackend for SQLite3Storage {
                         "UPDATE trials SET state = ?, datetime_complete = CURRENT_TIMESTAMP WHERE trial_id = ?",
                         params!["FAIL", trial_id],
                     )
-                    .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                    .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {}", e)))?;
             }
             TrialStateValues::Running => {
                 guard
@@ -269,7 +336,12 @@ impl CachedStorageBackend for SQLite3Storage {
                         "UPDATE trials SET state = ?, datetime_complete = NULL WHERE trial_id = ?",
                         params!["RUNNING", trial_id],
                     )
-                    .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                    .map_err(|e| {
+                        Error::with_reason(
+                            ErrorKind::StorageError,
+                            format!("Database query failed: {}", e),
+                        )
+                    })?;
             }
             TrialStateValues::Waiting => {
                 guard
@@ -277,7 +349,12 @@ impl CachedStorageBackend for SQLite3Storage {
                         "UPDATE trials SET state = ?, datetime_complete = NULL WHERE trial_id = ?",
                         params!["WAITING", trial_id],
                     )
-                    .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                    .map_err(|e| {
+                        Error::with_reason(
+                            ErrorKind::StorageError,
+                            format!("Database query failed: {}", e),
+                        )
+                    })?;
             }
         }
 
@@ -293,27 +370,57 @@ impl CachedStorageBackend for SQLite3Storage {
         let mut studies = Vec::new();
         let mut stmt = guard
             .prepare("SELECT study_id, study_name FROM studies ORDER BY study_id")
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
         let rows = stmt
             .query_map([], |row| {
                 Ok((row.get::<_, u32>(0)?, row.get::<_, String>(1)?))
             })
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
         for row in rows {
-            let (study_id, study_name) = row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            let (study_id, study_name) = row.map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
 
             // Directions
             let mut directions_stmt = guard
                 .prepare(
                     "SELECT direction FROM study_directions WHERE study_id = ? ORDER BY objective",
                 )
-                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                .map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {}", e),
+                    )
+                })?;
             let directions_rows = directions_stmt
                 .query_map(params![study_id], |row| row.get::<_, String>(0))
-                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                .map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {}", e),
+                    )
+                })?;
             let mut directions: Vec<Direction> = Vec::new();
             for d in directions_rows {
-                let dir_str = d.map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                let dir_str = d.map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {}", e),
+                    )
+                })?;
                 let dir = match dir_str.as_str() {
                     "MINIMIZE" => Direction::Minimize,
                     "MAXIMIZE" => Direction::Maximize,
@@ -327,27 +434,57 @@ impl CachedStorageBackend for SQLite3Storage {
 
             let mut user_stmt = guard
                 .prepare("SELECT key, value_json FROM study_user_attributes WHERE study_id = ?")
-                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                .map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {}", e),
+                    )
+                })?;
             let user_rows = user_stmt
                 .query_map(params![study_id], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
                 })
-                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                .map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {}", e),
+                    )
+                })?;
             for row in user_rows {
-                let (key, value) = row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                let (key, value) = row.map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {}", e),
+                    )
+                })?;
                 attrs.insert(AttrKey::User(key), value);
             }
 
             let mut system_stmt = guard
                 .prepare("SELECT key, value_json FROM study_system_attributes WHERE study_id = ?")
-                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                .map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {}", e),
+                    )
+                })?;
             let system_rows = system_stmt
                 .query_map(params![study_id], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
                 })
-                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                .map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {}", e),
+                    )
+                })?;
             for row in system_rows {
-                let (key, value) = row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                let (key, value) = row.map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {}", e),
+                    )
+                })?;
                 attrs.insert(AttrKey::System(key), value);
             }
 
@@ -386,7 +523,7 @@ impl CachedStorageBackend for SQLite3Storage {
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .optional()
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {}", e)))?;
         let (trial_id, state_str, datetime_start, datetime_complete) =
             trial_row.ok_or(Error::new(ErrorKind::TrialNotFound))?;
         let state_values = match state_str.as_str() {
@@ -397,12 +534,27 @@ impl CachedStorageBackend for SQLite3Storage {
                 // Query to trial_values table.
                 let mut stmt = guard
                     .prepare("SELECT value FROM trial_values WHERE trial_id = ? ORDER BY objective")
-                    .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                    .map_err(|e| {
+                        Error::with_reason(
+                            ErrorKind::StorageError,
+                            format!("Database query failed: {}", e),
+                        )
+                    })?;
                 let values = stmt
                     .query_map(params![trial_id], |row| row.get(0))
-                    .map_err(|_e| Error::new(ErrorKind::StorageError))?
+                    .map_err(|e| {
+                        Error::with_reason(
+                            ErrorKind::StorageError,
+                            format!("Database query failed: {}", e),
+                        )
+                    })?
                     .collect::<std::result::Result<Vec<f64>, _>>()
-                    .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                    .map_err(|e| {
+                        Error::with_reason(
+                            ErrorKind::StorageError,
+                            format!("Database query failed: {}", e),
+                        )
+                    })?;
                 TrialStateValues::Complete(values)
             }
             _ => return Err(Error::new(ErrorKind::StorageError)),
@@ -415,7 +567,7 @@ impl CachedStorageBackend for SQLite3Storage {
             .prepare(
                 "SELECT param_name, param_value, distribution_json FROM trial_params WHERE trial_id = ?",
             )
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {}", e)))?;
         let param_rows = stmt
             .query_map(params![trial_id], |row| {
                 Ok((
@@ -424,10 +576,19 @@ impl CachedStorageBackend for SQLite3Storage {
                     row.get::<_, String>(2)?,
                 ))
             })
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
         for row in param_rows {
-            let (name, value, distribution_json) =
-                row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            let (name, value, distribution_json) = row.map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
             let (distribution, _labels) = json_to_distribution(&distribution_json)?;
             distributions.insert(name.clone(), distribution);
             internal_params.insert(name, value);
@@ -437,43 +598,81 @@ impl CachedStorageBackend for SQLite3Storage {
         let mut attrs: Attrs = Attrs::new();
         let mut stmt = guard
             .prepare("SELECT key, value_json FROM trial_user_attributes WHERE trial_id = ?")
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
         let user_attr_rows = stmt
             .query_map(params![trial_id], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
         for row in user_attr_rows {
-            let (key, value) = row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            let (key, value) = row.map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
             attrs.insert(AttrKey::User(key), value);
         }
 
         // System attributes
         let mut stmt = guard
             .prepare("SELECT key, value_json FROM trial_system_attributes WHERE trial_id = ?")
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
         let system_attr_rows = stmt
             .query_map(params![trial_id], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
         for row in system_attr_rows {
-            let (key, value) = row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            let (key, value) = row.map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
             attrs.insert(AttrKey::System(key), value);
         }
         if let std::collections::hash_map::Entry::Vacant(e) =
             attrs.entry(AttrKey::System("trial_id".to_string()))
         {
-            let v = serde_json::to_string(&trial_id)
-                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            let v = serde_json::to_string(&trial_id).map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("JSON serialization failed: {}", e),
+                )
+            })?;
             e.insert(v);
         }
         if let Some(dt) = datetime_start {
             if let std::collections::hash_map::Entry::Vacant(e) =
                 attrs.entry(AttrKey::System("datetime_start".to_string()))
             {
-                let v =
-                    serde_json::to_string(&dt).map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                let v = serde_json::to_string(&dt).map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("JSON serialization failed: {}", e),
+                    )
+                })?;
                 e.insert(v);
             }
         }
@@ -481,8 +680,12 @@ impl CachedStorageBackend for SQLite3Storage {
             if let std::collections::hash_map::Entry::Vacant(e) =
                 attrs.entry(AttrKey::System("datetime_complete".to_string()))
             {
-                let v =
-                    serde_json::to_string(&dt).map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                let v = serde_json::to_string(&dt).map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("JSON serialization failed: {}", e),
+                    )
+                })?;
                 e.insert(v);
             }
         }
@@ -490,7 +693,7 @@ impl CachedStorageBackend for SQLite3Storage {
         // Intermediate values
         let mut stmt = guard
             .prepare("SELECT step, intermediate_value, intermediate_value_type FROM trial_intermediate_values WHERE trial_id = ? ORDER BY step")
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {}", e)))?;
         let intermediate_rows = stmt
             .query_map(params![trial_id], |row| {
                 Ok((
@@ -499,11 +702,20 @@ impl CachedStorageBackend for SQLite3Storage {
                     row.get::<_, String>(2)?,
                 ))
             })
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
         let mut intermediate_entries = Vec::new();
         for row in intermediate_rows {
-            let (step, stored_value, value_type) =
-                row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            let (step, stored_value, value_type) = row.map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
             intermediate_entries.push(IntermediateValueEntry {
                 step,
                 value: stored_value,
@@ -511,8 +723,12 @@ impl CachedStorageBackend for SQLite3Storage {
             });
         }
         if !intermediate_entries.is_empty() {
-            let intermediate_json = serde_json::to_string(&intermediate_entries)
-                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            let intermediate_json = serde_json::to_string(&intermediate_entries).map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("JSON serialization failed: {}", e),
+                )
+            })?;
             attrs.insert(
                 AttrKey::System("intermediate_values".to_string()),
                 intermediate_json,
@@ -548,9 +764,12 @@ impl CachedStorageBackend for SQLite3Storage {
             .conn
             .lock()
             .map_err(|_| Error::new(ErrorKind::StorageError))?;
-        let tx = guard
-            .transaction()
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        let tx = guard.transaction().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Database query failed: {}", e),
+            )
+        })?;
 
         if !user_attrs.is_empty() {
             let placeholders = user_attrs
@@ -579,9 +798,15 @@ impl CachedStorageBackend for SQLite3Storage {
                 if error_on_overwrite {
                     return Err(Error::new(ErrorKind::AttrOverwriteNotAllowed));
                 }
-                return Err(Error::new(ErrorKind::StorageError));
+                return Err(Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed"),
+                ));
             } else if res.is_err() {
-                return Err(Error::new(ErrorKind::StorageError));
+                return Err(Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed"),
+                ));
             }
         }
 
@@ -612,14 +837,24 @@ impl CachedStorageBackend for SQLite3Storage {
                 if error_on_overwrite {
                     return Err(Error::new(ErrorKind::AttrOverwriteNotAllowed));
                 }
-                return Err(Error::new(ErrorKind::StorageError));
+                return Err(Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed"),
+                ));
             } else if res.is_err() {
-                return Err(Error::new(ErrorKind::StorageError));
+                return Err(Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed"),
+                ));
             }
         }
 
-        tx.commit()
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        tx.commit().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Database query failed: {}", e),
+            )
+        })?;
         Ok(())
     }
 
@@ -650,12 +885,20 @@ impl CachedStorageBackend for SQLite3Storage {
                 |row| row.get(0),
             )
             .optional()
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
         let trial_id = trial_id.ok_or(Error::new(ErrorKind::TrialNotFound))?;
 
-        let tx = guard
-            .transaction()
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        let tx = guard.transaction().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Database query failed: {}", e),
+            )
+        })?;
 
         if !user_attrs.is_empty() {
             let placeholders = user_attrs
@@ -684,9 +927,15 @@ impl CachedStorageBackend for SQLite3Storage {
                 if error_on_overwrite {
                     return Err(Error::new(ErrorKind::AttrOverwriteNotAllowed));
                 }
-                return Err(Error::new(ErrorKind::StorageError));
+                return Err(Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed"),
+                ));
             } else if res.is_err() {
-                return Err(Error::new(ErrorKind::StorageError));
+                return Err(Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed"),
+                ));
             }
         }
 
@@ -717,14 +966,24 @@ impl CachedStorageBackend for SQLite3Storage {
                 if error_on_overwrite {
                     return Err(Error::new(ErrorKind::AttrOverwriteNotAllowed));
                 }
-                return Err(Error::new(ErrorKind::StorageError));
+                return Err(Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed"),
+                ));
             } else if res.is_err() {
-                return Err(Error::new(ErrorKind::StorageError));
+                return Err(Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed"),
+                ));
             }
         }
 
-        tx.commit()
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        tx.commit().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Database query failed: {}", e),
+            )
+        })?;
         Ok(())
     }
 
@@ -766,9 +1025,12 @@ impl CachedStorageBackend for SQLite3Storage {
         sql.push(')');
         sql.push_str(" ORDER BY trial_id");
 
-        let mut stmt = guard
-            .prepare(&sql)
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        let mut stmt = guard.prepare(&sql).map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Database query failed: {}", e),
+            )
+        })?;
 
         let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
         let trial_rows = stmt
@@ -781,12 +1043,22 @@ impl CachedStorageBackend for SQLite3Storage {
                     row.get::<_, Option<String>>(4)?,
                 ))
             })
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
 
         let mut trials = Vec::new();
         for row in trial_rows {
             let (trial_id, number, state_str, datetime_start, datetime_complete) =
-                row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                row.map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {}", e),
+                    )
+                })?;
 
             // Parse state and get values if COMPLETE
             let state_values = match state_str.as_str() {
@@ -798,12 +1070,27 @@ impl CachedStorageBackend for SQLite3Storage {
                         .prepare(
                             "SELECT value FROM trial_values WHERE trial_id = ? ORDER BY objective",
                         )
-                        .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                        .map_err(|e| {
+                            Error::with_reason(
+                                ErrorKind::StorageError,
+                                format!("Database query failed: {}", e),
+                            )
+                        })?;
                     let values = values_stmt
                         .query_map(params![trial_id], |row| row.get(0))
-                        .map_err(|_e| Error::new(ErrorKind::StorageError))?
+                        .map_err(|e| {
+                            Error::with_reason(
+                                ErrorKind::StorageError,
+                                format!("Database query failed: {}", e),
+                            )
+                        })?
                         .collect::<std::result::Result<Vec<f64>, _>>()
-                        .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                        .map_err(|e| {
+                            Error::with_reason(
+                                ErrorKind::StorageError,
+                                format!("Database query failed: {}", e),
+                            )
+                        })?;
                     TrialStateValues::Complete(values)
                 }
                 _ => return Err(Error::new(ErrorKind::StorageError)),
@@ -814,7 +1101,7 @@ impl CachedStorageBackend for SQLite3Storage {
             let mut internal_params = HashMap::new();
             let mut params_stmt = guard
                 .prepare("SELECT param_name, param_value, distribution_json FROM trial_params WHERE trial_id = ?")
-                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {}", e)))?;
             let param_rows = params_stmt
                 .query_map(params![trial_id], |row| {
                     Ok((
@@ -823,10 +1110,19 @@ impl CachedStorageBackend for SQLite3Storage {
                         row.get::<_, String>(2)?,
                     ))
                 })
-                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                .map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {}", e),
+                    )
+                })?;
             for row in param_rows {
-                let (name, value, distribution_json) =
-                    row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                let (name, value, distribution_json) = row.map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {}", e),
+                    )
+                })?;
                 let (distribution, _labels) = json_to_distribution(&distribution_json)?;
                 distributions.insert(name.clone(), distribution);
                 internal_params.insert(name, value);
@@ -836,43 +1132,81 @@ impl CachedStorageBackend for SQLite3Storage {
             let mut attrs: Attrs = Attrs::new();
             let mut user_attrs_stmt = guard
                 .prepare("SELECT key, value_json FROM trial_user_attributes WHERE trial_id = ?")
-                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                .map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {}", e),
+                    )
+                })?;
             let user_attr_rows = user_attrs_stmt
                 .query_map(params![trial_id], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
                 })
-                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                .map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {}", e),
+                    )
+                })?;
             for row in user_attr_rows {
-                let (key, value) = row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                let (key, value) = row.map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {}", e),
+                    )
+                })?;
                 attrs.insert(AttrKey::User(key), value);
             }
 
             // Get system attributes
             let mut system_attrs_stmt = guard
                 .prepare("SELECT key, value_json FROM trial_system_attributes WHERE trial_id = ?")
-                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                .map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {}", e),
+                    )
+                })?;
             let system_attr_rows = system_attrs_stmt
                 .query_map(params![trial_id], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
                 })
-                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                .map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {}", e),
+                    )
+                })?;
             for row in system_attr_rows {
-                let (key, value) = row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                let (key, value) = row.map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {}", e),
+                    )
+                })?;
                 attrs.insert(AttrKey::System(key), value);
             }
             if let std::collections::hash_map::Entry::Vacant(e) =
                 attrs.entry(AttrKey::System("trial_id".to_string()))
             {
-                let v = serde_json::to_string(&trial_id)
-                    .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                let v = serde_json::to_string(&trial_id).map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("JSON serialization failed: {}", e),
+                    )
+                })?;
                 e.insert(v);
             }
             if let Some(dt) = datetime_start.clone() {
                 if let std::collections::hash_map::Entry::Vacant(e) =
                     attrs.entry(AttrKey::System("datetime_start".to_string()))
                 {
-                    let v = serde_json::to_string(&dt)
-                        .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                    let v = serde_json::to_string(&dt).map_err(|e| {
+                        Error::with_reason(
+                            ErrorKind::StorageError,
+                            format!("JSON serialization failed: {}", e),
+                        )
+                    })?;
                     e.insert(v);
                 }
             }
@@ -880,8 +1214,12 @@ impl CachedStorageBackend for SQLite3Storage {
                 if let std::collections::hash_map::Entry::Vacant(e) =
                     attrs.entry(AttrKey::System("datetime_complete".to_string()))
                 {
-                    let v = serde_json::to_string(&dt)
-                        .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                    let v = serde_json::to_string(&dt).map_err(|e| {
+                        Error::with_reason(
+                            ErrorKind::StorageError,
+                            format!("JSON serialization failed: {}", e),
+                        )
+                    })?;
                     e.insert(v);
                 }
             }
@@ -889,7 +1227,7 @@ impl CachedStorageBackend for SQLite3Storage {
             // Intermediate values
             let mut intermediate_stmt = guard
                 .prepare("SELECT step, intermediate_value, intermediate_value_type FROM trial_intermediate_values WHERE trial_id = ? ORDER BY step")
-                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {}", e)))?;
             let intermediate_rows = intermediate_stmt
                 .query_map(params![trial_id], |row| {
                     Ok((
@@ -898,11 +1236,20 @@ impl CachedStorageBackend for SQLite3Storage {
                         row.get::<_, String>(2)?,
                     ))
                 })
-                .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                .map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {}", e),
+                    )
+                })?;
             let mut intermediate_entries = Vec::new();
             for row in intermediate_rows {
-                let (step, stored_value, value_type) =
-                    row.map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                let (step, stored_value, value_type) = row.map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {}", e),
+                    )
+                })?;
                 intermediate_entries.push(IntermediateValueEntry {
                     step,
                     value: stored_value,
@@ -910,8 +1257,13 @@ impl CachedStorageBackend for SQLite3Storage {
                 });
             }
             if !intermediate_entries.is_empty() {
-                let intermediate_json = serde_json::to_string(&intermediate_entries)
-                    .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+                let intermediate_json =
+                    serde_json::to_string(&intermediate_entries).map_err(|e| {
+                        Error::with_reason(
+                            ErrorKind::StorageError,
+                            format!("JSON serialization failed: {}", e),
+                        )
+                    })?;
                 attrs.insert(
                     AttrKey::System("intermediate_values".to_string()),
                     intermediate_json,
@@ -941,42 +1293,47 @@ impl CachedStorageBackend for SQLite3Storage {
                 "DELETE FROM trial_values WHERE trial_id IN (SELECT trial_id FROM trials WHERE study_id = ?)",
                 params![study_id]
             )
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {}", e)))?;
         guard
             .execute(
                 "DELETE FROM trial_intermediate_values WHERE trial_id IN (SELECT trial_id FROM trials WHERE study_id = ?)",
                 params![study_id]
             )
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {}", e)))?;
         guard
             .execute(
                 "DELETE FROM trial_params WHERE trial_id IN (SELECT trial_id FROM trials WHERE study_id = ?)",
                 params![study_id]
             )
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {}", e)))?;
         guard
             .execute(
                 "DELETE FROM trial_system_attributes WHERE trial_id IN (SELECT trial_id FROM trials WHERE study_id = ?)",
                 params![study_id]
             )
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {}", e)))?;
         guard
             .execute(
                 "DELETE FROM trial_user_attributes WHERE trial_id IN (SELECT trial_id FROM trials WHERE study_id = ?)",
                 params![study_id]
             )
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {}", e)))?;
         guard
             .execute(
                 "DELETE FROM trial_heartbeats WHERE trial_id IN (SELECT trial_id FROM trials WHERE study_id = ?)",
                 params![study_id]
             )
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {}", e)))?;
 
         // Delete trials
         guard
             .execute("DELETE FROM trials WHERE study_id = ?", params![study_id])
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
 
         // Delete study-related records
         guard
@@ -984,24 +1341,44 @@ impl CachedStorageBackend for SQLite3Storage {
                 "DELETE FROM study_system_attributes WHERE study_id = ?",
                 params![study_id],
             )
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
         guard
             .execute(
                 "DELETE FROM study_user_attributes WHERE study_id = ?",
                 params![study_id],
             )
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
         guard
             .execute(
                 "DELETE FROM study_directions WHERE study_id = ?",
                 params![study_id],
             )
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
 
         // Finally delete the study
         guard
             .execute("DELETE FROM studies WHERE study_id = ?", params![study_id])
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
 
         Ok(())
     }
@@ -1020,7 +1397,12 @@ impl OptunaCompatibleStorage for SQLite3Storage {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
         result.ok_or_else(|| Error::new(ErrorKind::TrialNotFound))
     }
 
@@ -1040,7 +1422,12 @@ impl OptunaCompatibleStorage for SQLite3Storage {
                 |row| row.get(0),
             )
             .optional()
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
         trial_id.ok_or_else(|| Error::new(ErrorKind::TrialNotFound))
     }
 
@@ -1081,7 +1468,12 @@ impl OptunaCompatibleStorage for SQLite3Storage {
                 |row| row.get(0),
             )
             .optional()
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
 
         let state = trial_state.ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
 
@@ -1120,9 +1512,12 @@ impl OptunaCompatibleStorage for SQLite3Storage {
         }
 
         let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-        guard
-            .execute(&sql, param_refs.as_slice())
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+        guard.execute(&sql, param_refs.as_slice()).map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Database query failed: {}", e),
+            )
+        })?;
 
         Ok(())
     }
@@ -1144,7 +1539,12 @@ impl OptunaCompatibleStorage for SQLite3Storage {
                 |row| row.get(0),
             )
             .optional()
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {}", e),
+                )
+            })?;
         if exists.is_none() {
             return Err(Error::new(ErrorKind::TrialNotFound));
         }
@@ -1156,7 +1556,7 @@ impl OptunaCompatibleStorage for SQLite3Storage {
                 "UPDATE trials SET datetime_start = COALESCE(?, datetime_start), datetime_complete = COALESCE(?, datetime_complete) WHERE trial_id = ?",
                 params![start_str, complete_str, trial_id],
             )
-            .map_err(|_e| Error::new(ErrorKind::StorageError))?;
+            .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {}", e)))?;
         Ok(())
     }
 }
@@ -1236,31 +1636,57 @@ fn category_label_to_value(label: &CategoryLabel) -> Value {
 fn json_to_distribution(
     distribution_json: &str,
 ) -> Result<(Distribution, Option<Vec<CategoryLabel>>)> {
-    let value: Value =
-        serde_json::from_str(distribution_json).map_err(|_| Error::new(ErrorKind::StorageError))?;
-    let name = value
-        .get("name")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| Error::new(ErrorKind::StorageError))?;
+    let value: Value = serde_json::from_str(distribution_json).map_err(|e| {
+        Error::with_reason(
+            ErrorKind::StorageError,
+            format!("JSON serialization failed: {}", e),
+        )
+    })?;
+    let name = value.get("name").and_then(|v| v.as_str()).ok_or_else(|| {
+        Error::with_reason(
+            ErrorKind::StorageError,
+            "JSON serialization failed: missing 'name' field".to_string(),
+        )
+    })?;
     let attributes = value
         .get("attributes")
         .and_then(|v| v.as_object())
-        .ok_or_else(|| Error::new(ErrorKind::StorageError))?;
+        .ok_or_else(|| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                "JSON serialization failed: missing 'attributes' field".to_string(),
+            )
+        })?;
 
     match name {
         "FloatDistribution" => {
             let low = attributes
                 .get("low")
                 .and_then(|v| v.as_f64())
-                .ok_or_else(|| Error::new(ErrorKind::StorageError))?;
+                .ok_or_else(|| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        "JSON serialization failed: invalid 'low' value".to_string(),
+                    )
+                })?;
             let high = attributes
                 .get("high")
                 .and_then(|v| v.as_f64())
-                .ok_or_else(|| Error::new(ErrorKind::StorageError))?;
+                .ok_or_else(|| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        "JSON serialization failed: invalid 'high' value".to_string(),
+                    )
+                })?;
             let log = attributes
                 .get("log")
                 .and_then(|v| v.as_bool())
-                .ok_or_else(|| Error::new(ErrorKind::StorageError))?;
+                .ok_or_else(|| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        "JSON serialization failed: invalid 'log' value".to_string(),
+                    )
+                })?;
             let step = match attributes.get("step") {
                 Some(Value::Null) | None => None,
                 Some(Value::Number(n)) => n.as_f64(),
@@ -1281,15 +1707,30 @@ fn json_to_distribution(
             let low = attributes
                 .get("low")
                 .and_then(|v| v.as_i64())
-                .ok_or_else(|| Error::new(ErrorKind::StorageError))?;
+                .ok_or_else(|| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        "JSON serialization failed: invalid 'low' value".to_string(),
+                    )
+                })?;
             let high = attributes
                 .get("high")
                 .and_then(|v| v.as_i64())
-                .ok_or_else(|| Error::new(ErrorKind::StorageError))?;
+                .ok_or_else(|| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        "JSON serialization failed: invalid 'high' value".to_string(),
+                    )
+                })?;
             let log = attributes
                 .get("log")
                 .and_then(|v| v.as_bool())
-                .ok_or_else(|| Error::new(ErrorKind::StorageError))?;
+                .ok_or_else(|| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        "JSON serialization failed: invalid 'log' value".to_string(),
+                    )
+                })?;
             let step = match attributes.get("step") {
                 Some(Value::Null) | None => 1,
                 Some(Value::Number(n)) => n.as_i64().unwrap_or(1),
@@ -1314,7 +1755,12 @@ fn json_to_distribution(
                     .and_then(|v| v.as_array())
                     .map(|a| a.len() as u64),
             }
-            .ok_or_else(|| Error::new(ErrorKind::StorageError))?;
+            .ok_or_else(|| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    "JSON serialization failed: invalid 'size' or 'choices'".to_string(),
+                )
+            })?;
             let labels = attributes.get("choices").and_then(|arr| {
                 arr.as_array().map(|vals| {
                     vals.iter()
@@ -1329,7 +1775,13 @@ fn json_to_distribution(
                 labels,
             ))
         }
-        _ => Err(Error::new(ErrorKind::StorageError)),
+        _ => Err(Error::with_reason(
+            ErrorKind::StorageError,
+            format!(
+                "JSON serialization failed: unknown distribution name '{}'",
+                name
+            ),
+        )),
     }
 }
 
