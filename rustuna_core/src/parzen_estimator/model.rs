@@ -45,7 +45,8 @@ impl ParzenEstimator {
             v.len()
         });
         assert_eq!(
-            n_observations, weights.len(),
+            n_observations,
+            weights.len(),
             "Number of observations and length of weights must be equal"
         );
 
@@ -68,10 +69,14 @@ impl ParzenEstimator {
 
         let weights_sum = {
             let s = weights.iter().sum::<f64>() + prior_weight;
-            if s == 0.0 { (weights.len() + 1) as f64 } else { s }
+            if s == 0.0 {
+                (weights.len() + 1) as f64
+            } else {
+                s
+            }
         };
 
-        let weights_with_prior_weight= weights
+        let weights_with_prior_weight = weights
             .iter()
             .chain(std::iter::once(&prior_weight))
             .map(|w| w / weights_sum)
@@ -161,7 +166,7 @@ impl NumericalDistributionBuilder for DefaultNumericalDistributionBuilder {
             let mut idx_vals: Vec<(usize, f64)> = (0..m).map(|i| (i, mus[i])).collect();
             idx_vals.sort_by(|a, b| a.1.total_cmp(&b.1));
             let sorted_mus = idx_vals.iter().map(|&(_, v)| v);
-            
+
             let extended = std::iter::once(adj_low)
                 .chain(sorted_mus)
                 .chain(std::iter::once(adj_high))
@@ -324,7 +329,7 @@ mod tests {
         );
 
         let parzen_estimator =
-            ParzenEstimator::new(&observations, &search_space, &vec![0.2, 0.5, 0.3], 1.0);
+            ParzenEstimator::new(&observations, &search_space, &[0.2, 0.5, 0.3], 1.0);
         let mut rng = StdRng::seed_from_u64(42);
         let samples = parzen_estimator.sample(&mut rng, 10);
         assert_eq!(samples.len(), 10);
