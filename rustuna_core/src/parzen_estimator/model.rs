@@ -1,5 +1,4 @@
 use rand::rngs::StdRng;
-use std::cmp::Ordering;
 use std::{collections::HashMap, vec};
 
 use super::probability_distributions::CategoricalDistributions;
@@ -20,6 +19,24 @@ impl ParzenEstimator {
         weights: &[f64],
         prior_weight: f64,
     ) -> Self {
+        Self::new_with_builder(
+            observations,
+            search_space,
+            weights,
+            prior_weight,
+            &DefaultNumericalDistributionBuilder,
+            &DefaultCategoricalDistributionBuilder,
+        )
+    }
+
+    pub(crate) fn new_with_builder(
+        observations: &HashMap<String, Vec<f64>>,
+        search_space: &HashMap<String, Distribution>,
+        weights: &[f64],
+        prior_weight: f64,
+        num_builder: &impl NumericalDistributionBuilder,
+        cat_builder: &impl CategoricalDistributionBuilder,
+    ) -> Self {
         let n_observations = observations.values().next().map_or(0, |v| {
             assert!(
                 observations.values().all(|w| w.len() == v.len()),
@@ -27,32 +44,45 @@ impl ParzenEstimator {
             );
             v.len()
         });
-        assert!(
-            n_observations == weights.len(),
+        assert_eq!(
+            n_observations,
+            weights.len(),
             "Number of observations and length of weights must be equal"
         );
 
-        let mut keys: Vec<&String> = search_space.keys().collect();
+        let mut keys: Vec<_> = search_space.keys().collect();
         keys.sort();
 
-        let mut distributions = HashMap::<String, Distributions>::with_capacity(keys.len());
+        let mut distributions = HashMap::with_capacity(keys.len());
         for key in keys.iter() {
-            let obs_vec = observations.get(*key).map(|v| v.as_slice()).unwrap_or(&[]);
-            let dist = Self::calculate_distribution(obs_vec, &search_space[*key]);
+            let obs_vec = observations.get(*key).map(Vec::as_slice).unwrap_or(&[]);
+            let dist = match &search_space[*key] {
+                Distribution::Float { .. } | Distribution::Int { .. } => {
+                    num_builder.calculate_numerical_distribution(obs_vec, &search_space[*key])
+                }
+                Distribution::Categorical { .. } => {
+                    cat_builder.calculate_categorical_distribution(obs_vec, &search_space[*key])
+                }
+            };
             distributions.insert((*key).clone(), dist);
         }
 
-        let mut weights_sum = weights.iter().sum::<f64>() + prior_weight;
-        if weights_sum == 0.0 {
-            weights_sum = (weights.len() + 1) as f64;
-        }
-        let mut weights_with_prior_weight: Vec<f64> = Vec::with_capacity(weights.len() + 1);
-        for &w in weights.iter() {
-            weights_with_prior_weight.push(w / weights_sum);
-        }
-        weights_with_prior_weight.push(prior_weight / weights_sum);
+        let weights_sum = {
+            let s = weights.iter().sum::<f64>() + prior_weight;
+            if s == 0.0 {
+                (weights.len() + 1) as f64
+            } else {
+                s
+            }
+        };
 
-        ParzenEstimator {
+        let weights_with_prior_weight = weights
+            .iter()
+            .chain(std::iter::once(&prior_weight))
+            .map(|w| w / weights_sum)
+            .collect();
+
+        Self {
             mixuture_distribution: MixtureOfProductDistribution::new(
                 distributions,
                 weights_with_prior_weight,
@@ -60,18 +90,37 @@ impl ParzenEstimator {
         }
     }
 
-    fn calculate_distribution(observations: &[f64], search_space: &Distribution) -> Distributions {
-        match search_space {
-            Distribution::Float { .. } | Distribution::Int { .. } => {
-                Self::calculate_numerical_distribution(observations, search_space)
-            }
-            Distribution::Categorical { .. } => {
-                Self::calculate_categorical_distribution(observations, search_space)
-            }
-        }
+    pub fn sample(&self, rng: &mut StdRng, size: usize) -> Vec<HashMap<String, f64>> {
+        self.mixuture_distribution.sample(rng, size)
     }
 
+    pub fn log_pdf(&self, x: &HashMap<String, f64>) -> f64 {
+        self.mixuture_distribution.log_pdf(x)
+    }
+}
+
+pub(crate) trait NumericalDistributionBuilder {
     fn calculate_numerical_distribution(
+        &self,
+        observations: &[f64],
+        search_space: &Distribution,
+    ) -> Distributions;
+}
+
+pub(crate) trait CategoricalDistributionBuilder {
+    fn calculate_categorical_distribution(
+        &self,
+        observations: &[f64],
+        search_space: &Distribution,
+    ) -> Distributions;
+}
+
+pub struct DefaultNumericalDistributionBuilder;
+pub struct DefaultCategoricalDistributionBuilder;
+
+impl NumericalDistributionBuilder for DefaultNumericalDistributionBuilder {
+    fn calculate_numerical_distribution(
+        &self,
         observations: &[f64],
         search_space: &Distribution,
     ) -> Distributions {
@@ -92,58 +141,55 @@ impl ParzenEstimator {
             _ => unreachable!("Invalid distribution type for numerical calculation"),
         };
 
-        // Handle step
         let (mut adj_low, mut adj_high) = match step_opt {
             Some(s) => (low - s / 2.0, high + s / 2.0),
             None => (low, high),
         };
 
-        // Handle log scale
         if log {
             adj_low = adj_low.ln();
             adj_high = adj_high.ln();
         }
 
-        let mut mus: Vec<f64> = Vec::with_capacity(observations.len() + 1);
-        for &m in observations.iter() {
-            mus.push(if log { m.ln() } else { m });
-        }
-        mus.push((adj_low + adj_high) / 2.0); // Add prior
+        let mus = observations
+            .iter()
+            .map(|&m| if log { m.ln() } else { m })
+            .chain(std::iter::once((adj_low + adj_high) / 2.0)) // Add prior
+            .collect::<Vec<_>>();
 
-        let mut sigmas: Vec<f64> = Vec::with_capacity(mus.len());
+        let mut sigmas = Vec::with_capacity(mus.len());
         if mus.len() == 1 {
             // Case: prior only
             sigmas.push(adj_high - adj_low);
         } else {
             let m = mus.len() - 1; // exclude prior
             let mut idx_vals: Vec<(usize, f64)> = (0..m).map(|i| (i, mus[i])).collect();
-            idx_vals.sort_by(|a, b| match a.1.partial_cmp(&b.1) {
-                Some(ord) => ord,
-                None => Ordering::Equal,
-            });
-            let sorted_mus: Vec<f64> = idx_vals.iter().map(|&(_, v)| v).collect();
-            let mut extended = Vec::with_capacity(sorted_mus.len() + 2);
-            extended.push(adj_low);
-            extended.extend_from_slice(&sorted_mus);
-            extended.push(adj_high);
+            idx_vals.sort_by(|a, b| a.1.total_cmp(&b.1));
+            let sorted_mus = idx_vals.iter().map(|&(_, v)| v);
 
-            let mut sorted_sigmas: Vec<f64> = Vec::with_capacity(m);
-            for i in 1..(extended.len() - 1) {
-                let left_diff = extended[i] - extended[i - 1];
-                let right_diff = extended[i + 1] - extended[i];
-                sorted_sigmas.push(left_diff.max(right_diff));
-            }
+            let extended = std::iter::once(adj_low)
+                .chain(sorted_mus)
+                .chain(std::iter::once(adj_high))
+                .collect::<Vec<_>>();
+
+            let sorted_sigmas = (1..(extended.len() - 1))
+                .map(|i| {
+                    let left_diff = extended[i] - extended[i - 1];
+                    let right_diff = extended[i + 1] - extended[i];
+                    left_diff.max(right_diff)
+                })
+                .collect::<Vec<_>>();
 
             sigmas.resize(m, 0.0);
-            for (i, &(orig_idx, _)) in idx_vals.iter().enumerate() {
-                sigmas[orig_idx] = sorted_sigmas[i];
+            for (&(orig_idx, _), &sigma) in idx_vals.iter().zip(sorted_sigmas.iter()) {
+                sigmas[orig_idx] = sigma;
             }
             // Sigma for prior
             sigmas.push(adj_high - adj_low);
 
             // Clamp (minsigma, maxsigma)
             let maxsigma = adj_high - adj_low;
-            let minsigma = (adj_high - adj_low) / (100.0f64.min(1.0 + sigmas.len() as f64));
+            let minsigma = (adj_high - adj_low) / (100.0_f64.min(1.0 + sigmas.len() as f64));
             for s in sigmas.iter_mut() {
                 *s = s.clamp(minsigma, maxsigma);
             }
@@ -162,28 +208,31 @@ impl ParzenEstimator {
                 low,
                 high,
             }),
-            (Some(value), false) => {
+            (Some(step), false) => {
                 Distributions::DiscreteTruncNorm(DiscreteTruncNormDistributions {
                     mus,
                     sigmas,
                     low,
                     high,
-                    step: value,
+                    step,
                 })
             }
-            (Some(value), true) => {
+            (Some(step), true) => {
                 Distributions::DiscreteTruncLogNorm(DiscreteTruncLogNormDistributions {
                     mus,
                     sigmas,
                     low,
                     high,
-                    step: value,
+                    step,
                 })
             }
         }
     }
+}
 
+impl CategoricalDistributionBuilder for DefaultCategoricalDistributionBuilder {
     fn calculate_categorical_distribution(
+        &self,
         observations: &[f64],
         search_space: &Distribution,
     ) -> Distributions {
@@ -202,12 +251,12 @@ impl ParzenEstimator {
 
         let n_kernels = observations.len() + 1; // +1 for prior
         let prior_mass_per_kernel = 1.0 / (n_kernels as f64);
-        let mut weights: Vec<Vec<f64>> = vec![vec![prior_mass_per_kernel; cardinality]; n_kernels];
+        let mut weights = vec![vec![prior_mass_per_kernel; cardinality]; n_kernels];
         for (i, &v) in observations.iter().enumerate() {
             let col = v as usize;
             assert!(
                 col < cardinality,
-                "Observed index {col} out of range (cardinality = {cardinality})"
+                "Observed index {col} out of range (cardinality = {cardinality})",
             );
             weights[i][col] += 1.0;
         }
@@ -220,14 +269,6 @@ impl ParzenEstimator {
         }
 
         Distributions::Categorical(CategoricalDistributions { weights })
-    }
-
-    pub fn sample(&self, rng: &mut StdRng, size: usize) -> Vec<HashMap<String, f64>> {
-        self.mixuture_distribution.sample(rng, size)
-    }
-
-    pub fn log_pdf(&self, x: &HashMap<String, f64>) -> f64 {
-        self.mixuture_distribution.log_pdf(x)
     }
 }
 
