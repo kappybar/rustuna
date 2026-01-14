@@ -29,7 +29,7 @@ impl ParzenEstimator {
         )
     }
 
-    pub fn new_with_builder(
+    pub(crate) fn new_with_builder(
         observations: &HashMap<String, Vec<f64>>,
         search_space: &HashMap<String, Distribution>,
         weights: &[f64],
