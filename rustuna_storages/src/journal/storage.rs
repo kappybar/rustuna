@@ -76,8 +76,8 @@ impl Storage for JournalStorage {
             .iter()
             .map(|d| {
                 let v = match d {
-                    Direction::Minimize => 0,
-                    Direction::Maximize => 1,
+                    Direction::Minimize => 1,
+                    Direction::Maximize => 2,
                 };
                 Value::Number(Number::from(v))
             })
@@ -1929,8 +1929,8 @@ mod tests {
         let dirs = directions
             .into_iter()
             .map(|d| match d {
-                Direction::Minimize => Value::Number(Number::from(0)),
-                Direction::Maximize => Value::Number(Number::from(1)),
+                Direction::Minimize => Value::Number(Number::from(1)),
+                Direction::Maximize => Value::Number(Number::from(2)),
             })
             .collect::<Vec<_>>();
         fields.insert("directions".to_string(), Value::Array(dirs));
@@ -2242,8 +2242,7 @@ mod tests {
         let trial1 = storage.create_new_trial(study_id)?.clone();
         let err = storage
             .set_trial_param(study_id, trial1.number, "x", &int_dist, 1.0)
-            .err()
-            .expect("Expected IncompatibleDistribution error");
+            .expect_err("Expected IncompatibleDistribution error");
         assert!(matches!(err.kind, ErrorKind::IncompatibleDistribution));
         Ok(())
     }
