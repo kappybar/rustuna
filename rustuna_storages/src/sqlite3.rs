@@ -1977,8 +1977,7 @@ mod tests {
         );
         let err = storage
             .set_study_attrs(study_id, overwrite, true)
-            .err()
-            .expect("Expected AttrOverwriteNotAllowed error");
+            .expect_err("Expected AttrOverwriteNotAllowed error");
         assert!(matches!(err.kind, ErrorKind::AttrOverwriteNotAllowed));
 
         let study = storage.get_study(study_id)?;
@@ -2055,8 +2054,7 @@ mod tests {
         );
         let err = storage
             .set_trial_attrs(study_id, trial.number, overwrite, true)
-            .err()
-            .expect("Expected AttrOverwriteNotAllowed error");
+            .expect_err("Expected AttrOverwriteNotAllowed error");
         assert!(matches!(err.kind, ErrorKind::AttrOverwriteNotAllowed));
 
         let trial = storage.get_trial(study_id, trial.number)?;
@@ -2345,8 +2343,7 @@ mod tests {
         invalid_values.insert(0, 0.5);
         let err = storage
             .set_trial_intermediate_values(non_existent_trial_id, invalid_values)
-            .err()
-            .expect("Expected TrialNotFound error");
+            .expect_err("Expected TrialNotFound error");
         assert!(matches!(err.kind, ErrorKind::TrialNotFound));
 
         Ok(())
