@@ -93,9 +93,7 @@ impl Storage for JournalStorage {
             .ok_or_else(|| {
                 Error::with_reason(
                     ErrorKind::StorageError,
-                    format!(
-                        "Failed to find study by name in replay state: {study_name}"
-                    ),
+                    format!("Failed to find study by name in replay state: {study_name}"),
                 )
             })?;
         Ok(study)
@@ -163,9 +161,7 @@ impl Storage for JournalStorage {
         trials.get(trial_number as usize).ok_or_else(|| {
             Error::with_reason(
                 ErrorKind::TrialNotFound,
-                format!(
-                    "Failed to find trial at given number: trial_number={trial_number}"
-                ),
+                format!("Failed to find trial at given number: trial_number={trial_number}"),
             )
         })
     }
@@ -336,9 +332,7 @@ impl Storage for JournalStorage {
                 if study.attrs.contains_key(key) {
                     return Err(Error::with_reason(
                         ErrorKind::AttrOverwriteNotAllowed,
-                        format!(
-                            "Attribute already exists and overwrite not allowed: key={key:?}"
-                        ),
+                        format!("Attribute already exists and overwrite not allowed: key={key:?}"),
                     ));
                 }
             }
@@ -385,9 +379,7 @@ impl Storage for JournalStorage {
                 if trial.attrs.contains_key(key) {
                     return Err(Error::with_reason(
                         ErrorKind::AttrOverwriteNotAllowed,
-                        format!(
-                            "Attribute already exists and overwrite not allowed: key={key:?}"
-                        ),
+                        format!("Attribute already exists and overwrite not allowed: key={key:?}"),
                     ));
                 }
             }
@@ -704,12 +696,12 @@ impl JournalReplayState {
                 )
             })?;
             let dir = match value {
-                0 => Direction::Minimize,
-                1 => Direction::Maximize,
+                1 => Direction::Minimize,
+                2 => Direction::Maximize,
                 _ => {
                     return Err(Error::with_reason(
                         ErrorKind::StorageError,
-                        format!("Invalid direction value: {value}"),
+                        format!("Invalid direction value: {value} (expected 1 for Minimize or 2 for Maximize per Optuna schema)"),
                     ))
                 }
             };
@@ -870,9 +862,7 @@ impl JournalReplayState {
                 let dist_json = dist_json.as_str().ok_or_else(|| {
                     Error::with_reason(
                         ErrorKind::StorageError,
-                        format!(
-                            "Failed to parse distribution as string: param_name={name}"
-                        ),
+                        format!("Failed to parse distribution as string: param_name={name}"),
                     )
                 })?;
                 let (dist, labels) = json_to_distribution(dist_json)?;
@@ -992,9 +982,7 @@ impl JournalReplayState {
                 if self.is_issued_by_this_worker(log, worker_id) {
                     return Err(Error::with_reason(
                         ErrorKind::IncompatibleDistribution,
-                        format!(
-                            "Incompatible distribution for parameter: param_name={param_name}"
-                        ),
+                        format!("Incompatible distribution for parameter: param_name={param_name}"),
                     ));
                 }
                 return Ok(());
@@ -1013,9 +1001,7 @@ impl JournalReplayState {
         let trials = self.trials_by_study.get_mut(&study_id).ok_or_else(|| {
             Error::with_reason(
                 ErrorKind::StudyNotFound,
-                format!(
-                    "Study not found during set trial param: study_id={study_id}"
-                ),
+                format!("Study not found during set trial param: study_id={study_id}"),
             )
         })?;
         let trial = trials.get_mut(trial_number as usize).ok_or_else(|| {
@@ -1037,9 +1023,7 @@ impl JournalReplayState {
             .ok_or_else(|| {
                 Error::with_reason(
                     ErrorKind::StorageError,
-                    format!(
-                        "Failed to retrieve inserted distribution: param_name={param_name}"
-                    ),
+                    format!("Failed to retrieve inserted distribution: param_name={param_name}"),
                 )
             })?
             .clone();
@@ -1069,9 +1053,7 @@ impl JournalReplayState {
         let trials = self.trials_by_study.get_mut(&study_id).ok_or_else(|| {
             Error::with_reason(
                 ErrorKind::StudyNotFound,
-                format!(
-                    "Study not found during set trial state: study_id={study_id}"
-                ),
+                format!("Study not found during set trial state: study_id={study_id}"),
             )
         })?;
         let trial = trials.get_mut(trial_number as usize).ok_or_else(|| {
@@ -1156,17 +1138,13 @@ impl JournalReplayState {
             .ok_or_else(|| {
                 Error::with_reason(
                     ErrorKind::TrialNotFound,
-                    format!(
-                        "Trial not found during set intermediate value: trial_id={trial_id}"
-                    ),
+                    format!("Trial not found during set intermediate value: trial_id={trial_id}"),
                 )
             })?;
         let trials = self.trials_by_study.get_mut(&study_id).ok_or_else(|| {
             Error::with_reason(
                 ErrorKind::StudyNotFound,
-                format!(
-                    "Study not found during set intermediate value: study_id={study_id}"
-                ),
+                format!("Study not found during set intermediate value: study_id={study_id}"),
             )
         })?;
         let trial = trials.get_mut(trial_number as usize).ok_or_else(|| {
@@ -1213,17 +1191,13 @@ impl JournalReplayState {
             .ok_or_else(|| {
                 Error::with_reason(
                     ErrorKind::TrialNotFound,
-                    format!(
-                        "Trial not found during set user attr: trial_id={trial_id}"
-                    ),
+                    format!("Trial not found during set user attr: trial_id={trial_id}"),
                 )
             })?;
         let trials = self.trials_by_study.get_mut(&study_id).ok_or_else(|| {
             Error::with_reason(
                 ErrorKind::StudyNotFound,
-                format!(
-                    "Study not found during set trial user attr: study_id={study_id}"
-                ),
+                format!("Study not found during set trial user attr: study_id={study_id}"),
             )
         })?;
         let trial = trials.get_mut(trial_number as usize).ok_or_else(|| {
@@ -1259,9 +1233,7 @@ impl JournalReplayState {
                 if self.is_issued_by_this_worker(log, worker_id) {
                     return Err(Error::with_reason(
                         ErrorKind::TrialNotFound,
-                        format!(
-                            "Trial not found during set system attr: trial_id={trial_id}"
-                        ),
+                        format!("Trial not found during set system attr: trial_id={trial_id}"),
                     ));
                 }
                 return Ok(());
@@ -1270,9 +1242,7 @@ impl JournalReplayState {
         let trials = self.trials_by_study.get_mut(&study_id).ok_or_else(|| {
             Error::with_reason(
                 ErrorKind::StudyNotFound,
-                format!(
-                    "Study not found during set trial system attr: study_id={study_id}"
-                ),
+                format!("Study not found during set trial system attr: study_id={study_id}"),
             )
         })?;
         let trial = trials.get_mut(trial_number as usize).ok_or_else(|| {
@@ -1290,9 +1260,7 @@ impl JournalReplayState {
                 if self.is_issued_by_this_worker(log, worker_id) {
                     return Err(Error::with_reason(
                         ErrorKind::TrialAlreadyFinished,
-                        format!(
-                            "Trial already finished, cannot set system attr: key={key}"
-                        ),
+                        format!("Trial already finished, cannot set system attr: key={key}"),
                     ));
                 }
                 return Ok(());
@@ -1343,9 +1311,7 @@ impl JournalReplayState {
             .ok_or_else(|| {
                 Error::with_reason(
                     ErrorKind::TrialNotFound,
-                    format!(
-                        "Trial not found during updatable check: trial_id={trial_id}"
-                    ),
+                    format!("Trial not found during updatable check: trial_id={trial_id}"),
                 )
             })?;
         let trial = self
@@ -1363,9 +1329,7 @@ impl JournalReplayState {
         if trial.is_finished() {
             return Err(Error::with_reason(
                 ErrorKind::TrialAlreadyFinished,
-                format!(
-                    "Trial already finished and cannot be updated: trial_id={trial_id}"
-                ),
+                format!("Trial already finished and cannot be updated: trial_id={trial_id}"),
             ));
         }
         Ok(())
