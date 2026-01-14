@@ -98,6 +98,7 @@ pub trait CategoricalDistributionBuilder {
 }
 
 pub struct DefaultNumericalDistributionBuilder;
+pub struct DefaultCategoricalDistributionBuilder;
 
 impl NumericalDistributionBuilder for DefaultNumericalDistributionBuilder {
     fn calculate_numerical_distribution(
@@ -209,7 +210,9 @@ impl NumericalDistributionBuilder for DefaultNumericalDistributionBuilder {
             }
         }
     }
+}
 
+impl CategoricalDistributionBuilder for DefaultCategoricalDistributionBuilder {
     fn calculate_categorical_distribution(
         &self,
         observations: &[f64],
