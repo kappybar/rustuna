@@ -11,6 +11,8 @@ use rustuna_core::storage::{InMemoryStorage, Storage};
 use rustuna_core::study::Direction;
 use rustuna_core::trial::TrialStateValues;
 use rustuna_storages::cache::CachedStorage;
+use rustuna_storages::journal::file::{JournalFileBackend, JournalFileSymlinkLock};
+use rustuna_storages::journal::storage::JournalStorage;
 use rustuna_storages::optuna::OptunaCompatibleStorage;
 use rustuna_storages::sqlite3::SQLite3Storage;
 
@@ -57,6 +59,25 @@ impl PyStorage {
             storage: arc_storage.clone(),
             optuna_compatible: Some(arc_storage),
             kind: "sqlite3",
+        })
+    }
+
+    #[classmethod]
+    #[pyo3(name = "journal_file", signature = (file_path,))]
+    fn journal_file(_cls: &Bound<'_, PyType>, file_path: &str) -> PyResult<Self> {
+        // TODO(c-bata): Add lock_obj argument to use JournalFileOpenLock.
+        let lock_obj = Box::new(JournalFileSymlinkLock::new(file_path));
+        let backend = JournalFileBackend::new(file_path, Some(lock_obj)).map_err(|e| {
+            PyRuntimeError::new_err(format!("Failed to create journal file: {e:?}"))
+        })?;
+        let storage = JournalStorage::new(Box::new(backend)).map_err(|e| {
+            PyRuntimeError::new_err(format!("Failed to create journal storage: {e:?}"))
+        })?;
+        let arc_storage = Arc::new(RwLock::new(storage));
+        Ok(PyStorage {
+            storage: arc_storage.clone(),
+            optuna_compatible: Some(arc_storage),
+            kind: "journal",
         })
     }
 

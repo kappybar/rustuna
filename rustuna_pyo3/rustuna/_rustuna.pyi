@@ -257,6 +257,11 @@ class Storage:
     def sqlite3(
         cls, file_path: str, *, create_database: bool = False
     ) -> OptunaStorageProtocol: ...
+    @classmethod
+    def journal_file(
+        cls,
+        file_path: str,
+    ) -> OptunaStorageProtocol: ...
 
 # Sampler
 class SamplerContext:
