@@ -81,24 +81,15 @@ impl ParzenEstimator {
     }
 }
 
-pub trait ParzenDistributionBuilder {
-    fn calculate_distribution(&self, observations: &[f64], search_space: &Distribution) -> Distributions {
-        match search_space {
-            Distribution::Float { .. } | Distribution::Int { .. } => {
-                self.calculate_numerical_distribution(observations, search_space)
-            }
-            Distribution::Categorical { .. } => {
-                self.calculate_categorical_distribution(observations, search_space)
-            }
-        }
-    }
-
+pub trait NumericalDistributionBuilder {
     fn calculate_numerical_distribution(
         &self,
         observations: &[f64],
         search_space: &Distribution,
     ) -> Distributions;
+}
 
+pub trait CategoricalDistributionBuilder {
     fn calculate_categorical_distribution(
         &self,
         observations: &[f64],
