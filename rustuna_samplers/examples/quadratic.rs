@@ -29,6 +29,6 @@ fn main() -> Result<()> {
 
     let best_trial_number = get_best_trial(&study)?;
     let trial = study.get_trials()?[best_trial_number as usize].clone();
-    println!("Best trial: {:?}", trial);
+    println!("Best trial: {trial:?}");
     Ok(())
 }

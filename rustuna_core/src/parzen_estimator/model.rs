@@ -207,9 +207,7 @@ impl ParzenEstimator {
             let col = v as usize;
             assert!(
                 col < cardinality,
-                "Observed index {} out of range (cardinality = {})",
-                col,
-                cardinality
+                "Observed index {col} out of range (cardinality = {cardinality})"
             );
             weights[i][col] += 1.0;
         }
@@ -290,7 +288,7 @@ mod tests {
         );
 
         let parzen_estimator =
-            ParzenEstimator::new(&observations, &search_space, &vec![0.2, 0.5, 0.3], 1.0);
+            ParzenEstimator::new(&observations, &search_space, &[0.2, 0.5, 0.3], 1.0);
         let mut rng = StdRng::seed_from_u64(42);
         let samples = parzen_estimator.sample(&mut rng, 10);
         assert_eq!(samples.len(), 10);
