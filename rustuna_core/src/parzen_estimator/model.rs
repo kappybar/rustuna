@@ -256,6 +256,8 @@ pub trait ParzenDistributionBuilder {
     ) -> Distributions;
 }
 
+pub struct DefaultParazenDistributionBuilder;
+
 #[cfg(test)]
 mod tests {
     use super::*;
