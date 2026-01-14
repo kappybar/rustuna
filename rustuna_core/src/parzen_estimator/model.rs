@@ -56,7 +56,14 @@ impl ParzenEstimator {
         let mut distributions = HashMap::with_capacity(keys.len());
         for key in keys.iter() {
             let obs_vec = observations.get(*key).map(Vec::as_slice).unwrap_or(&[]);
-            let dist = Self::calculate_distribution(obs_vec, &search_space[*key]);
+            let dist = match &search_space[*key] {
+                Distribution::Float { .. } | Distribution::Int { .. } => {
+                    num_builder.calculate_numerical_distribution(obs_vec, &search_space[*key])
+                }
+                Distribution::Categorical { .. } => {
+                    cat_builder.calculate_categorical_distribution(obs_vec, &search_space[*key])
+                }
+            };
             distributions.insert((*key).clone(), dist);
         }
 
