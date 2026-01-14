@@ -72,7 +72,45 @@ impl ParzenEstimator {
         }
     }
 
+    pub fn sample(&self, rng: &mut StdRng, size: usize) -> Vec<HashMap<String, f64>> {
+        self.mixuture_distribution.sample(rng, size)
+    }
+
+    pub fn log_pdf(&self, x: &HashMap<String, f64>) -> f64 {
+        self.mixuture_distribution.log_pdf(x)
+    }
+}
+
+pub trait ParzenDistributionBuilder {
+    fn calculate_distribution(&self, observations: &[f64], search_space: &Distribution) -> Distributions {
+        match search_space {
+            Distribution::Float { .. } | Distribution::Int { .. } => {
+                self.calculate_numerical_distribution(observations, search_space)
+            }
+            Distribution::Categorical { .. } => {
+                self.calculate_categorical_distribution(observations, search_space)
+            }
+        }
+    }
+
     fn calculate_numerical_distribution(
+        &self,
+        observations: &[f64],
+        search_space: &Distribution,
+    ) -> Distributions;
+
+    fn calculate_categorical_distribution(
+        &self,
+        observations: &[f64],
+        search_space: &Distribution,
+    ) -> Distributions;
+}
+
+pub struct DefaultParazenDistributionBuilder;
+
+impl ParzenDistributionBuilder for DefaultParazenDistributionBuilder {
+    fn calculate_numerical_distribution(
+        &self,
         observations: &[f64],
         search_space: &Distribution,
     ) -> Distributions {
@@ -182,6 +220,7 @@ impl ParzenEstimator {
     }
 
     fn calculate_categorical_distribution(
+        &self,
         observations: &[f64],
         search_space: &Distribution,
     ) -> Distributions {
@@ -221,42 +260,7 @@ impl ParzenEstimator {
 
         Distributions::Categorical(CategoricalDistributions { weights })
     }
-
-    pub fn sample(&self, rng: &mut StdRng, size: usize) -> Vec<HashMap<String, f64>> {
-        self.mixuture_distribution.sample(rng, size)
-    }
-
-    pub fn log_pdf(&self, x: &HashMap<String, f64>) -> f64 {
-        self.mixuture_distribution.log_pdf(x)
-    }
 }
-
-pub trait ParzenDistributionBuilder {
-    fn calculate_distribution(&self, observations: &[f64], search_space: &Distribution) -> Distributions {
-        match search_space {
-            Distribution::Float { .. } | Distribution::Int { .. } => {
-                self.calculate_numerical_distribution(observations, search_space)
-            }
-            Distribution::Categorical { .. } => {
-                self.calculate_categorical_distribution(observations, search_space)
-            }
-        }
-    }
-
-    fn calculate_numerical_distribution(
-        &self,
-        observations: &[f64],
-        search_space: &Distribution,
-    ) -> Distributions;
-
-    fn calculate_categorical_distribution(
-        &self,
-        observations: &[f64],
-        search_space: &Distribution,
-    ) -> Distributions;
-}
-
-pub struct DefaultParazenDistributionBuilder;
 
 #[cfg(test)]
 mod tests {
