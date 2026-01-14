@@ -919,8 +919,7 @@ mod tests {
         let trial1 = storage.create_new_trial(study_id)?.clone();
         let err = storage
             .set_trial_param(study_id, trial1.number, "x", &int_dist, 1.0)
-            .err()
-            .expect("Expected IncompatibleDistribution error");
+            .expect_err("Expected IncompatibleDistribution error");
         assert!(matches!(err.kind, ErrorKind::IncompatibleDistribution));
         Ok(())
     }

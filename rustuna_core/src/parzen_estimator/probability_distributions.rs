@@ -210,7 +210,7 @@ impl MixtureOfProductDistribution {
                     Distributions::Categorical(d) => {
                         let probs = &d.weights[k];
                         let sum: f64 = probs.iter().sum();
-                        assert!(sum > 0.0, "Categorical distribution has non-positive total probability for param {}", param);
+                        assert!(sum > 0.0, "Categorical distribution has non-positive total probability for param {param}");
 
                         let u = rng.gen::<f64>() * sum;
                         let mut cum = 0.0;
