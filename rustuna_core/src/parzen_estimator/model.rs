@@ -86,17 +86,6 @@ impl ParzenEstimator {
         }
     }
 
-    fn calculate_distribution(observations: &[f64], search_space: &Distribution) -> Distributions {
-        match search_space {
-            Distribution::Float { .. } | Distribution::Int { .. } => {
-                Self::calculate_numerical_distribution(observations, search_space)
-            }
-            Distribution::Categorical { .. } => {
-                Self::calculate_categorical_distribution(observations, search_space)
-            }
-        }
-    }
-
     pub fn sample(&self, rng: &mut StdRng, size: usize) -> Vec<HashMap<String, f64>> {
         self.mixuture_distribution.sample(rng, size)
     }
