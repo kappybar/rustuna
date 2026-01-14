@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import datetime
 import json
 import typing
@@ -276,7 +277,7 @@ class FrozenTrialLike(FrozenTrial):
 
     @system_attrs.setter
     def system_attrs(self, value: Mapping[str, JSONSerializable]) -> None:
-        self.__system_attrs = cast(dict[str, Any], value)
+        self.__system_attrs = cast("dict[str, Any]", value)
 
     @property
     def intermediate_values(self) -> dict[int, float]:
@@ -359,6 +360,40 @@ class FrozenTrialLike(FrozenTrial):
             trial_id=self._trial_id,
         )
         return frozen_trial.__reduce__()
+
+    def __copy__(self) -> FrozenTrialLike:
+        copied = FrozenTrialLike(self._persisted_trial)
+        copied.__trial_id = self.__trial_id
+        copied.__number = self.__number
+        copied.__state = self.__state
+        copied.__values = self.__values
+        copied.__intermediate_values = self.__intermediate_values
+        copied.__datetime_start = self.__datetime_start
+        copied.__datetime_complete = self.__datetime_complete
+        copied.__params = self.__params
+        copied.__distributions = self.__distributions
+        copied.__user_attrs = self.__user_attrs
+        copied.__system_attrs = self.__system_attrs
+        return copied
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> FrozenTrialLike:
+        cached = memo.get(id(self))
+        if cached is not None:
+            return cached
+        copied = FrozenTrialLike(self._persisted_trial)
+        memo[id(self)] = copied
+        copied.__trial_id = self.__trial_id
+        copied.__number = self.__number
+        copied.__state = self.__state
+        copied.__values = copy.deepcopy(self.__values, memo)
+        copied.__intermediate_values = copy.deepcopy(self.__intermediate_values, memo)
+        copied.__datetime_start = self.__datetime_start
+        copied.__datetime_complete = self.__datetime_complete
+        copied.__params = copy.deepcopy(self.__params, memo)
+        copied.__distributions = copy.deepcopy(self.__distributions, memo)
+        copied.__user_attrs = copy.deepcopy(self.__user_attrs, memo)
+        copied.__system_attrs = copy.deepcopy(self.__system_attrs, memo)
+        return copied
 
     def set_user_attr(self, key: str, value: Any) -> None:
         raise NotImplementedError
