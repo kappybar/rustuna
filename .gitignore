@@ -6,12 +6,6 @@ dist/
 node_modules/
 rustuna_js/pkg/
 
-# C
-*.exe
-*.log
-rustuna_c/rustuna.h
-rustuna_c/librustuna.so
-
 # Python
 __pycache__/
 .pytest_cache/
