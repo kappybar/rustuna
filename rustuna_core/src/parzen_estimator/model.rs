@@ -97,9 +97,9 @@ pub trait CategoricalDistributionBuilder {
     ) -> Distributions;
 }
 
-pub struct DefaultParazenDistributionBuilder;
+pub struct DefaultNumericalDistributionBuilder;
 
-impl ParzenDistributionBuilder for DefaultParazenDistributionBuilder {
+impl NumericalDistributionBuilder for DefaultNumericalDistributionBuilder {
     fn calculate_numerical_distribution(
         &self,
         observations: &[f64],
