@@ -1,5 +1,4 @@
 use rand::rngs::StdRng;
-use std::cmp::Ordering;
 use std::{collections::HashMap, vec};
 
 use super::probability_distributions::CategoricalDistributions;
