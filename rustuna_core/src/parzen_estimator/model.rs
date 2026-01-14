@@ -20,6 +20,24 @@ impl ParzenEstimator {
         weights: &[f64],
         prior_weight: f64,
     ) -> Self {
+        Self::new_with_builder(
+            observations,
+            search_space,
+            weights,
+            prior_weight,
+            &DefaultNumericalDistributionBuilder,
+            &DefaultCategoricalDistributionBuilder,
+        )
+    }
+
+    pub fn new_with_builder(
+        observations: &HashMap<String, Vec<f64>>,
+        search_space: &HashMap<String, Distribution>,
+        weights: &[f64],
+        prior_weight: f64,
+        num_builder: &impl NumericalDistributionBuilder,
+        cat_builder: &impl CategoricalDistributionBuilder,
+    ) -> Self {
         let n_observations = observations.values().next().map_or(0, |v| {
             assert!(
                 observations.values().all(|w| w.len() == v.len()),
