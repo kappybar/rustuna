@@ -24,21 +24,19 @@ pub trait CachedStorageBackend: Send + Sync {
     fn create_new_trial(&mut self, study_id: u32) -> Result<PersistedTrial>;
     fn set_trial_param(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         name: &str,
         distribution: &Distribution,
         value: f64,
     ) -> Result<()>;
     fn set_trial_state_values(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         state_values: TrialStateValues,
     ) -> Result<()>;
     fn get_studies(&mut self) -> Result<Vec<PersistedStudy>>;
     fn get_study(&mut self, study_id: u32) -> Result<PersistedStudy>;
-    fn get_trial(&mut self, study_id: u32, trial_number: u32) -> Result<PersistedTrial>;
+    fn get_trial(&mut self, trial_id: u32) -> Result<PersistedTrial>;
     fn set_study_attrs(
         &mut self,
         study_id: u32,
@@ -68,6 +66,7 @@ pub trait OptunaCachedStorageBackend: CachedStorageBackend + OptunaCompatibleSto
 pub struct CachedStorage {
     studies: Vec<PersistedStudy>,
     trials: HashMap<u32, HashMap<u32, PersistedTrial>>,
+    trial_id_to_study_number: HashMap<u32, (u32, u32)>,
     study_caches: HashMap<u32, StudyCache>,
     unfinished_trials: HashMap<u32, Vec<u32>>,
     last_finished_trial_number: HashMap<u32, i32>,
@@ -81,6 +80,7 @@ impl CachedStorage {
         CachedStorage {
             studies: Vec::new(),
             trials: HashMap::new(),
+            trial_id_to_study_number: HashMap::new(),
             study_caches: HashMap::new(),
             unfinished_trials: HashMap::new(),
             last_finished_trial_number: HashMap::new(),
@@ -110,6 +110,8 @@ impl CachedStorage {
 
         let trials = self.trials.entry(study_id).or_default();
         for trial in loaded {
+            self.trial_id_to_study_number
+                .insert(trial.id, (study_id, trial.number));
             trials.insert(trial.number, trial);
         }
 
@@ -131,6 +133,23 @@ impl CachedStorage {
         self.last_finished_trial_number
             .insert(study_id, last_finished_next);
         Ok(())
+    }
+
+    fn resolve_trial_location(&mut self, trial_id: u32) -> Result<(u32, u32)> {
+        if let Some((study_id, trial_number)) = self.trial_id_to_study_number.get(&trial_id) {
+            return Ok((*study_id, *trial_number));
+        }
+
+        let trial = self.backend.get_trial(trial_id)?;
+        let study_id = trial.study_id;
+        let trial_number = trial.number;
+        self.trials
+            .entry(study_id)
+            .or_default()
+            .insert(trial_number, trial);
+        self.trial_id_to_study_number
+            .insert(trial_id, (study_id, trial_number));
+        Ok((study_id, trial_number))
     }
 }
 
@@ -156,7 +175,11 @@ impl rustuna_core::storage::Storage for CachedStorage {
         self.backend.delete_study(study_id)?;
 
         self.studies.retain(|s| s.id != study_id);
-        self.trials.remove(&study_id);
+        if let Some(trials) = self.trials.remove(&study_id) {
+            for trial in trials.values() {
+                self.trial_id_to_study_number.remove(&trial.id);
+            }
+        }
         self.study_caches.remove(&study_id);
         self.unfinished_trials.remove(&study_id);
         self.last_finished_trial_number.remove(&study_id);
@@ -168,6 +191,8 @@ impl rustuna_core::storage::Storage for CachedStorage {
         let trial = self.backend.create_new_trial(study_id)?;
         let trials = self.trials.entry(study_id).or_default();
         let number = trial.number;
+        self.trial_id_to_study_number
+            .insert(trial.id, (study_id, number));
         trials.insert(number, trial);
         let trial_ref = trials
             .get(&number)
@@ -186,12 +211,12 @@ impl rustuna_core::storage::Storage for CachedStorage {
 
     fn set_trial_param(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         name: &str,
         distribution: &Distribution,
         value: f64,
     ) -> Result<()> {
+        let (study_id, trial_number) = self.resolve_trial_location(trial_id)?;
         self.refresh_trials(study_id)?;
         if let Some(trials) = self.trials.get(&study_id) {
             if let Some(trial) = trials.get(&trial_number) {
@@ -212,7 +237,7 @@ impl rustuna_core::storage::Storage for CachedStorage {
         }
 
         self.backend
-            .set_trial_param(study_id, trial_number, name, distribution, value)?;
+            .set_trial_param(trial_id, name, distribution, value)?;
         self.unfinished_trials
             .entry(study_id)
             .or_default()
@@ -243,12 +268,12 @@ impl rustuna_core::storage::Storage for CachedStorage {
 
     fn set_trial_state_values(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         state_values: TrialStateValues,
     ) -> Result<()> {
         self.backend
-            .set_trial_state_values(study_id, trial_number, state_values.clone())?;
+            .set_trial_state_values(trial_id, state_values.clone())?;
+        let (study_id, trial_number) = self.resolve_trial_location(trial_id)?;
 
         self.unfinished_trials
             .entry(study_id)
@@ -308,7 +333,8 @@ impl rustuna_core::storage::Storage for CachedStorage {
         Ok(&self.trials_sorted_buffer)
     }
 
-    fn get_trial(&mut self, study_id: u32, trial_number: u32) -> Result<&PersistedTrial> {
+    fn get_trial(&mut self, trial_id: u32) -> Result<&PersistedTrial> {
+        let (study_id, trial_number) = self.resolve_trial_location(trial_id)?;
         self.refresh_trials(study_id)?;
         let trials = self
             .trials
@@ -318,6 +344,22 @@ impl rustuna_core::storage::Storage for CachedStorage {
             .get(&trial_number)
             .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
         Ok(trial)
+    }
+
+    fn get_trial_id_from_study_id_trial_number(
+        &mut self,
+        study_id: u32,
+        trial_number: u32,
+    ) -> Result<u32> {
+        self.refresh_trials(study_id)?;
+        let trials = self
+            .trials
+            .get(&study_id)
+            .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))?;
+        let trial = trials
+            .get(&trial_number)
+            .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
+        Ok(trial.id)
     }
 
     fn set_study_attrs(
@@ -390,29 +432,13 @@ impl rustuna_core::storage::Storage for CachedStorage {
 }
 
 impl OptunaCompatibleStorage for CachedStorage {
-    fn get_study_id_trial_number_from_trial_id(&mut self, trial_id: u32) -> Result<(u32, u32)> {
-        self.backend
-            .get_study_id_trial_number_from_trial_id(trial_id)
-    }
-
-    fn get_trial_id_from_study_id_trial_number(
-        &mut self,
-        study_id: u32,
-        trial_number: u32,
-    ) -> Result<u32> {
-        self.backend
-            .get_trial_id_from_study_id_trial_number(study_id, trial_number)
-    }
-
     fn set_trial_datetime(
         &mut self,
         trial_id: u32,
         datetime_start: Option<chrono::NaiveDateTime>,
         datetime_complete: Option<chrono::NaiveDateTime>,
     ) -> Result<()> {
-        let (study_id, trial_number) = self
-            .backend
-            .get_study_id_trial_number_from_trial_id(trial_id)?;
+        let (study_id, trial_number) = self.resolve_trial_location(trial_id)?;
         self.backend
             .set_trial_datetime(trial_id, datetime_start, datetime_complete)?;
         self.unfinished_trials
@@ -488,24 +514,21 @@ mod tests {
 
         fn set_trial_param(
             &mut self,
-            study_id: u32,
-            trial_number: u32,
+            trial_id: u32,
             name: &str,
             distribution: &Distribution,
             value: f64,
         ) -> Result<()> {
             self.inner
-                .set_trial_param(study_id, trial_number, name, distribution, value)
+                .set_trial_param(trial_id, name, distribution, value)
         }
 
         fn set_trial_state_values(
             &mut self,
-            study_id: u32,
-            trial_number: u32,
+            trial_id: u32,
             state_values: TrialStateValues,
         ) -> Result<()> {
-            self.inner
-                .set_trial_state_values(study_id, trial_number, state_values)
+            self.inner.set_trial_state_values(trial_id, state_values)
         }
 
         fn get_studies(&mut self) -> Result<Vec<PersistedStudy>> {
@@ -534,8 +557,8 @@ mod tests {
             Ok(trials)
         }
 
-        fn get_trial(&mut self, study_id: u32, trial_number: u32) -> Result<PersistedTrial> {
-            Ok(self.inner.get_trial(study_id, trial_number)?.clone())
+        fn get_trial(&mut self, trial_id: u32) -> Result<PersistedTrial> {
+            Ok(self.inner.get_trial(trial_id)?.clone())
         }
 
         fn set_study_attrs(
@@ -560,21 +583,6 @@ mod tests {
         }
     }
     impl OptunaCompatibleStorage for DummyBackend {
-        fn get_study_id_trial_number_from_trial_id(
-            &mut self,
-            _trial_id: u32,
-        ) -> Result<(u32, u32)> {
-            todo!()
-        }
-
-        fn get_trial_id_from_study_id_trial_number(
-            &mut self,
-            _study_id: u32,
-            _trial_number: u32,
-        ) -> Result<u32> {
-            todo!()
-        }
-
         fn set_trial_datetime(
             &mut self,
             _trial_id: u32,
@@ -693,14 +701,14 @@ mod tests {
     fn get_trials_and_get_trial_return_cached_refs() -> Result<()> {
         let mut storage = CachedStorage::new(Box::new(DummyBackend::new()));
         let study_id = storage.create_new_study("s", vec![Direction::Minimize])?.id;
-        storage.create_new_trial(study_id)?;
-        storage.create_new_trial(study_id)?;
+        let t0_id = storage.create_new_trial(study_id)?.id;
+        let t1_id = storage.create_new_trial(study_id)?.id;
 
         let trials = storage.get_trials(study_id)?;
         assert_eq!(trials.len(), 2);
-        let t0 = storage.get_trial(study_id, 0)?;
+        let t0 = storage.get_trial(t0_id)?;
         assert_eq!(t0.number, 0);
-        let t1 = storage.get_trial(study_id, 1)?;
+        let t1 = storage.get_trial(t1_id)?;
         assert_eq!(t1.number, 1);
         Ok(())
     }
@@ -756,11 +764,11 @@ mod tests {
     fn set_trial_state_values_updates_cache() -> Result<()> {
         let mut backend = DummyBackend::new();
         let study_id = backend.create_new_study("s", vec![Direction::Minimize])?.id;
-        backend.create_new_trial(study_id)?;
+        let trial_id = backend.create_new_trial(study_id)?.id;
 
         let mut storage = CachedStorage::new(Box::new(backend));
-        storage.set_trial_state_values(study_id, 0, TrialStateValues::Complete(vec![1.0]))?;
-        let trial = storage.get_trial(study_id, 0)?;
+        storage.set_trial_state_values(trial_id, TrialStateValues::Complete(vec![1.0]))?;
+        let trial = storage.get_trial(trial_id)?;
         assert!(matches!(trial.state_values, TrialStateValues::Complete(_)));
         Ok(())
     }
@@ -776,9 +784,9 @@ mod tests {
             step: None,
             log: false,
         };
-        storage.create_new_trial(study_id)?;
-        storage.set_trial_param(study_id, 0, "x", &dist, 0.5)?;
-        storage.set_trial_state_values(study_id, 0, TrialStateValues::Complete(vec![0.0]))?;
+        let trial_id = storage.create_new_trial(study_id)?.id;
+        storage.set_trial_param(trial_id, "x", &dist, 0.5)?;
+        storage.set_trial_state_values(trial_id, TrialStateValues::Complete(vec![0.0]))?;
 
         let search_space = storage.get_joint_search_space(study_id)?;
         assert!(search_space.contains_key("x"));
@@ -806,7 +814,8 @@ mod tests {
         let mut t_attrs = Attrs::new();
         t_attrs.insert(AttrKey::System("key".to_string()), "val".to_string());
         storage.set_trial_attrs(study_id, 0, t_attrs, false)?;
-        let trial = storage.get_trial(study_id, 0)?;
+        let trial_id = storage.get_trials(study_id)?[0].id;
+        let trial = storage.get_trial(trial_id)?;
         assert_eq!(
             trial
                 .attrs
@@ -830,9 +839,10 @@ mod tests {
             step: None,
             log: false,
         };
-        storage.set_trial_param(study_id, 0, "x", &dist, 0.5)?;
+        let trial_id = storage.get_trials(study_id)?[0].id;
+        storage.set_trial_param(trial_id, "x", &dist, 0.5)?;
 
-        let trial = storage.get_trial(study_id, 0)?;
+        let trial = storage.get_trial(trial_id)?;
         assert_eq!(trial.internal_params.get("x"), Some(&0.5));
         assert_eq!(
             trial.distributions.get("x"),
@@ -856,9 +866,9 @@ mod tests {
             .id;
         storage.create_new_study("test2", vec![Direction::Minimize])?;
         let trial_1 = storage.create_new_trial(study_id)?;
-        let trial_1_number = trial_1.number;
+        let trial_1_id = trial_1.id;
         let trial_2 = storage.create_new_trial(study_id)?;
-        let trial_2_number = trial_2.number;
+        let trial_2_id = trial_2.id;
 
         // Setup distributions
         let distribution_x = Distribution::Float {
@@ -877,16 +887,16 @@ mod tests {
         };
 
         // Set new params.
-        storage.set_trial_param(study_id, trial_1_number, "x", &distribution_x, 0.5)?;
-        storage.set_trial_param(study_id, trial_1_number, "y", &distribution_y_1, 2.0)?;
-        let trial = storage.get_trial(study_id, trial_1_number)?;
+        storage.set_trial_param(trial_1_id, "x", &distribution_x, 0.5)?;
+        storage.set_trial_param(trial_1_id, "y", &distribution_y_1, 2.0)?;
+        let trial = storage.get_trial(trial_1_id)?;
         assert_eq!(trial.internal_params["x"], 0.5);
         assert_eq!(trial.internal_params["y"], 2.0);
 
         // Set params to another trial
-        storage.set_trial_param(study_id, trial_2_number, "x", &distribution_x, 0.3)?;
-        storage.set_trial_param(study_id, trial_2_number, "z", &distribution_z, 0.1)?;
-        let trial = storage.get_trial(study_id, trial_2_number)?;
+        storage.set_trial_param(trial_2_id, "x", &distribution_x, 0.3)?;
+        storage.set_trial_param(trial_2_id, "z", &distribution_z, 0.1)?;
+        let trial = storage.get_trial(trial_2_id)?;
         assert_eq!(trial.internal_params["x"], 0.3);
         assert_eq!(trial.internal_params["z"], 0.1);
 
@@ -913,12 +923,12 @@ mod tests {
             log: false,
         };
 
-        let trial0 = storage.create_new_trial(study_id)?.clone();
-        storage.set_trial_param(study_id, trial0.number, "x", &float_dist, 0.5)?;
+        let trial0_id = storage.create_new_trial(study_id)?.id;
+        storage.set_trial_param(trial0_id, "x", &float_dist, 0.5)?;
 
-        let trial1 = storage.create_new_trial(study_id)?.clone();
+        let trial1_id = storage.create_new_trial(study_id)?.id;
         let err = storage
-            .set_trial_param(study_id, trial1.number, "x", &int_dist, 1.0)
+            .set_trial_param(trial1_id, "x", &int_dist, 1.0)
             .expect_err("Expected IncompatibleDistribution error");
         assert!(matches!(err.kind, ErrorKind::IncompatibleDistribution));
         Ok(())

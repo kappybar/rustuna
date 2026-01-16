@@ -120,7 +120,8 @@ study.optimize(objective, n_trials=10)
         studies[0].id
     };
 
-    let trial0 = storage.get_trial(study_id, 0)?;
+    let trial_id = storage.get_trials(study_id)?[0].id;
+    let trial0 = storage.get_trial(trial_id)?;
     assert_eq!(trial0.number, 0);
 
     // Distributions

@@ -6,12 +6,6 @@ use rustuna_core::Result;
 use serde::{Deserialize, Serialize};
 
 pub trait OptunaCompatibleStorage: Send + Sync {
-    fn get_study_id_trial_number_from_trial_id(&mut self, trial_id: u32) -> Result<(u32, u32)>;
-    fn get_trial_id_from_study_id_trial_number(
-        &mut self,
-        study_id: u32,
-        trial_number: u32,
-    ) -> Result<u32>;
     fn set_trial_datetime(
         &mut self,
         trial_id: u32,

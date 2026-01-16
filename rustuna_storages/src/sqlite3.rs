@@ -17,6 +17,7 @@ pub struct SQLite3Storage {
 }
 
 const SCHEMA_SQL: &str = include_str!("sqlite3_schema.sql");
+type TrialRow = (u32, u32, String, Option<String>, Option<String>);
 
 impl SQLite3Storage {
     pub fn new(file_path: &str) -> Result<SQLite3Storage> {
@@ -194,7 +195,7 @@ impl CachedStorageBackend for SQLite3Storage {
                 )
             })?;
 
-        let mut trial = PersistedTrial::new(study_id, number);
+        let mut trial = PersistedTrial::new(trial_id, study_id, number);
         if let Some(dt) = datetime_start {
             let v = serde_json::to_string(&dt).map_err(|e| {
                 Error::with_reason(
@@ -211,8 +212,7 @@ impl CachedStorageBackend for SQLite3Storage {
 
     fn set_trial_param(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         name: &str,
         distribution: &rustuna_core::distribution::Distribution,
         value: f64,
@@ -222,10 +222,10 @@ impl CachedStorageBackend for SQLite3Storage {
             .conn
             .lock()
             .map_err(|_| Error::new(ErrorKind::StorageError))?;
-        let trial_id: Option<u32> = guard
+        let exists: Option<u32> = guard
             .query_row(
-                "SELECT trial_id FROM trials WHERE study_id = ? AND number = ?",
-                params![study_id, trial_number],
+                "SELECT trial_id FROM trials WHERE trial_id = ?",
+                params![trial_id],
                 |row| row.get(0),
             )
             .optional()
@@ -235,7 +235,9 @@ impl CachedStorageBackend for SQLite3Storage {
                     format!("Database query failed: {e}"),
                 )
             })?;
-        let trial_id = trial_id.ok_or(Error::new(ErrorKind::TrialNotFound))?;
+        if exists.is_none() {
+            return Err(Error::new(ErrorKind::TrialNotFound));
+        }
 
         let distribution_json = distribution_to_json(distribution, None);
         guard
@@ -257,19 +259,18 @@ impl CachedStorageBackend for SQLite3Storage {
 
     fn set_trial_state_values(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         state_values: rustuna_core::trial::TrialStateValues,
     ) -> rustuna_core::Result<()> {
         let guard = self
             .conn
             .lock()
             .map_err(|_| Error::new(ErrorKind::StorageError))?;
-        let result: Option<(u32, String)> = guard
+        let result: Option<String> = guard
             .query_row(
-                "SELECT trial_id, state FROM trials WHERE study_id = ? AND number = ?",
-                params![study_id, trial_number],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                "SELECT state FROM trials WHERE trial_id = ?",
+                params![trial_id],
+                |row| row.get(0),
             )
             .optional()
             .map_err(|e| {
@@ -278,7 +279,7 @@ impl CachedStorageBackend for SQLite3Storage {
                     format!("Database query failed: {e}"),
                 )
             })?;
-        let (trial_id, current_state) = result.ok_or(Error::new(ErrorKind::TrialNotFound))?;
+        let current_state = result.ok_or(Error::new(ErrorKind::TrialNotFound))?;
 
         if matches!(current_state.as_str(), "COMPLETE" | "FAIL" | "PRUNED") {
             return Err(Error::new(ErrorKind::TrialAlreadyFinished));
@@ -507,8 +508,7 @@ impl CachedStorageBackend for SQLite3Storage {
 
     fn get_trial(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
     ) -> rustuna_core::Result<rustuna_core::trial::PersistedTrial> {
         let guard = self
             .conn
@@ -516,15 +516,15 @@ impl CachedStorageBackend for SQLite3Storage {
             .map_err(|_| Error::new(ErrorKind::StorageError))?;
 
         // Query to trials table .
-        let trial_row: Option<(u32, String, Option<String>, Option<String>)> = guard
+        let trial_row: Option<TrialRow> = guard
             .query_row(
-                "SELECT trial_id, state, datetime_start, datetime_complete FROM trials WHERE study_id = ? AND number = ?",
-                params![study_id, trial_number],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                "SELECT study_id, number, state, datetime_start, datetime_complete FROM trials WHERE trial_id = ?",
+                params![trial_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
             )
             .optional()
             .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {e}")))?;
-        let (trial_id, state_str, datetime_start, datetime_complete) =
+        let (study_id, number, state_str, datetime_start, datetime_complete) =
             trial_row.ok_or(Error::new(ErrorKind::TrialNotFound))?;
         let state_values = match state_str.as_str() {
             "RUNNING" | "WAITING" => TrialStateValues::Running,
@@ -735,7 +735,7 @@ impl CachedStorageBackend for SQLite3Storage {
             );
         }
 
-        let mut trial = PersistedTrial::new(study_id, trial_number);
+        let mut trial = PersistedTrial::new(trial_id, study_id, number);
         trial.state_values = state_values;
         trial.internal_params = internal_params;
         trial.distributions = distributions;
@@ -1270,7 +1270,7 @@ impl CachedStorageBackend for SQLite3Storage {
                 );
             }
 
-            let mut trial = PersistedTrial::new(study_id, number);
+            let mut trial = PersistedTrial::new(trial_id, study_id, number);
             trial.state_values = state_values;
             trial.internal_params = internal_params;
             trial.distributions = distributions;
@@ -1385,52 +1385,6 @@ impl CachedStorageBackend for SQLite3Storage {
 }
 
 impl OptunaCompatibleStorage for SQLite3Storage {
-    fn get_study_id_trial_number_from_trial_id(&mut self, trial_id: u32) -> Result<(u32, u32)> {
-        let guard = self
-            .conn
-            .lock()
-            .map_err(|_| Error::new(ErrorKind::StorageError))?;
-        let result: Option<(u32, u32)> = guard
-            .query_row(
-                "SELECT study_id, number FROM trials WHERE trial_id = ?",
-                params![trial_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()
-            .map_err(|e| {
-                Error::with_reason(
-                    ErrorKind::StorageError,
-                    format!("Database query failed: {e}"),
-                )
-            })?;
-        result.ok_or_else(|| Error::new(ErrorKind::TrialNotFound))
-    }
-
-    fn get_trial_id_from_study_id_trial_number(
-        &mut self,
-        study_id: u32,
-        trial_number: u32,
-    ) -> Result<u32> {
-        let guard = self
-            .conn
-            .lock()
-            .map_err(|_| Error::new(ErrorKind::StorageError))?;
-        let trial_id: Option<u32> = guard
-            .query_row(
-                "SELECT trial_id FROM trials WHERE study_id = ? AND number = ?",
-                params![study_id, trial_number],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|e| {
-                Error::with_reason(
-                    ErrorKind::StorageError,
-                    format!("Database query failed: {e}"),
-                )
-            })?;
-        trial_id.ok_or_else(|| Error::new(ErrorKind::TrialNotFound))
-    }
-
     fn get_trials_diff_optuna(
         &mut self,
         study_id: u32,
@@ -1890,7 +1844,7 @@ mod tests {
             step: None,
             log: false,
         };
-        storage.set_trial_param(study_id, trial.number, "float", &float_dist, 0.5)?;
+        storage.set_trial_param(trial.id, "float", &float_dist, 0.5)?;
 
         // IntDistribution
         let int_dist = Distribution::Int {
@@ -1899,14 +1853,14 @@ mod tests {
             step: 1,
             log: false,
         };
-        storage.set_trial_param(study_id, trial.number, "int", &int_dist, 5.0)?;
+        storage.set_trial_param(trial.id, "int", &int_dist, 5.0)?;
 
         // CategoricalDistribution
         let categorical_dist = Distribution::Categorical { cardinality: 3 };
-        storage.set_trial_param(study_id, trial.number, "cat", &categorical_dist, 1.0)?;
+        storage.set_trial_param(trial.id, "cat", &categorical_dist, 1.0)?;
 
         // Check distributions
-        let trial = storage.get_trial(study_id, trial.number)?;
+        let trial = storage.get_trial(trial.id)?;
         assert_eq!(trial.distributions.len(), 3);
         assert_eq!(trial.distributions["float"], float_dist);
         assert_eq!(trial.distributions["int"], int_dist);
@@ -2012,7 +1966,7 @@ mod tests {
 
         storage.set_trial_attrs(study_id, trial.number, attrs, false)?;
 
-        let trial = storage.get_trial(study_id, trial.number)?;
+        let trial = storage.get_trial(trial.id)?;
         assert_eq!(
             trial
                 .attrs
@@ -2057,7 +2011,7 @@ mod tests {
             .expect_err("Expected AttrOverwriteNotAllowed error");
         assert!(matches!(err.kind, ErrorKind::AttrOverwriteNotAllowed));
 
-        let trial = storage.get_trial(study_id, trial.number)?;
+        let trial = storage.get_trial(trial.id)?;
         assert_eq!(
             trial
                 .attrs
@@ -2081,13 +2035,9 @@ mod tests {
 
         assert_eq!(trial.state_values, TrialStateValues::Running);
 
-        storage.set_trial_state_values(
-            study_id,
-            trial.number,
-            TrialStateValues::Complete(vec![1.5, 2.5]),
-        )?;
+        storage.set_trial_state_values(trial.id, TrialStateValues::Complete(vec![1.5, 2.5]))?;
 
-        let trial = storage.get_trial(study_id, trial.number)?;
+        let trial = storage.get_trial(trial.id)?;
         assert_eq!(
             trial.state_values,
             TrialStateValues::Complete(vec![1.5, 2.5])
@@ -2103,9 +2053,9 @@ mod tests {
             .id;
         let trial = storage.create_new_trial(study_id)?;
 
-        storage.set_trial_state_values(study_id, trial.number, TrialStateValues::Fail)?;
+        storage.set_trial_state_values(trial.id, TrialStateValues::Fail)?;
 
-        let trial = storage.get_trial(study_id, trial.number)?;
+        let trial = storage.get_trial(trial.id)?;
         assert_eq!(trial.state_values, TrialStateValues::Fail);
         Ok(())
     }
@@ -2120,11 +2070,7 @@ mod tests {
         // Create 5 trials
         for i in 0..5 {
             let trial = storage.create_new_trial(study_id)?;
-            storage.set_trial_state_values(
-                study_id,
-                trial.number,
-                TrialStateValues::Complete(vec![i as f64]),
-            )?;
+            storage.set_trial_state_values(trial.id, TrialStateValues::Complete(vec![i as f64]))?;
         }
 
         // Get all trials with number > 2
@@ -2235,33 +2181,25 @@ mod tests {
         let trial3 = storage.create_new_trial(study_id2)?;
         let trial4 = storage.create_new_trial(study_id)?;
 
-        // Get trial_ids via OptunaCompatibleStorage
-        let trial_id_1 =
-            storage.get_trial_id_from_study_id_trial_number(study_id, trial1.number)?;
-        let trial_id_3 =
-            storage.get_trial_id_from_study_id_trial_number(study_id2, trial3.number)?;
-        let trial_id_4 =
-            storage.get_trial_id_from_study_id_trial_number(study_id, trial4.number)?;
-
         // Test setting new values
         let mut values1 = HashMap::new();
         values1.insert(0, 0.3);
         values1.insert(2, 0.4);
-        storage.set_trial_intermediate_values(trial_id_1, values1)?;
+        storage.set_trial_intermediate_values(trial1.id, values1)?;
 
         let mut values3 = HashMap::new();
         values3.insert(0, 0.1);
         values3.insert(1, 0.4);
         values3.insert(2, 0.5);
         values3.insert(3, f64::INFINITY);
-        storage.set_trial_intermediate_values(trial_id_3, values3)?;
+        storage.set_trial_intermediate_values(trial3.id, values3)?;
 
         let mut values4 = HashMap::new();
         values4.insert(0, f64::NAN);
-        storage.set_trial_intermediate_values(trial_id_4, values4)?;
+        storage.set_trial_intermediate_values(trial4.id, values4)?;
 
         // Verify trial 1
-        let trial1_result = storage.get_trial(study_id, trial1.number)?;
+        let trial1_result = storage.get_trial(trial1.id)?;
         let intermediate_json = trial1_result
             .attrs
             .get(&AttrKey::System("intermediate_values".to_string()))
@@ -2277,13 +2215,13 @@ mod tests {
         assert_eq!(intermediate_entries[1].value_type, "FINITE");
 
         // Verify trial 2 (no intermediate values)
-        let trial2_result = storage.get_trial(study_id, trial2.number)?;
+        let trial2_result = storage.get_trial(trial2.id)?;
         assert!(!trial2_result
             .attrs
             .contains_key(&AttrKey::System("intermediate_values".to_string())));
 
         // Verify trial 3
-        let trial3_result = storage.get_trial(study_id2, trial3.number)?;
+        let trial3_result = storage.get_trial(trial3.id)?;
         let intermediate_json = trial3_result
             .attrs
             .get(&AttrKey::System("intermediate_values".to_string()))
@@ -2305,7 +2243,7 @@ mod tests {
         assert_eq!(intermediate_entries[3].value_type, "INF_POS");
 
         // Verify trial 4 (NaN value)
-        let trial4_result = storage.get_trial(study_id, trial4.number)?;
+        let trial4_result = storage.get_trial(trial4.id)?;
         let intermediate_json = trial4_result
             .attrs
             .get(&AttrKey::System("intermediate_values".to_string()))
@@ -2320,9 +2258,9 @@ mod tests {
         // Test overwriting existing step
         let mut values1_update = HashMap::new();
         values1_update.insert(0, 0.2);
-        storage.set_trial_intermediate_values(trial_id_1, values1_update)?;
+        storage.set_trial_intermediate_values(trial1.id, values1_update)?;
 
-        let trial1_updated = storage.get_trial(study_id, trial1.number)?;
+        let trial1_updated = storage.get_trial(trial1.id)?;
         let intermediate_json = trial1_updated
             .attrs
             .get(&AttrKey::System("intermediate_values".to_string()))
@@ -2338,7 +2276,7 @@ mod tests {
         assert_eq!(intermediate_entries[1].value_type, "FINITE");
 
         // Test non-existent trial
-        let non_existent_trial_id = trial_id_4 + 1000;
+        let non_existent_trial_id = trial4.id + 1000;
         let mut invalid_values = HashMap::new();
         invalid_values.insert(0, 0.5);
         let err = storage
