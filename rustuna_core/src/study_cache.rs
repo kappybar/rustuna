@@ -86,6 +86,7 @@ mod tests {
         let mut cache = StudyCache::new();
         let trials = vec![
             PersistedTrial {
+                id: 0,
                 study_id: 0,
                 number: 0,
                 state_values: TrialStateValues::Complete(vec![0.0]),
@@ -119,6 +120,7 @@ mod tests {
                 attrs: Attrs::new(),
             },
             PersistedTrial {
+                id: 1,
                 study_id: 0,
                 number: 1,
                 state_values: TrialStateValues::Fail,
@@ -127,6 +129,7 @@ mod tests {
                 attrs: Attrs::new(),
             },
             PersistedTrial {
+                id: 2,
                 study_id: 0,
                 number: 2,
                 state_values: TrialStateValues::Running,
@@ -135,6 +138,7 @@ mod tests {
                 attrs: Attrs::new(),
             },
             PersistedTrial {
+                id: 3,
                 study_id: 0,
                 number: 3,
                 state_values: TrialStateValues::Complete(vec![0.0]),
@@ -180,6 +184,7 @@ mod tests {
         let mut cache = StudyCache::new();
         let trials = vec![
             PersistedTrial {
+                id: 0,
                 study_id: 0,
                 number: 0,
                 state_values: TrialStateValues::Complete(vec![0.0]),
@@ -188,6 +193,7 @@ mod tests {
                 attrs: Attrs::new(),
             },
             PersistedTrial {
+                id: 1,
                 study_id: 0,
                 number: 1,
                 state_values: TrialStateValues::Pruned,
@@ -196,6 +202,7 @@ mod tests {
                 attrs: Attrs::new(),
             },
             PersistedTrial {
+                id: 2,
                 study_id: 0,
                 number: 2,
                 state_values: TrialStateValues::Fail,
@@ -204,6 +211,7 @@ mod tests {
                 attrs: Attrs::new(),
             },
             PersistedTrial {
+                id: 3,
                 study_id: 0,
                 number: 3,
                 state_values: TrialStateValues::Running,
@@ -212,6 +220,7 @@ mod tests {
                 attrs: Attrs::new(),
             },
             PersistedTrial {
+                id: 4,
                 study_id: 0,
                 number: 4,
                 state_values: TrialStateValues::Complete(vec![0.0]),

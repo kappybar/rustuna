@@ -64,9 +64,12 @@ impl Study {
     }
 
     pub fn from_id(id: u32, storage: Arc<RwLock<dyn Storage>>) -> Result<Self> {
-        let mut guard = storage
-            .write()
-            .map_err(|_| Error::new(ErrorKind::Unexpected))?;
+        let mut guard = storage.write().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::Unexpected,
+                format!("Failed to acquire a storage guard: {e}"),
+            )
+        })?;
         let study = guard.get_study(id)?;
         let name = study.name.clone();
         let directions = study.directions.clone();
@@ -75,9 +78,12 @@ impl Study {
     }
 
     pub fn from_name(name: String, storage: Arc<RwLock<dyn Storage>>) -> Result<Self> {
-        let mut guard = storage
-            .write()
-            .map_err(|_| Error::new(ErrorKind::Unexpected))?;
+        let mut guard = storage.write().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::Unexpected,
+                format!("Failed to acquire a storage guard: {e}"),
+            )
+        })?;
         let studies = guard.get_studies()?;
         let study = studies
             .iter()
@@ -90,11 +96,15 @@ impl Study {
     }
 
     pub fn ask(&mut self, sampler: Arc<Mutex<dyn Sampler>>) -> Result<Trial> {
-        let mut guard = self
-            .storage
-            .write()
-            .map_err(|_| Error::new(ErrorKind::Unexpected))?;
-        let trial_number = guard.create_new_trial(self.id)?.number;
+        let mut guard = self.storage.write().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::Unexpected,
+                format!("Failed to acquire a storage guard: {e}"),
+            )
+        })?;
+        let trial = guard.create_new_trial(self.id)?;
+        let trial_id = trial.id;
+        let trial_number = trial.number;
         drop(guard);
 
         // Joint sampling
@@ -128,6 +138,7 @@ impl Study {
         };
 
         let trial = Trial::new(
+            trial_id,
             self.id,
             trial_number,
             self.directions.clone(),
@@ -143,7 +154,8 @@ impl Study {
             .storage
             .write()
             .map_err(|_| Error::new(ErrorKind::Unexpected))?;
-        guard.set_trial_state_values(self.id, trial_number, state_values)?;
+        let trial_id = guard.get_trial_id_from_study_id_trial_number(self.id, trial_number)?;
+        guard.set_trial_state_values(trial_id, state_values)?;
         Ok(())
     }
 
