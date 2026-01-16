@@ -192,12 +192,7 @@ impl Storage for JournalStorage {
         fields.insert("param_name".to_string(), Value::String(name.to_string()));
         fields.insert(
             "param_value_internal".to_string(),
-            Value::Number(Number::from_f64(value).ok_or_else(|| {
-                Error::with_reason(
-                    ErrorKind::StorageError,
-                    format!("Failed to convert f64 to JSON number: value={value}"),
-                )
-            })?),
+            Value::String(format!("{value:.17e}")),
         );
         fields.insert("distribution".to_string(), Value::String(dist_json));
         self.write_log(JournalOperation::SetTrialParam, fields)?;

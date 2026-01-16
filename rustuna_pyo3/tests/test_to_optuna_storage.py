@@ -10,6 +10,7 @@ from optuna.study import StudyDirection
 from optuna.testing.pytest_storages import StorageTestCase
 from optuna.trial._frozen import FrozenTrial
 from optuna.trial._state import TrialState
+from pytest import FixtureRequest
 
 import rustuna
 from rustuna.converter import ToOptunaStorage
@@ -20,14 +21,21 @@ if TYPE_CHECKING:
     from optuna.storages import BaseStorage
 
 
-@pytest.fixture
-def storage() -> Generator[BaseStorage, None, None]:
+@pytest.fixture(params=["sqlite3", "journal-file"])
+def storage(request: FixtureRequest) -> Generator[BaseStorage, None, None]:
     with tempfile.TemporaryDirectory() as workdir:
-        file_path = f"{workdir}/test.db"
-        rustuna_storage = rustuna.Storage.sqlite3(file_path, create_database=True)
-        storage = ToOptunaStorage(rustuna_storage)
+        if request.param == "sqlite3":
+            file_path = f"{workdir}/test.db"
+            rustuna_storage = rustuna.Storage.sqlite3(file_path, create_database=True)
+            storage = ToOptunaStorage(rustuna_storage)
 
-        yield storage
+            yield storage
+        else:
+            file_path = f"{workdir}/test.journal"
+            rustuna_storage = rustuna.Storage.journal_file(file_path)
+            storage = ToOptunaStorage(rustuna_storage)
+
+            yield storage
 
 
 class TestSQLite3Storage(StorageTestCase):
@@ -114,6 +122,18 @@ class TestSQLite3Storage(StorageTestCase):
         trials = storage.get_all_trials(study_id) + storage.get_all_trials(study_id2)
         # Check trial_ids are unique across studies.
         assert len({t._trial_id for t in trials}) == 2 * n_trial_in_study
+
+    def test_get_all_trials_uses_cache_diff(self, storage: BaseStorage) -> None:
+        study_id = storage.create_new_study(directions=[StudyDirection.MINIMIZE])
+        trial_id0 = storage.create_new_trial(study_id)
+        trials1 = storage.get_all_trials(study_id)
+        assert len(trials1) == 1
+        assert {t._trial_id for t in trials1} == {trial_id0}
+
+        trial_id1 = storage.create_new_trial(study_id)
+        trials2 = storage.get_all_trials(study_id)
+        assert len(trials2) == 2
+        assert {t._trial_id for t in trials2} == {trial_id0, trial_id1}
 
     @pytest.mark.skip("Fix me!")
     def test_set_trial_state_values_for_values(self, storage: BaseStorage) -> None:
