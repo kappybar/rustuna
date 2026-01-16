@@ -19,7 +19,7 @@ impl ParzenEstimator {
         weights: &[f64],
         prior_weight: f64,
     ) -> Self {
-        Self::new_with_builder(
+        Self::with_builder(
             observations,
             search_space,
             weights,
@@ -29,7 +29,7 @@ impl ParzenEstimator {
         )
     }
 
-    pub(crate) fn new_with_builder(
+    pub(crate) fn with_builder(
         observations: &HashMap<String, Vec<f64>>,
         search_space: &HashMap<String, Distribution>,
         weights: &[f64],
