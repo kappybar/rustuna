@@ -83,6 +83,39 @@ impl InMemoryStorage {
             next_trial_id: 0,
         }
     }
+
+    pub fn insert_trial_with_id(
+        &mut self,
+        study_id: u32,
+        trial_id: u32,
+        number: u32,
+    ) -> Result<&PersistedTrial> {
+        let trials = get_mut_trials_by_study_id(&mut self.trials, study_id)?;
+        let trials_len = trials.len() as u32;
+        if number > trials_len {
+            return Err(Error::new(ErrorKind::StorageError));
+        }
+        if number < trials_len {
+            let trial = trials
+                .get(number as usize)
+                .ok_or(Error::new(ErrorKind::TrialNotFound))?;
+            if trial.id != trial_id {
+                return Err(Error::new(ErrorKind::StorageError));
+            }
+            return Ok(trial);
+        }
+        if self.trial_id_to_study_number.contains_key(&trial_id) {
+            return Err(Error::new(ErrorKind::StorageError));
+        }
+        let trial = PersistedTrial::new(trial_id, study_id, number);
+        trials.push(trial);
+        self.trial_id_to_study_number
+            .insert(trial_id, (study_id, number));
+        if trial_id >= self.next_trial_id {
+            self.next_trial_id = trial_id + 1;
+        }
+        Ok(&trials[number as usize])
+    }
 }
 fn get_trials_by_study_id(
     all_trials: &HashMap<u32, Vec<PersistedTrial>>,
@@ -359,6 +392,20 @@ mod tests {
             .err()
             .unwrap();
         assert!(matches!(err.kind, ErrorKind::IncompatibleDistribution));
+        Ok(())
+    }
+
+    #[test]
+    fn insert_trial_with_id_updates_next_trial_id() -> Result<()> {
+        let mut storage = InMemoryStorage::new();
+        let study_id = storage
+            .create_new_study("study", vec![Direction::Minimize])?
+            .id;
+
+        let trial = storage.insert_trial_with_id(study_id, 10, 0)?;
+        assert_eq!(trial.id, 10);
+        let trial = storage.create_new_trial(study_id)?;
+        assert_eq!(trial.id, 11);
         Ok(())
     }
 }

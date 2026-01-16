@@ -90,8 +90,7 @@ impl PyObjectStorage {
 
     fn obj_set_trial_param(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         name: &str,
         distribution: &Distribution,
         value: f64,
@@ -103,7 +102,7 @@ impl PyObjectStorage {
             self.obj.call_method1(
                 py,
                 "set_trial_param",
-                (study_id, trial_number, name, py_distribution, value),
+                (trial_id, name, py_distribution, value),
             )?;
             Ok(())
         })
@@ -111,8 +110,7 @@ impl PyObjectStorage {
 
     fn obj_set_trial_state_values(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         state: &TrialStateValues,
     ) -> PyResult<()> {
         Python::with_gil(|py| {
@@ -121,11 +119,8 @@ impl PyObjectStorage {
                 _ => None,
             };
             let py_state = PyTrialState::from(state.clone());
-            self.obj.call_method1(
-                py,
-                "set_trial_state_values",
-                (study_id, trial_number, py_state, values),
-            )?;
+            self.obj
+                .call_method1(py, "set_trial_state_values", (trial_id, py_state, values))?;
             Ok(())
         })
     }
@@ -152,12 +147,7 @@ impl PyObjectStorage {
         })
     }
 
-    fn obj_set_trial_attrs(
-        &mut self,
-        study_id: u32,
-        trial_number: u32,
-        attrs: Attrs,
-    ) -> PyResult<()> {
+    fn obj_set_trial_attrs(&mut self, trial_id: u32, attrs: Attrs) -> PyResult<()> {
         Python::with_gil(|py| {
             let py_system_attrs = pyo3::types::PyDict::new(py);
             let py_user_attrs = pyo3::types::PyDict::new(py);
@@ -171,16 +161,10 @@ impl PyObjectStorage {
                     }
                 }
             }
-            self.obj.call_method1(
-                py,
-                "set_trial_system_attrs",
-                (study_id, trial_number, py_system_attrs),
-            )?;
-            self.obj.call_method1(
-                py,
-                "set_trial_user_attrs",
-                (study_id, trial_number, py_user_attrs),
-            )?;
+            self.obj
+                .call_method1(py, "set_trial_system_attrs", (trial_id, py_system_attrs))?;
+            self.obj
+                .call_method1(py, "set_trial_user_attrs", (trial_id, py_user_attrs))?;
             Ok(())
         })
     }
@@ -258,52 +242,39 @@ impl PyObjectStorage {
     fn sync_trial(
         &mut self,
         cache_study_id: u32,
-        number: u32,
-        src_trial: Option<PersistedTrial>,
+        src_trial: PersistedTrial,
         cache_n_trials: Option<u32>,
     ) -> rustuna_core::Result<()> {
         let cache_n_trials = match cache_n_trials {
             Some(n) => n,
             None => self.cache.get_trials(cache_study_id)?.len() as u32,
         };
-        let cache_trial = match cache_n_trials.cmp(&number) {
-            std::cmp::Ordering::Equal => self.cache.create_new_trial(cache_study_id),
-            std::cmp::Ordering::Greater => self.cache.get_trial(cache_study_id, number),
-            std::cmp::Ordering::Less => {
-                for n in cache_n_trials..number {
-                    let cache_trial = self.cache.create_new_trial(cache_study_id)?;
-                    assert!(cache_trial.number == n);
-                }
-                self.cache.create_new_trial(cache_study_id)
+        match src_trial.number.cmp(&cache_n_trials) {
+            std::cmp::Ordering::Equal => {
+                self.cache
+                    .insert_trial_with_id(cache_study_id, src_trial.id, src_trial.number)?;
             }
-        }?;
-        assert!(
-            number == cache_trial.number,
-            "{:?} != {:?} (src_trial={:?})",
-            number,
-            cache_trial.number,
-            src_trial
-        );
+            std::cmp::Ordering::Greater => {
+                return Err(rustuna_core::Error::new(
+                    rustuna_core::ErrorKind::StorageError,
+                ));
+            }
+            std::cmp::Ordering::Less => {
+                let cache_trial_id = self
+                    .cache
+                    .get_trial_id_from_study_id_trial_number(cache_study_id, src_trial.number)?;
+                if cache_trial_id != src_trial.id {
+                    return Err(rustuna_core::Error::new(
+                        rustuna_core::ErrorKind::StorageError,
+                    ));
+                }
+            }
+        }
+
+        let cache_trial = self.cache.get_trial(src_trial.id)?.clone();
         if cache_trial.is_finished() {
             return Ok(());
         }
-        let src_trial = match src_trial {
-            Some(src_trial) => src_trial,
-            None => {
-                let src_study_id = self.cache_study_to_src_study.get(&cache_study_id).ok_or(
-                    rustuna_core::Error::new(rustuna_core::ErrorKind::StudyNotFound),
-                )?;
-                Python::with_gil(|py| {
-                    let trial = self
-                        .obj
-                        .call_method1(py, "get_trial", (*src_study_id, number))?;
-                    let trial = trial.bind(py);
-                    pyobject_to_persisted_trial(trial, *src_study_id)
-                })
-                .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?
-            }
-        };
-        let cache_trial = cache_trial.clone();
         self.cache
             .set_trial_attrs(cache_study_id, cache_trial.number, src_trial.attrs, false)?;
 
@@ -318,21 +289,13 @@ impl PyObjectStorage {
             if cache_trial.distributions.contains_key(&name) {
                 continue;
             }
-            self.cache.set_trial_param(
-                cache_study_id,
-                src_trial.number,
-                &name,
-                &distribution,
-                *internal_repr,
-            )?;
+            self.cache
+                .set_trial_param(src_trial.id, &name, &distribution, *internal_repr)?;
         }
 
-        if !cache_trial.is_finished() && cache_trial.state_values != src_trial.state_values {
-            self.cache.set_trial_state_values(
-                cache_study_id,
-                src_trial.number,
-                src_trial.state_values.clone(),
-            )?;
+        if cache_trial.state_values != src_trial.state_values {
+            self.cache
+                .set_trial_state_values(src_trial.id, src_trial.state_values.clone())?;
         }
         Ok(())
     }
@@ -345,17 +308,24 @@ impl PyObjectStorage {
                     rustuna_core::ErrorKind::StudyNotFound,
                 ))?;
 
-        let src_trials = self
+        let mut src_trials = self
             .obj_get_trials(*src_study_id)
             .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
+        src_trials.sort_by_key(|trial| trial.number);
+
+        let mut cache_n_trials = self.cache.get_trials(cache_study_id)?.len() as u32;
         for src_trial in src_trials {
-            let cache_n_trials = self.cache.get_trials(cache_study_id)?.len() as u32;
-            self.sync_trial(
-                cache_study_id,
-                src_trial.number,
-                Some(src_trial),
-                Some(cache_n_trials),
-            )?;
+            self.sync_trial(cache_study_id, src_trial, Some(cache_n_trials))?;
+            cache_n_trials = self.cache.get_trials(cache_study_id)?.len() as u32;
+        }
+        Ok(())
+    }
+
+    fn sync_all_trials(&mut self) -> rustuna_core::Result<()> {
+        self.sync_studies(false)?;
+        let study_ids: Vec<u32> = self.cache.get_studies()?.iter().map(|s| s.id).collect();
+        for cache_study_id in study_ids {
+            self.sync_trials(cache_study_id)?;
         }
         Ok(())
     }
@@ -378,9 +348,19 @@ impl Storage for PyObjectStorage {
     }
 
     fn delete_study(&mut self, study_id: u32) -> rustuna_core::Result<()> {
-        self.obj_delete_study(study_id)
+        self.sync_study_from_id(study_id, false)?;
+        let src_study_id =
+            *self
+                .cache_study_to_src_study
+                .get(&study_id)
+                .ok_or(rustuna_core::Error::new(
+                    rustuna_core::ErrorKind::StudyNotFound,
+                ))?;
+        self.obj_delete_study(src_study_id)
             .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
         self.cache.delete_study(study_id)?;
+        self.cache_study_to_src_study.remove(&study_id);
+        self.src_study_to_cache_study.remove(&src_study_id);
         Ok(())
     }
 
@@ -398,47 +378,39 @@ impl Storage for PyObjectStorage {
         let src_trial = self
             .obj_create_new_trial(*src_study_id)
             .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
+        let src_trial_id = src_trial.id;
         if self.is_distributed {
             self.sync_trials(study_id)?;
-            return self.cache.get_trial(study_id, src_trial.number);
+            return self.cache.get_trial(src_trial_id);
         }
-        let number = src_trial.number;
         let cached_n_trials = self.cache.get_trials(study_id)?.len() as u32;
-        if number == cached_n_trials {
-            self.cache.create_new_trial(study_id)
-        } else {
-            self.sync_trial(study_id, number, Some(src_trial), Some(cached_n_trials))?;
-            self.cache.get_trial(study_id, number)
+        if src_trial.number != cached_n_trials {
+            self.sync_trials(study_id)?;
+            return self.cache.get_trial(src_trial_id);
         }
+        self.sync_trial(study_id, src_trial, Some(cached_n_trials))?;
+        self.cache.get_trial(src_trial_id)
     }
 
     fn set_trial_param(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         name: &str,
         distribution: &Distribution,
         value: f64,
     ) -> rustuna_core::Result<()> {
-        self.sync_study_from_id(study_id, false)?;
-
-        let src_study_id =
-            self.cache_study_to_src_study
-                .get(&study_id)
-                .ok_or(rustuna_core::Error::new(
-                    rustuna_core::ErrorKind::StudyNotFound,
-                ))?;
-
-        self.obj_set_trial_param(*src_study_id, trial_number, name, distribution, value)
+        self.obj_set_trial_param(trial_id, name, distribution, value)
             .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
         match self
             .cache
-            .set_trial_param(study_id, trial_number, name, distribution, value)
+            .set_trial_param(trial_id, name, distribution, value)
         {
             Ok(_) => Ok(()),
             Err(e) => match e.kind {
                 rustuna_core::ErrorKind::StudyNotFound | rustuna_core::ErrorKind::TrialNotFound => {
-                    self.sync_trial(study_id, trial_number, None, None)?;
+                    self.sync_all_trials()?;
+                    self.cache
+                        .set_trial_param(trial_id, name, distribution, value)?;
                     Ok(())
                 }
                 _ => Err(e),
@@ -448,30 +420,20 @@ impl Storage for PyObjectStorage {
 
     fn set_trial_state_values(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         state_values: TrialStateValues,
     ) -> rustuna_core::Result<()> {
-        self.sync_study_from_id(study_id, false)?;
-
-        let src_study_id =
-            self.cache_study_to_src_study
-                .get(&study_id)
-                .ok_or(rustuna_core::Error::new(
-                    rustuna_core::ErrorKind::StudyNotFound,
-                ))?;
-
-        self.obj_set_trial_state_values(*src_study_id, trial_number, &state_values)
+        let state_values_clone = state_values.clone();
+        self.obj_set_trial_state_values(trial_id, &state_values_clone)
             .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
 
-        match self
-            .cache
-            .set_trial_state_values(study_id, trial_number, state_values)
-        {
+        match self.cache.set_trial_state_values(trial_id, state_values) {
             Ok(_) => Ok(()),
             Err(e) => match e.kind {
                 rustuna_core::ErrorKind::StudyNotFound | rustuna_core::ErrorKind::TrialNotFound => {
-                    self.sync_trial(study_id, trial_number, None, None)?;
+                    self.sync_all_trials()?;
+                    self.cache
+                        .set_trial_state_values(trial_id, state_values_clone)?;
                     Ok(())
                 }
                 _ => Err(e),
@@ -499,10 +461,31 @@ impl Storage for PyObjectStorage {
 
     fn get_trial(
         &mut self,
+        trial_id: u32,
+    ) -> rustuna_core::Result<&rustuna_core::trial::PersistedTrial> {
+        self.cache.get_trial(trial_id)
+    }
+
+    fn get_trial_id_from_study_id_trial_number(
+        &mut self,
         study_id: u32,
         trial_number: u32,
-    ) -> rustuna_core::Result<&rustuna_core::trial::PersistedTrial> {
-        self.cache.get_trial(study_id, trial_number)
+    ) -> rustuna_core::Result<u32> {
+        self.sync_study_from_id(study_id, false)?;
+        match self
+            .cache
+            .get_trial_id_from_study_id_trial_number(study_id, trial_number)
+        {
+            Ok(trial_id) => Ok(trial_id),
+            Err(e) => match e.kind {
+                rustuna_core::ErrorKind::StudyNotFound | rustuna_core::ErrorKind::TrialNotFound => {
+                    self.sync_trials(study_id)?;
+                    self.cache
+                        .get_trial_id_from_study_id_trial_number(study_id, trial_number)
+                }
+                _ => Err(e),
+            },
+        }
     }
 
     fn set_study_attrs(
@@ -512,7 +495,14 @@ impl Storage for PyObjectStorage {
         _error_on_overwrite: bool,
     ) -> rustuna_core::Result<()> {
         // TODO(c-bata): Emit warnings if error_on_overwrite is true, since Optuna storage cannot support it.
-        self.obj_set_study_attrs(study_id, attrs.clone())
+        self.sync_study_from_id(study_id, false)?;
+        let src_study_id =
+            self.cache_study_to_src_study
+                .get(&study_id)
+                .ok_or(rustuna_core::Error::new(
+                    rustuna_core::ErrorKind::StudyNotFound,
+                ))?;
+        self.obj_set_study_attrs(*src_study_id, attrs.clone())
             .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
         match self.cache.set_study_attrs(study_id, attrs, false) {
             Ok(_) => Ok(()),
@@ -534,7 +524,20 @@ impl Storage for PyObjectStorage {
         _error_on_overwrite: bool,
     ) -> rustuna_core::Result<()> {
         // TODO(c-bata): Emit warnings if error_on_overwrite is true, since Optuna storage cannot support it.
-        self.obj_set_trial_attrs(study_id, trial_number, attrs.clone())
+        let attrs_for_obj = attrs.clone();
+        let attrs_for_retry = attrs.clone();
+        let trial_id = match self
+            .cache
+            .get_trial_id_from_study_id_trial_number(study_id, trial_number)
+        {
+            Ok(trial_id) => trial_id,
+            Err(_) => {
+                self.sync_all_trials()?;
+                self.cache
+                    .get_trial_id_from_study_id_trial_number(study_id, trial_number)?
+            }
+        };
+        self.obj_set_trial_attrs(trial_id, attrs_for_obj)
             .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
         match self
             .cache
@@ -543,7 +546,9 @@ impl Storage for PyObjectStorage {
             Ok(_) => Ok(()),
             Err(e) => match e.kind {
                 rustuna_core::ErrorKind::StudyNotFound | rustuna_core::ErrorKind::TrialNotFound => {
-                    self.sync_trial(study_id, trial_number, None, None)?;
+                    self.sync_all_trials()?;
+                    self.cache
+                        .set_trial_attrs(study_id, trial_number, attrs_for_retry, false)?;
                     Ok(())
                 }
                 _ => Err(e),
