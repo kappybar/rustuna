@@ -119,8 +119,7 @@ impl PyStorage {
 
     fn set_trial_param(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         name: String,
         distribution: PyDistribution,
         value: f64,
@@ -129,6 +128,16 @@ impl PyStorage {
         let distribution: Distribution = distribution.into();
 
         if let Some(labels) = category_labels {
+            let study_id = {
+                let mut guard = self
+                    .storage
+                    .write()
+                    .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+                guard
+                    .get_trial(trial_id)
+                    .map_err(err_to_exceptions)?
+                    .study_id
+            };
             self.set_category_labels_internal(study_id, name.clone(), labels)?;
         }
 
@@ -137,7 +146,7 @@ impl PyStorage {
             .write()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
         guard
-            .set_trial_param(study_id, trial_number, &name, &distribution, value)
+            .set_trial_param(trial_id, &name, &distribution, value)
             .map_err(err_to_exceptions)?;
         Ok(())
     }
@@ -189,11 +198,10 @@ impl PyStorage {
         )
     }
 
-    #[pyo3(signature = (study_id, trial_number, state, values=None))]
+    #[pyo3(signature = (trial_id, state, values=None))]
     fn set_trial_state_values(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         state: PyTrialState,
         values: Option<Vec<f64>>,
     ) -> PyResult<()> {
@@ -215,7 +223,7 @@ impl PyStorage {
             PyTrialState::FAIL => TrialStateValues::Fail,
         };
         guard
-            .set_trial_state_values(study_id, trial_number, state_values)
+            .set_trial_state_values(trial_id, state_values)
             .map_err(err_to_exceptions)?;
         Ok(())
     }
@@ -258,23 +266,38 @@ impl PyStorage {
         Ok(py_trials)
     }
 
-    fn get_trial(&mut self, study_id: u32, trial_number: u32) -> PyResult<PyPersistedTrial> {
+    fn get_trial(&mut self, trial_id: u32) -> PyResult<PyPersistedTrial> {
         let mut guard = self
             .storage
             .write()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
         let trial = guard
-            .get_trial(study_id, trial_number)
+            .get_trial(trial_id)
             .map_err(err_to_exceptions)?
             .clone();
         let study_attrs = Arc::new(
             guard
-                .get_study(study_id)
+                .get_study(trial.study_id)
                 .map_err(err_to_exceptions)?
                 .attrs
                 .clone(),
         );
         Ok(PyPersistedTrial::new_with_arc(trial, study_attrs))
+    }
+
+    fn get_trial_id_from_study_id_trial_number(
+        &mut self,
+        study_id: u32,
+        trial_number: u32,
+    ) -> PyResult<u32> {
+        let mut guard = self
+            .storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+        let trial_id = guard
+            .get_trial_id_from_study_id_trial_number(study_id, trial_number)
+            .map_err(err_to_exceptions)?;
+        Ok(trial_id)
     }
 
     fn set_study_system_attrs(&mut self, study_id: u32, attrs: PyObject) -> PyResult<()> {
@@ -307,12 +330,7 @@ impl PyStorage {
         Ok(())
     }
 
-    fn set_trial_system_attrs(
-        &mut self,
-        study_id: u32,
-        trial_number: u32,
-        attrs: PyObject,
-    ) -> PyResult<()> {
+    fn set_trial_system_attrs(&mut self, trial_id: u32, attrs: PyObject) -> PyResult<()> {
         let system_attrs = Python::with_gil(|py| {
             let attrs = attrs.bind(py);
             pyobj_to_system_attrs(attrs)
@@ -321,18 +339,17 @@ impl PyStorage {
             .storage
             .write()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+        let (study_id, trial_number) = {
+            let trial = guard.get_trial(trial_id).map_err(err_to_exceptions)?;
+            (trial.study_id, trial.number)
+        };
         guard
             .set_trial_attrs(study_id, trial_number, system_attrs, false)
             .map_err(err_to_exceptions)?;
         Ok(())
     }
 
-    fn set_trial_user_attrs(
-        &mut self,
-        study_id: u32,
-        trial_number: u32,
-        attrs: PyObject,
-    ) -> PyResult<()> {
+    fn set_trial_user_attrs(&mut self, trial_id: u32, attrs: PyObject) -> PyResult<()> {
         let user_attrs = Python::with_gil(|py| {
             let attrs = attrs.bind(py);
             pyobj_to_user_attrs(attrs)
@@ -341,40 +358,14 @@ impl PyStorage {
             .storage
             .write()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+        let (study_id, trial_number) = {
+            let trial = guard.get_trial(trial_id).map_err(err_to_exceptions)?;
+            (trial.study_id, trial.number)
+        };
         guard
             .set_trial_attrs(study_id, trial_number, user_attrs, false)
             .map_err(err_to_exceptions)?;
         Ok(())
-    }
-
-    fn get_trial_id_from_study_id_trial_number(
-        &mut self,
-        study_id: u32,
-        trial_number: u32,
-    ) -> PyResult<u32> {
-        let optuna_storage = self.optuna_compatible.as_ref().ok_or_else(|| {
-            PyRuntimeError::new_err("This storage does not support Optuna-compatible operations")
-        })?;
-        let mut guard = optuna_storage
-            .write()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
-        let trial_id = guard
-            .get_trial_id_from_study_id_trial_number(study_id, trial_number)
-            .map_err(err_to_exceptions)?;
-        Ok(trial_id)
-    }
-
-    fn get_study_id_trial_number_from_trial_id(&mut self, trial_id: u32) -> PyResult<(u32, u32)> {
-        let optuna_storage = self.optuna_compatible.as_ref().ok_or_else(|| {
-            PyRuntimeError::new_err("This storage does not support Optuna-compatible operations")
-        })?;
-        let mut guard = optuna_storage
-            .write()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
-        let (study_id, trial_number) = guard
-            .get_study_id_trial_number_from_trial_id(trial_id)
-            .map_err(err_to_exceptions)?;
-        Ok((study_id, trial_number))
     }
 
     fn get_trials_diff(

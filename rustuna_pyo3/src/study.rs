@@ -303,10 +303,12 @@ impl PyStudy {
         let mut guard = self.study.storage.write().map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
         })?;
+        let trial_id = guard
+            .get_trial_id_from_study_id_trial_number(study_id, trial_number)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get trials: {:?}", e.kind)))?;
         let trial = guard
-            .get_trial(self.study.id, trial_number)
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get trials: {:?}", e.kind)))?
-            .clone();
+            .get_trial(trial_id)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get trials: {:?}", e.kind)))?;
         let study_attrs = Arc::new(
             guard
                 .get_study(self.study.id)
