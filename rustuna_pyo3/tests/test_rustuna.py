@@ -104,7 +104,11 @@ def test_trial_state():
 
 def test_persisted_trial():
     trial = rustuna.PersistedTrial(
-        study_id=1, number=2, state=rustuna.TrialState.COMPLETE, values=[0.5]
+        trial_id=2,
+        study_id=1,
+        number=2,
+        state=rustuna.TrialState.COMPLETE,
+        values=[0.5],
     )
     assert trial.study_id == 1
     assert trial.number == 2
@@ -113,7 +117,7 @@ def test_persisted_trial():
 
     pytest.raises(
         ValueError,
-        lambda: rustuna.PersistedTrial(1, 2, state=rustuna.TrialState.COMPLETE),
+        lambda: rustuna.PersistedTrial(2, 1, 2, state=rustuna.TrialState.COMPLETE),
     )
 
 

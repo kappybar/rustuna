@@ -82,6 +82,7 @@ class TrialState(enum.IntEnum):
 class PersistedTrial:
     def __init__(
         self,
+        trial_id: int,
         study_id: int,
         number: int,
         state: TrialState,
@@ -90,7 +91,10 @@ class PersistedTrial:
         distributions: dict[str, Distribution] | None = None,
         user_attrs: dict[str, str] | None = None,
         system_attrs: dict[str, str] | None = None,
+        id: int | None = None,
     ) -> None: ...
+    @property
+    def id(self) -> int: ...
     @property
     def study_id(self) -> int: ...
     @property
@@ -192,31 +196,28 @@ class StorageProtocol(Protocol):
     def create_new_trial(self, study_id: int) -> PersistedTrial: ...
     def set_trial_param(
         self,
-        study_id: int,
-        trial_number: int,
+        trial_id: int,
         name: str,
         distribution: Distribution,
         value: float,
     ) -> None: ...
     def set_trial_state_values(
         self,
-        study_id: int,
-        trial_number: int,
+        trial_id: int,
         state: TrialState,
         values: None | list[float] = None,
     ) -> None: ...
     def get_studies(self) -> list[PersistedStudy]: ...
     def get_study(self, study_id: int) -> PersistedStudy: ...
     def get_trials(self, study_id: int) -> list[PersistedTrial]: ...
-    def get_trial(self, study_id: int, trial_number: int) -> PersistedTrial: ...
+    def get_trial(self, trial_id: int) -> PersistedTrial: ...
+    def get_trial_id_from_study_id_trial_number(
+        self, study_id: int, trial_number: int
+    ) -> int: ...
     def set_study_system_attrs(self, study_id: int, attrs: dict[str, str]) -> None: ...
     def set_study_user_attrs(self, study_id: int, attrs: dict[str, str]) -> None: ...
-    def set_trial_system_attrs(
-        self, study_id: int, trial_number: int, attrs: dict[str, str]
-    ) -> None: ...
-    def set_trial_user_attrs(
-        self, study_id: int, trial_number: int, attrs: dict[str, str]
-    ) -> None: ...
+    def set_trial_system_attrs(self, trial_id: int, attrs: dict[str, str]) -> None: ...
+    def set_trial_user_attrs(self, trial_id: int, attrs: dict[str, str]) -> None: ...
     def set_category_labels(
         self,
         study_id: int,
@@ -231,12 +232,6 @@ class StorageProtocol(Protocol):
     ) -> list[CategoricalChoiceType]: ...
 
 class OptunaStorageProtocol(StorageProtocol, Protocol):
-    def get_study_id_trial_number_from_trial_id(
-        self, trial_id: int
-    ) -> tuple[int, int]: ...
-    def get_trial_id_from_study_id_trial_number(
-        self, study_id: int, trial_number: int
-    ) -> int: ...
     def set_trial_datetime(
         self,
         trial_id: int,
