@@ -1,4 +1,4 @@
-use crate::parzen_estimator::probability_distributions::Distributions;
+use crate::parzen_estimator::probability_distributions::{Distributions, DiscreteTruncNormDistributions};
 use crate::parzen_estimator::model::NumericalDistributionBuilder;
 use crate::distribution::Distribution;
 
