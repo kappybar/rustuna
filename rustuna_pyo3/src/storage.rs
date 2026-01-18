@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 
 use chrono::NaiveDateTime;
 use pyo3::types::{PyList, PyType};
-use rustuna_core::attr::{category_labels_to_attrs, get_category_labels, CategoryLabel};
+use rustuna_core::attr::CategoryLabel;
 use rustuna_core::distribution::Distribution;
 use rustuna_core::storage::{InMemoryStorage, Storage};
 use rustuna_core::study::Direction;
@@ -114,7 +114,7 @@ impl PyStorage {
         let trial = guard
             .create_new_trial(study_id)
             .map_err(err_to_exceptions)?;
-        Ok(PyPersistedTrial::new(trial.clone(), Default::default()))
+        Ok(PyPersistedTrial::from_storage(self.storage.clone(), trial))
     }
 
     fn set_trial_param(
@@ -178,9 +178,11 @@ impl PyStorage {
             .storage
             .write()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
-        let study = guard.get_study(study_id).map_err(err_to_exceptions)?;
-        Python::with_gil(
-            |py| match get_category_labels(&study.attrs, &param_name, cardinality) {
+        Python::with_gil(|py| {
+            match guard
+                .get_category_labels(study_id, &param_name, cardinality)
+                .map_err(err_to_exceptions)?
+            {
                 Some(labels) => {
                     let elements: PyResult<Vec<_>> = (0..cardinality)
                         .map(|i| {
@@ -194,8 +196,8 @@ impl PyStorage {
                     Ok(choices.unbind().into_any())
                 }
                 None => Ok(py.None()),
-            },
-        )
+            }
+        })
     }
 
     #[pyo3(signature = (trial_id, state, values=None))]
@@ -253,15 +255,10 @@ impl PyStorage {
             .storage
             .write()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
-        let study_attrs = {
-            let study = guard.get_study(study_id).map_err(err_to_exceptions)?;
-            Arc::new(study.attrs.clone())
-        };
         let trials = guard.get_trials(study_id).map_err(err_to_exceptions)?;
-        // TODO(c-bata): Filter category_labels attrs and clone them only.
         let py_trials: Vec<PyPersistedTrial> = trials
             .iter()
-            .map(|t| PyPersistedTrial::new_with_arc(t.clone(), study_attrs.clone()))
+            .map(|t| PyPersistedTrial::from_storage(self.storage.clone(), t))
             .collect();
         Ok(py_trials)
     }
@@ -275,14 +272,12 @@ impl PyStorage {
             .get_trial(trial_id)
             .map_err(err_to_exceptions)?
             .clone();
-        let study_attrs = Arc::new(
-            guard
-                .get_study(trial.study_id)
-                .map_err(err_to_exceptions)?
-                .attrs
-                .clone(),
-        );
-        Ok(PyPersistedTrial::new_with_arc(trial, study_attrs))
+        let study_attrs = guard
+            .get_study(trial.study_id)
+            .map_err(err_to_exceptions)?
+            .attrs
+            .clone();
+        Ok(PyPersistedTrial::new(trial, study_attrs))
     }
 
     fn get_trial_id_from_study_id_trial_number(
@@ -415,18 +410,17 @@ impl PyStorage {
         param_name: String,
         category_labels: Vec<CategoryLabel>,
     ) -> PyResult<()> {
-        let attrs = category_labels_to_attrs(&param_name, &category_labels);
         let mut guard = self
             .storage
             .write()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
-        match guard.set_study_attrs(study_id, attrs, true) {
+        match guard.set_category_labels(study_id, &param_name, category_labels.clone()) {
             Ok(_) => Ok(()),
             Err(e) => {
                 if matches!(e.kind, rustuna_core::ErrorKind::AttrOverwriteNotAllowed) {
-                    let study = guard.get_study(study_id).map_err(err_to_exceptions)?;
-                    let existing_labels =
-                        get_category_labels(&study.attrs, &param_name, category_labels.len());
+                    let existing_labels = guard
+                        .get_category_labels(study_id, &param_name, category_labels.len())
+                        .map_err(err_to_exceptions)?;
                     if let Some(existing) = existing_labels {
                         if existing == category_labels {
                             return Ok(());

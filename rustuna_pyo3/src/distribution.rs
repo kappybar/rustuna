@@ -31,6 +31,16 @@ impl PyDistribution {
             },
         }
     }
+
+    pub fn new_with_category_labels(
+        distribution: Distribution,
+        category_labels: Option<Vec<CategoryLabel>>,
+    ) -> PyDistribution {
+        PyDistribution {
+            distribution,
+            category_labels,
+        }
+    }
 }
 impl From<PyDistribution> for Distribution {
     fn from(val: PyDistribution) -> Self {
@@ -209,24 +219,21 @@ pub fn py_to_external_repr<'py>(
     py: Python<'py>,
     dist: &Distribution,
     internal_repr: f64,
-    param_name: &str,
-    study_attrs: &Attrs,
+    category_labels: Option<&[CategoryLabel]>,
 ) -> PyResult<Bound<'py, PyAny>> {
     match dist {
         Distribution::Float { .. } => Ok(internal_repr.into_pyobject(py)?.into_any()),
         Distribution::Int { .. } => Ok((internal_repr as i64).into_pyobject(py)?.into_any()),
-        Distribution::Categorical { cardinality } => {
-            match get_category_labels(study_attrs, param_name, *cardinality) {
-                Some(labels) => {
-                    let c = labels
-                        .get(internal_repr as usize)
-                        .ok_or(PyValueError::new_err(
-                            "Internal representation of categorical value is out of range",
-                        ))?;
-                    category_label_to_pyobject(py, c)
-                }
-                None => Ok((internal_repr as i64).into_pyobject(py)?.into_any()),
+        Distribution::Categorical { .. } => {
+            if let Some(labels) = category_labels {
+                let c = labels
+                    .get(internal_repr as usize)
+                    .ok_or(PyValueError::new_err(
+                        "Internal representation of categorical value is out of range",
+                    ))?;
+                return category_label_to_pyobject(py, c);
             }
+            Ok((internal_repr as i64).into_pyobject(py)?.into_any())
         }
     }
 }
