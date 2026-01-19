@@ -1385,20 +1385,6 @@ impl CachedStorageBackend for SQLite3Storage {
 }
 
 impl OptunaCompatibleStorage for SQLite3Storage {
-    fn get_trials_diff_optuna(
-        &mut self,
-        study_id: u32,
-        included_numbers: &[u32],
-        trial_number_greater_than: i32,
-    ) -> Result<Vec<PersistedTrial>> {
-        <SQLite3Storage as CachedStorageBackend>::get_trials_diff(
-            self,
-            study_id,
-            included_numbers,
-            trial_number_greater_than,
-        )
-    }
-
     fn set_trial_intermediate_values(
         &mut self,
         trial_id: u32,
