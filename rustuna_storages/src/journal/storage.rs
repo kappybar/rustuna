@@ -889,12 +889,6 @@ impl JournalReplayState {
         }
 
         let mut attrs: Attrs = Attrs::new();
-        attrs.insert(
-            AttrKey::System("trial_id".to_string()),
-            serde_json::to_string(&trial_id).map_err(|_| {
-                Error::with_reason(ErrorKind::StorageError, "Failed to serialize trial_id")
-            })?,
-        );
 
         if let Some(dt) = log.fields.get("datetime_start").and_then(|v| v.as_str()) {
             attrs.insert(

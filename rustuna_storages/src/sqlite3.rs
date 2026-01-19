@@ -1,9 +1,9 @@
-use chrono::NaiveDateTime;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
 use crate::cache::{CachedStorageBackend, OptunaCachedStorageBackend};
 use crate::optuna::{IntermediateValueEntry, OptunaCompatibleStorage};
+use chrono::NaiveDateTime;
 use rusqlite::{params, Connection, Error as RusqliteError, OptionalExtension};
 use rustuna_core::attr::{AttrKey, Attrs, CategoryLabel};
 use rustuna_core::distribution::Distribution;
@@ -652,17 +652,6 @@ impl CachedStorageBackend for SQLite3Storage {
             })?;
             attrs.insert(AttrKey::System(key), value);
         }
-        if let std::collections::hash_map::Entry::Vacant(e) =
-            attrs.entry(AttrKey::System("trial_id".to_string()))
-        {
-            let v = serde_json::to_string(&trial_id).map_err(|e| {
-                Error::with_reason(
-                    ErrorKind::StorageError,
-                    format!("JSON serialization failed: {e}"),
-                )
-            })?;
-            e.insert(v);
-        }
         if let Some(dt) = datetime_start {
             if let std::collections::hash_map::Entry::Vacant(e) =
                 attrs.entry(AttrKey::System("datetime_start".to_string()))
@@ -1185,17 +1174,6 @@ impl CachedStorageBackend for SQLite3Storage {
                     )
                 })?;
                 attrs.insert(AttrKey::System(key), value);
-            }
-            if let std::collections::hash_map::Entry::Vacant(e) =
-                attrs.entry(AttrKey::System("trial_id".to_string()))
-            {
-                let v = serde_json::to_string(&trial_id).map_err(|e| {
-                    Error::with_reason(
-                        ErrorKind::StorageError,
-                        format!("JSON serialization failed: {e}"),
-                    )
-                })?;
-                e.insert(v);
             }
             if let Some(dt) = datetime_start.clone() {
                 if let std::collections::hash_map::Entry::Vacant(e) =

@@ -377,6 +377,11 @@ impl PyPersistedTrial {
     }
 
     #[getter]
+    fn _trial_id(&self) -> PyResult<u32> {
+        self.id()
+    }
+
+    #[getter]
     fn study_id(&self) -> PyResult<u32> {
         match &self.source {
             PyPersistedTrialSource::Owned(trial) => Ok(trial.study_id),
