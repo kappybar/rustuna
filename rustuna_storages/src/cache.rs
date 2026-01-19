@@ -467,23 +467,6 @@ impl rustuna_core::storage::Storage for CachedStorage {
 }
 
 impl OptunaCompatibleStorage for CachedStorage {
-    fn set_trial_datetime(
-        &mut self,
-        trial_id: u32,
-        datetime_start: Option<chrono::NaiveDateTime>,
-        datetime_complete: Option<chrono::NaiveDateTime>,
-    ) -> Result<()> {
-        let (study_id, trial_number) = self.resolve_trial_location(trial_id)?;
-        self.backend
-            .set_trial_datetime(trial_id, datetime_start, datetime_complete)?;
-        self.unfinished_trials
-            .entry(study_id)
-            .or_default()
-            .push(trial_number);
-        self.refresh_trials(study_id)?;
-        Ok(())
-    }
-
     fn set_trial_intermediate_values(
         &mut self,
         trial_id: u32,
@@ -608,15 +591,6 @@ mod tests {
         }
     }
     impl OptunaCompatibleStorage for DummyBackend {
-        fn set_trial_datetime(
-            &mut self,
-            _trial_id: u32,
-            _datetime_start: Option<chrono::NaiveDateTime>,
-            _datetime_complete: Option<chrono::NaiveDateTime>,
-        ) -> Result<()> {
-            todo!()
-        }
-
         fn set_trial_intermediate_values(
             &mut self,
             _trial_id: u32,

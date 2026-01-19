@@ -120,7 +120,7 @@ impl Storage for JournalStorage {
         );
         fields.insert(
             "datetime_start".to_string(),
-            Value::String(chrono::Utc::now().naive_utc().to_string()),
+            Value::String(chrono::Local::now().naive_local().to_string()),
         );
         self.write_log(JournalOperation::CreateTrial, fields)?;
         self.sync_with_backend()?;
@@ -255,18 +255,16 @@ impl Storage for JournalStorage {
         }
         if state_code == 0
             && (!matches!(existing_trial.state_values, TrialStateValues::Running)
-                || !existing_trial
-                    .attrs
-                    .contains_key(&AttrKey::System("datetime_start".into())))
+                || existing_trial.datetime_start.is_none())
         {
             fields.insert(
                 "datetime_start".to_string(),
-                Value::String(chrono::Utc::now().naive_utc().to_string()),
+                Value::String(chrono::Local::now().naive_local().to_string()),
             );
         } else if matches!(state_code, 1 | 2 | 4) {
             fields.insert(
                 "datetime_complete".to_string(),
-                Value::String(chrono::Utc::now().naive_utc().to_string()),
+                Value::String(chrono::Local::now().naive_local().to_string()),
             );
         }
         self.write_log(JournalOperation::SetTrialStateValues, fields)?;
@@ -485,52 +483,6 @@ impl Storage for JournalStorage {
 }
 
 impl OptunaCompatibleStorage for JournalStorage {
-    fn set_trial_datetime(
-        &mut self,
-        trial_id: u32,
-        datetime_start: Option<chrono::NaiveDateTime>,
-        datetime_complete: Option<chrono::NaiveDateTime>,
-    ) -> Result<()> {
-        self.sync_with_backend()?;
-        self.replay
-            .trial_id_to_study_number
-            .get(&trial_id)
-            .copied()
-            .ok_or_else(|| {
-                Error::with_reason(
-                    ErrorKind::TrialNotFound,
-                    format!("Trial not found in storage: trial_id={trial_id}"),
-                )
-            })?;
-        if let Some(dt) = datetime_start {
-            let mut fields = Map::new();
-            fields.insert(
-                "trial_id".to_string(),
-                Value::Number(Number::from(trial_id)),
-            );
-            let mut system_attr = Map::new();
-            system_attr.insert("datetime_start".to_string(), Value::String(dt.to_string()));
-            fields.insert("system_attr".to_string(), Value::Object(system_attr));
-            self.write_log(JournalOperation::SetTrialSystemAttr, fields)?;
-        }
-        if let Some(dt) = datetime_complete {
-            let mut fields = Map::new();
-            fields.insert(
-                "trial_id".to_string(),
-                Value::Number(Number::from(trial_id)),
-            );
-            let mut system_attr = Map::new();
-            system_attr.insert(
-                "datetime_complete".to_string(),
-                Value::String(dt.to_string()),
-            );
-            fields.insert("system_attr".to_string(), Value::Object(system_attr));
-            self.write_log(JournalOperation::SetTrialSystemAttr, fields)?;
-        }
-        self.sync_with_backend()?;
-        Ok(())
-    }
-
     fn set_trial_intermediate_values(
         &mut self,
         trial_id: u32,
@@ -890,28 +842,6 @@ impl JournalReplayState {
 
         let mut attrs: Attrs = Attrs::new();
 
-        if let Some(dt) = log.fields.get("datetime_start").and_then(|v| v.as_str()) {
-            attrs.insert(
-                AttrKey::System("datetime_start".into()),
-                serde_json::to_string(&dt).map_err(|_| {
-                    Error::with_reason(
-                        ErrorKind::StorageError,
-                        "Failed to serialize datetime_start",
-                    )
-                })?,
-            );
-        }
-        if let Some(dt) = log.fields.get("datetime_complete").and_then(|v| v.as_str()) {
-            attrs.insert(
-                AttrKey::System("datetime_complete".into()),
-                serde_json::to_string(&dt).map_err(|_| {
-                    Error::with_reason(
-                        ErrorKind::StorageError,
-                        "Failed to serialize datetime_complete",
-                    )
-                })?,
-            );
-        }
         if let Some(user_attrs) = log.fields.get("user_attrs").and_then(|v| v.as_object()) {
             for (k, v) in user_attrs {
                 let value = json_value_to_attr(v)?;
@@ -938,8 +868,14 @@ impl JournalReplayState {
             })?;
             attrs.insert(AttrKey::System("intermediate_values".into()), json);
         }
-
         trial.attrs = attrs;
+
+        if let Some(dt) = log.fields.get("datetime_start").and_then(|v| v.as_str()) {
+            trial.datetime_start = Some(dt.to_string());
+        }
+        if let Some(dt) = log.fields.get("datetime_complete").and_then(|v| v.as_str()) {
+            trial.datetime_complete = Some(dt.to_string());
+        }
         self.trials_by_study
             .entry(study_id)
             .or_default()
@@ -1093,15 +1029,7 @@ impl JournalReplayState {
         };
         if state_code == 0 {
             if let Some(dt) = log.fields.get("datetime_start").and_then(|v| v.as_str()) {
-                trial.attrs.insert(
-                    AttrKey::System("datetime_start".into()),
-                    serde_json::to_string(&dt).map_err(|_| {
-                        Error::with_reason(
-                            ErrorKind::StorageError,
-                            "Failed to serialize datetime_start",
-                        )
-                    })?,
-                );
+                trial.datetime_start = Some(dt.to_string());
             }
             if issued_by_this_worker {
                 self.worker_id_to_owned_trial_id
@@ -1109,15 +1037,7 @@ impl JournalReplayState {
             }
         } else if matches!(state_code, 1 | 2 | 4) {
             if let Some(dt) = log.fields.get("datetime_complete").and_then(|v| v.as_str()) {
-                trial.attrs.insert(
-                    AttrKey::System("datetime_complete".into()),
-                    serde_json::to_string(&dt).map_err(|_| {
-                        Error::with_reason(
-                            ErrorKind::StorageError,
-                            "Failed to serialize datetime_complete",
-                        )
-                    })?,
-                );
+                trial.datetime_complete = Some(dt.to_string());
             }
         }
         trial.state_values = state;
@@ -1259,8 +1179,7 @@ impl JournalReplayState {
         })?;
         let is_finished = trial.is_finished();
         for (key, value) in attrs {
-            let allows_finished = key == "datetime_start" || key == "datetime_complete";
-            if is_finished && !allows_finished {
+            if is_finished {
                 if self.is_issued_by_this_worker(log, worker_id) {
                     return Err(Error::with_reason(
                         ErrorKind::TrialAlreadyFinished,

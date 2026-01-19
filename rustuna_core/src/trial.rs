@@ -13,6 +13,8 @@ pub struct Trial {
     pub id: u32,
     pub study_id: u32,
     pub number: u32,
+    pub datetime_start: Option<String>,
+    pub datetime_complete: Option<String>,
     directions: Vec<Direction>,
     storage: Arc<RwLock<dyn Storage>>,
     sampler: Arc<Mutex<dyn Sampler>>,
@@ -20,20 +22,27 @@ pub struct Trial {
     cached_trial: PersistedTrial,
 }
 impl Trial {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         trial_id: u32,
         study_id: u32,
         number: u32,
+        datetime_start: Option<String>,
+        datetime_complete: Option<String>,
         directions: Vec<Direction>,
         storage: Arc<RwLock<dyn Storage>>,
         sampler: Arc<Mutex<dyn Sampler>>,
         joint_params: HashMap<String, (Distribution, f64)>,
     ) -> Self {
-        let cached_trial = PersistedTrial::new(trial_id, study_id, number);
+        let mut cached_trial = PersistedTrial::new(trial_id, study_id, number);
+        cached_trial.datetime_start = datetime_start.clone();
+        cached_trial.datetime_complete = datetime_complete.clone();
         Trial {
             id: trial_id,
             study_id,
             number,
+            datetime_start,
+            datetime_complete,
             directions,
             storage,
             sampler,
@@ -177,6 +186,8 @@ pub struct PersistedTrial {
     pub internal_params: HashMap<String, f64>,
     pub distributions: HashMap<String, Distribution>,
     pub attrs: Attrs,
+    pub datetime_start: Option<String>,
+    pub datetime_complete: Option<String>,
 }
 impl PersistedTrial {
     pub fn new(id: u32, study_id: u32, number: u32) -> PersistedTrial {
@@ -188,6 +199,8 @@ impl PersistedTrial {
             internal_params: HashMap::new(),
             distributions: HashMap::new(),
             attrs: Attrs::new(),
+            datetime_start: None,
+            datetime_complete: None,
         }
     }
 
