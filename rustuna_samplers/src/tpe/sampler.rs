@@ -107,10 +107,8 @@ impl TpeSampler {
                 .map(|t| t.number)
                 .collect::<Vec<u32>>();
             let split_cache_key = (complete_trial_numbers.clone(), gamma);
-            let (good_trials, poor_trials) = if self.split_cache.contains_key(&split_cache_key)
-            {
-                let (good_nums, poor_nums) =
-                    self.split_cache.get(&split_cache_key).unwrap();
+            let (good_trials, poor_trials) = if self.split_cache.contains_key(&split_cache_key) {
+                let (good_nums, poor_nums) = self.split_cache.get(&split_cache_key).unwrap();
                 let good_trials = complete_trials
                     .iter()
                     .filter(|t| good_nums.contains(&t.number))
@@ -123,12 +121,14 @@ impl TpeSampler {
                     .collect::<Vec<_>>();
                 (good_trials, poor_trials)
             } else {
-                let (good_trials, poor_trials) = Self::split_trials_for_multi_objective(&complete_trials, directions, gamma);
+                let (good_trials, poor_trials) =
+                    Self::split_trials_for_multi_objective(&complete_trials, directions, gamma);
                 let good_nums = good_trials.iter().map(|t| t.number).collect();
                 let poor_nums = poor_trials.iter().map(|t| t.number).collect();
                 // We only cache the most recent split
                 self.split_cache.clear();
-                self.split_cache.insert(split_cache_key, (good_nums, poor_nums));
+                self.split_cache
+                    .insert(split_cache_key, (good_nums, poor_nums));
                 (good_trials, poor_trials)
             };
             (
@@ -363,7 +363,10 @@ impl TpeSampler {
             for (idx, t) in trials.iter().enumerate() {
                 if let Some(&v) = t.internal_params.get(*key) {
                     vals.push(v);
-                    active_counts.entry(idx).and_modify(|e| *e += 1).or_insert(1);
+                    active_counts
+                        .entry(idx)
+                        .and_modify(|e| *e += 1)
+                        .or_insert(1);
                 }
             }
             observations.insert((*key).clone(), vals);

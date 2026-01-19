@@ -200,7 +200,8 @@ where
                     limited_rows.push(row);
                 }
                 let limited_refs: Vec<&[f64]> = limited_rows.iter().map(|r| r.as_slice()).collect();
-                total += compute_exclusive_hypervolume(&limited_refs, inclusive_hv, reference_point);
+                total +=
+                    compute_exclusive_hypervolume(&limited_refs, inclusive_hv, reference_point);
             }
             total
         }
@@ -384,16 +385,19 @@ mod tests {
 
     #[test]
     fn test_compute_hypervolume() {
-        let loss_vals = [vec![1.0, 2.0],
-            vec![2.0, 1.5],
-            vec![1.5, 1.0]];
+        let loss_vals = [vec![1.0, 2.0], vec![2.0, 1.5], vec![1.5, 1.0]];
         let refs: Vec<&[f64]> = loss_vals.iter().map(|v| v.as_slice()).collect();
         let reference_point = vec![3.0, 3.0];
 
         let hv = compute_hypervolume(&refs, &reference_point);
         // Manually computed expected hypervolume
         let expected_hv = 3.5;
-        assert!((hv - expected_hv).abs() < 1e-6, "hv: {}, expected: {}", hv, expected_hv);
+        assert!(
+            (hv - expected_hv).abs() < 1e-6,
+            "hv: {}, expected: {}",
+            hv,
+            expected_hv
+        );
     }
 
     #[test]
@@ -450,10 +454,8 @@ mod tests {
         let rank_i_loss_vals: Vec<&[f64]> = row_slices.clone();
         let rank_i_indices: Vec<usize> = (0..n).collect();
 
-        let greedy_sel =
-            hypervolume_subset_selection(&rank_i_loss_vals, &rank_i_indices, &refp, k);
-        let greedy_rows: Vec<&[f64]> =
-            greedy_sel.iter().map(|&i| row_slices[i]).collect();
+        let greedy_sel = hypervolume_subset_selection(&rank_i_loss_vals, &rank_i_indices, &refp, k);
+        let greedy_rows: Vec<&[f64]> = greedy_sel.iter().map(|&i| row_slices[i]).collect();
         let greedy_hv = compute_hypervolume(&greedy_rows, &refp);
 
         // Verify (1 - 1/e) approximation
@@ -466,5 +468,4 @@ mod tests {
             best_hv
         );
     }
-
 }
