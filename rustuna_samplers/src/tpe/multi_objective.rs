@@ -374,7 +374,7 @@ mod tests {
 
     #[test]
     fn test_compute_hypervolume_float_simple() {
-        let loss_vals = vec![vec![1.0, 1.0], vec![2.0, 0.5]];
+        let loss_vals = [vec![1.0, 1.0], vec![2.0, 0.5]];
         let refs: Vec<&[f64]> = loss_vals.iter().map(|v| v.as_slice()).collect();
         let reference_point = vec![3.0, 3.0];
 
@@ -384,11 +384,9 @@ mod tests {
 
     #[test]
     fn test_compute_hypervolume() {
-        let loss_vals = vec![
-            vec![1.0, 2.0],
+        let loss_vals = [vec![1.0, 2.0],
             vec![2.0, 1.5],
-            vec![1.5, 1.0],
-        ];
+            vec![1.5, 1.0]];
         let refs: Vec<&[f64]> = loss_vals.iter().map(|v| v.as_slice()).collect();
         let reference_point = vec![3.0, 3.0];
 
