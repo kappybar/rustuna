@@ -1,13 +1,50 @@
 use std::collections::HashMap;
+use std::fmt;
 
-use compact_str::CompactString;
+use lasso::{Spur, ThreadedRodeo};
+use once_cell::sync::Lazy;
 
 pub type Attrs = HashMap<AttrKey, String>;
 
 #[derive(Eq, Hash, Clone, Debug, PartialEq)]
 pub enum AttrKey {
-    User(CompactString),
-    System(CompactString),
+    User(InternedString),
+    System(InternedString),
+}
+
+static INTERNER: Lazy<ThreadedRodeo> = Lazy::new(ThreadedRodeo::new);
+
+#[derive(Eq, Hash, Clone, Debug, PartialEq)]
+pub struct InternedString(Spur);
+
+impl InternedString {
+    pub fn as_str(&self) -> &'static str {
+        INTERNER.resolve(&self.0)
+    }
+}
+
+impl fmt::Display for InternedString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl AsRef<str> for InternedString {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl From<&str> for InternedString {
+    fn from(value: &str) -> Self {
+        InternedString(INTERNER.get_or_intern(value))
+    }
+}
+
+impl From<String> for InternedString {
+    fn from(value: String) -> Self {
+        InternedString(INTERNER.get_or_intern(value))
+    }
 }
 
 // Compatible with CategoricalChoiceType.
