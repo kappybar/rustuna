@@ -157,7 +157,7 @@ impl MixtureOfProductDistribution {
                             mu,
                             sigma,
                         )
-                        .unwrap(); // 実運用では unwrap を避けてエラー処理を
+                        .unwrap();
                         sample.insert(param.clone(), value);
                     }
                     Distributions::TruncLogNorm(d) => {
