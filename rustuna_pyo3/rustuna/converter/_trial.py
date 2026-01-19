@@ -104,11 +104,11 @@ class FrozenTrialLike(FrozenTrial):
         self._persisted_trial = persisted_trial
 
         # Pre-cache frequently accessed lightweight fields to avoid repeated conversions
+        self.__trial_id: int = persisted_trial._trial_id
         self.__number: int = persisted_trial.number
         self.__state: TrialState = to_optuna_state(persisted_trial.state)
 
         # The following fields are defined to support property.setter (lazy evaluation)
-        self.__trial_id: int | None = None
         self.__values: list[float] | None = None
         self.__intermediate_values: dict[int, float] | None = None
         self.__datetime_start: datetime.datetime | None = None
@@ -139,9 +139,7 @@ class FrozenTrialLike(FrozenTrial):
 
     @property
     def _trial_id(self) -> int:
-        if self.__trial_id is not None:
-            return self.__trial_id
-        return int(self._persisted_trial.system_attrs["trial_id"])
+        return self._persisted_trial._trial_id
 
     @_trial_id.setter
     def _trial_id(self, value: int) -> None:
