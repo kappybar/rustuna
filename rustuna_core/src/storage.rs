@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::attr::Attrs;
+use crate::attr::{category_labels_to_attrs, get_category_labels, Attrs, CategoryLabel};
 use crate::distribution::Distribution;
 use crate::study::{Direction, PersistedStudy};
 use crate::study_cache::StudyCache;
@@ -35,6 +35,23 @@ pub trait Storage: Send + Sync {
     fn get_study(&mut self, study_id: u32) -> Result<&PersistedStudy>;
     fn get_trials(&mut self, study_id: u32) -> Result<&Vec<PersistedTrial>>;
     fn get_trial(&mut self, trial_id: u32) -> Result<&PersistedTrial>;
+    // Design Note:
+    // Category labels are stored in study system attrs internally, but exposed via dedicated
+    // APIs for caching efficiency. Since category labels cannot be overwritten once set for
+    // a given (study_id, param_name), implementations can safely cache them without
+    // invalidation concerns.
+    fn set_category_labels(
+        &mut self,
+        study_id: u32,
+        param_name: &str,
+        labels: Vec<CategoryLabel>,
+    ) -> Result<()>;
+    fn get_category_labels(
+        &mut self,
+        study_id: u32,
+        param_name: &str,
+        cardinality: usize,
+    ) -> Result<Option<Vec<CategoryLabel>>>;
     fn get_trial_id_from_study_id_trial_number(
         &mut self,
         study_id: u32,
@@ -266,6 +283,26 @@ impl Storage for InMemoryStorage {
             .get(trial_number as usize)
             .ok_or(Error::new(ErrorKind::TrialNotFound))?;
         Ok(trial)
+    }
+
+    fn set_category_labels(
+        &mut self,
+        study_id: u32,
+        param_name: &str,
+        labels: Vec<CategoryLabel>,
+    ) -> Result<()> {
+        let attrs = category_labels_to_attrs(param_name, &labels);
+        self.set_study_attrs(study_id, attrs, true)
+    }
+
+    fn get_category_labels(
+        &mut self,
+        study_id: u32,
+        param_name: &str,
+        cardinality: usize,
+    ) -> Result<Option<Vec<CategoryLabel>>> {
+        let study = self.get_study(study_id)?;
+        Ok(get_category_labels(&study.attrs, param_name, cardinality))
     }
 
     fn get_trial_id_from_study_id_trial_number(

@@ -4,7 +4,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Map, Number, Value};
 
-use rustuna_core::attr::{category_labels_to_attrs, AttrKey, Attrs, CategoryLabel};
+use rustuna_core::attr::{
+    category_labels_to_attrs, get_category_labels, AttrKey, Attrs, CategoryLabel,
+};
 use rustuna_core::distribution::Distribution;
 use rustuna_core::storage::Storage;
 use rustuna_core::study::{Direction, PersistedStudy};
@@ -332,6 +334,32 @@ impl Storage for JournalStorage {
                 ),
             )
         })
+    }
+
+    fn get_category_labels(
+        &mut self,
+        study_id: u32,
+        param_name: &str,
+        cardinality: usize,
+    ) -> Result<Option<Vec<CategoryLabel>>> {
+        self.sync_with_backend()?;
+        let study = self
+            .replay
+            .studies
+            .values()
+            .find(|s| s.id == study_id)
+            .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))?;
+        Ok(get_category_labels(&study.attrs, param_name, cardinality))
+    }
+
+    fn set_category_labels(
+        &mut self,
+        study_id: u32,
+        param_name: &str,
+        labels: Vec<CategoryLabel>,
+    ) -> Result<()> {
+        let attrs = category_labels_to_attrs(param_name, &labels);
+        self.set_study_attrs(study_id, attrs, true)
     }
 
     fn get_trial_id_from_study_id_trial_number(

@@ -4,7 +4,7 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
 use pyo3::types::PyList;
-use rustuna_core::attr::{AttrKey, Attrs};
+use rustuna_core::attr::{AttrKey, Attrs, CategoryLabel};
 use rustuna_core::distribution::Distribution;
 use rustuna_core::storage::{InMemoryStorage, Storage};
 use rustuna_core::study::{Direction, PersistedStudy};
@@ -464,6 +464,26 @@ impl Storage for PyObjectStorage {
         trial_id: u32,
     ) -> rustuna_core::Result<&rustuna_core::trial::PersistedTrial> {
         self.cache.get_trial(trial_id)
+    }
+
+    fn get_category_labels(
+        &mut self,
+        study_id: u32,
+        param_name: &str,
+        cardinality: usize,
+    ) -> rustuna_core::Result<Option<Vec<CategoryLabel>>> {
+        self.sync_study_from_id(study_id, true)?;
+        self.cache
+            .get_category_labels(study_id, param_name, cardinality)
+    }
+
+    fn set_category_labels(
+        &mut self,
+        study_id: u32,
+        param_name: &str,
+        labels: Vec<CategoryLabel>,
+    ) -> rustuna_core::Result<()> {
+        self.cache.set_category_labels(study_id, param_name, labels)
     }
 
     fn get_trial_id_from_study_id_trial_number(

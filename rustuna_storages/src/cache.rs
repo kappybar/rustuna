@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use rustuna_core::attr::Attrs;
+use rustuna_core::attr::{category_labels_to_attrs, get_category_labels, Attrs, CategoryLabel};
 use rustuna_core::distribution::Distribution;
 use rustuna_core::study::{Direction, PersistedStudy};
 use rustuna_core::study_cache::StudyCache;
@@ -71,6 +71,9 @@ pub struct CachedStorage {
     unfinished_trials: HashMap<u32, Vec<u32>>,
     last_finished_trial_number: HashMap<u32, i32>,
     trials_sorted_buffer: Vec<PersistedTrial>,
+    // Cache for category labels: (study_id, param_name) -> labels
+    // Since category labels cannot be overwritten once set, this cache never needs invalidation.
+    category_labels_cache: HashMap<(u32, String), Vec<CategoryLabel>>,
 
     backend: Box<dyn OptunaCachedStorageBackend>,
 }
@@ -85,6 +88,7 @@ impl CachedStorage {
             unfinished_trials: HashMap::new(),
             last_finished_trial_number: HashMap::new(),
             trials_sorted_buffer: Vec::new(),
+            category_labels_cache: HashMap::new(),
             backend,
         }
     }
@@ -344,6 +348,37 @@ impl rustuna_core::storage::Storage for CachedStorage {
             .get(&trial_number)
             .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
         Ok(trial)
+    }
+
+    fn set_category_labels(
+        &mut self,
+        study_id: u32,
+        param_name: &str,
+        labels: Vec<CategoryLabel>,
+    ) -> Result<()> {
+        let attrs = category_labels_to_attrs(param_name, &labels);
+        self.backend.set_study_attrs(study_id, attrs, true)?;
+        self.category_labels_cache
+            .insert((study_id, param_name.to_string()), labels);
+        Ok(())
+    }
+
+    fn get_category_labels(
+        &mut self,
+        study_id: u32,
+        param_name: &str,
+        cardinality: usize,
+    ) -> Result<Option<Vec<CategoryLabel>>> {
+        let key = (study_id, param_name.to_string());
+        if let Some(labels) = self.category_labels_cache.get(&key) {
+            return Ok(Some(labels.clone()));
+        }
+        let study = self.get_study(study_id)?;
+        if let Some(labels) = get_category_labels(&study.attrs, param_name, cardinality) {
+            self.category_labels_cache.insert(key, labels.clone());
+            return Ok(Some(labels));
+        }
+        Ok(None)
     }
 
     fn get_trial_id_from_study_id_trial_number(

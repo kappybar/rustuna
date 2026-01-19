@@ -1,18 +1,19 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use rustuna_core::attr::{AttrKey, Attrs, CategoryLabel};
+use rustuna_core::attr::{get_category_labels, AttrKey, Attrs, CategoryLabel};
 use rustuna_core::distribution::Distribution;
-
+use rustuna_core::storage::Storage;
 use rustuna_core::trial::{PersistedTrial, Trial, TrialStateValues};
 
 use crate::attrs::pyobj_to_attrs;
 use crate::distribution::{
     category_label_to_pyobject, py_to_external_repr, pyobject_to_category_label, PyDistribution,
 };
+use crate::exception::err_to_exceptions;
 
 #[derive(Clone, Debug, PartialEq)]
 #[pyclass(name = "TrialState", eq, eq_int)]
@@ -149,16 +150,163 @@ impl PyTrial {
     }
 }
 
-#[derive(Debug)]
+enum PyPersistedTrialSource {
+    Owned(PersistedTrial),
+    StorageBacked {
+        storage: Arc<RwLock<dyn Storage>>,
+        trial_id: u32,
+        // Eagerly cached lightweight fields
+        study_id: u32,
+        number: u32,
+        state: PyTrialState,
+        values: Option<Vec<f64>>,
+        internal_params: HashMap<String, f64>,
+        distributions: HashMap<String, Distribution>,
+    },
+}
+
+type TrialParams = Vec<(String, f64, Distribution)>;
+
 #[pyclass(name = "PersistedTrial")]
 #[pyo3(module = "rustuna")]
-pub struct PyPersistedTrial(PersistedTrial, Arc<Attrs>);
+pub struct PyPersistedTrial {
+    source: PyPersistedTrialSource,
+    study_attrs: Option<Arc<Attrs>>,
+}
 impl PyPersistedTrial {
+    /// Create a PyPersistedTrial that owns all trial data including study_attrs.
+    ///
+    /// Use this constructor when:
+    /// - Constructing from Python via `__new__`
+    /// - Retrieving a single trial where study_attrs are already available
     pub fn new(trial: PersistedTrial, study_attrs: Attrs) -> Self {
-        PyPersistedTrial(trial, Arc::new(study_attrs))
+        PyPersistedTrial {
+            source: PyPersistedTrialSource::Owned(trial),
+            study_attrs: Some(Arc::new(study_attrs)),
+        }
     }
-    pub fn new_with_arc(trial: PersistedTrial, study_attrs: Arc<Attrs>) -> Self {
-        PyPersistedTrial(trial, study_attrs)
+    /// Create a lightweight PyPersistedTrial that caches frequently accessed fields
+    /// but defers heavy fields (user_attrs, system_attrs) to storage lookup.
+    ///
+    /// Use this constructor when:
+    /// - Retrieving multiple trials (e.g., `get_trials`, `best_trials`)
+    /// - The caller has already fetched study_attrs and can share them via Arc
+    ///
+    /// This avoids cloning study_attrs for each trial and defers expensive
+    /// attribute lookups until actually needed.
+    pub fn from_storage(storage: Arc<RwLock<dyn Storage>>, trial: &PersistedTrial) -> Self {
+        let values = match &trial.state_values {
+            TrialStateValues::Complete(v) => Some(v.clone()),
+            _ => None,
+        };
+        PyPersistedTrial {
+            source: PyPersistedTrialSource::StorageBacked {
+                storage,
+                trial_id: trial.id,
+                study_id: trial.study_id,
+                number: trial.number,
+                state: PyTrialState::from(trial.state_values.clone()),
+                values,
+                internal_params: trial.internal_params.clone(),
+                distributions: trial.distributions.clone(),
+            },
+            study_attrs: None,
+        }
+    }
+
+    fn with_trial<R>(&self, f: impl FnOnce(&PersistedTrial) -> PyResult<R>) -> PyResult<R> {
+        match &self.source {
+            PyPersistedTrialSource::Owned(trial) => f(trial),
+            PyPersistedTrialSource::StorageBacked {
+                storage, trial_id, ..
+            } => {
+                let mut guard = storage
+                    .write()
+                    .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+                let trial = guard.get_trial(*trial_id).map_err(err_to_exceptions)?;
+                f(trial)
+            }
+        }
+    }
+
+    fn collect_params(&self) -> PyResult<(u32, TrialParams)> {
+        match &self.source {
+            PyPersistedTrialSource::Owned(trial) => {
+                let mut params: Vec<(String, f64, Distribution)> =
+                    Vec::with_capacity(trial.internal_params.len());
+                for (name, internal_repr) in &trial.internal_params {
+                    let dist = trial
+                        .distributions
+                        .get(name)
+                        .ok_or(PyValueError::new_err(format!("No distribution for {name}")))?;
+                    params.push((name.clone(), *internal_repr, dist.clone()));
+                }
+                Ok((trial.study_id, params))
+            }
+            PyPersistedTrialSource::StorageBacked {
+                study_id,
+                internal_params,
+                distributions,
+                ..
+            } => {
+                let mut params: Vec<(String, f64, Distribution)> =
+                    Vec::with_capacity(internal_params.len());
+                for (name, internal_repr) in internal_params {
+                    let dist = distributions
+                        .get(name)
+                        .ok_or(PyValueError::new_err(format!("No distribution for {name}")))?;
+                    params.push((name.clone(), *internal_repr, dist.clone()));
+                }
+                Ok((*study_id, params))
+            }
+        }
+    }
+
+    fn collect_distributions(&self) -> PyResult<(u32, Vec<(String, Distribution)>)> {
+        match &self.source {
+            PyPersistedTrialSource::Owned(trial) => {
+                let mut distributions: Vec<(String, Distribution)> =
+                    Vec::with_capacity(trial.distributions.len());
+                for (name, dist) in &trial.distributions {
+                    distributions.push((name.clone(), dist.clone()));
+                }
+                Ok((trial.study_id, distributions))
+            }
+            PyPersistedTrialSource::StorageBacked {
+                study_id,
+                distributions,
+                ..
+            } => {
+                let mut dists: Vec<(String, Distribution)> =
+                    Vec::with_capacity(distributions.len());
+                for (name, dist) in distributions {
+                    dists.push((name.clone(), dist.clone()));
+                }
+                Ok((*study_id, dists))
+            }
+        }
+    }
+
+    fn category_labels_for_param(
+        &self,
+        study_id: u32,
+        param_name: &str,
+        cardinality: usize,
+    ) -> PyResult<Option<Vec<CategoryLabel>>> {
+        if let Some(attrs) = &self.study_attrs {
+            return Ok(get_category_labels(attrs, param_name, cardinality));
+        }
+        match &self.source {
+            PyPersistedTrialSource::StorageBacked { storage, .. } => {
+                let mut guard = storage
+                    .write()
+                    .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+                guard
+                    .get_category_labels(study_id, param_name, cardinality)
+                    .map_err(err_to_exceptions)
+            }
+            PyPersistedTrialSource::Owned(_) => Ok(None),
+        }
     }
 }
 #[allow(non_local_definitions)]
@@ -217,65 +365,99 @@ impl PyPersistedTrial {
         trial.attrs = trial_attrs;
 
         let study_attrs = Attrs::new();
-        Ok(PyPersistedTrial(trial, Arc::new(study_attrs)))
+        Ok(PyPersistedTrial::new(trial, study_attrs))
     }
 
     #[getter]
     fn id(&self) -> PyResult<u32> {
-        Ok(self.0.id)
+        match &self.source {
+            PyPersistedTrialSource::Owned(trial) => Ok(trial.id),
+            PyPersistedTrialSource::StorageBacked { trial_id, .. } => Ok(*trial_id),
+        }
     }
 
     #[getter]
     fn study_id(&self) -> PyResult<u32> {
-        Ok(self.0.study_id)
+        match &self.source {
+            PyPersistedTrialSource::Owned(trial) => Ok(trial.study_id),
+            PyPersistedTrialSource::StorageBacked { study_id, .. } => Ok(*study_id),
+        }
     }
 
     #[getter]
     fn number(&self) -> PyResult<u32> {
-        Ok(self.0.number)
+        match &self.source {
+            PyPersistedTrialSource::Owned(trial) => Ok(trial.number),
+            PyPersistedTrialSource::StorageBacked { number, .. } => Ok(*number),
+        }
     }
 
     #[getter]
     fn state(&self) -> PyResult<PyTrialState> {
-        Ok(PyTrialState::from(self.0.state_values.clone()))
+        match &self.source {
+            PyPersistedTrialSource::Owned(trial) => {
+                Ok(PyTrialState::from(trial.state_values.clone()))
+            }
+            PyPersistedTrialSource::StorageBacked { state, .. } => Ok(state.clone()),
+        }
     }
 
     #[getter]
-    fn values(&self) -> Option<Vec<f64>> {
-        match self.0.state_values {
-            TrialStateValues::Complete(ref values) => Some(values.clone()),
-            _ => None,
+    fn values(&self) -> PyResult<Option<Vec<f64>>> {
+        match &self.source {
+            PyPersistedTrialSource::Owned(trial) => match &trial.state_values {
+                TrialStateValues::Complete(values) => Ok(Some(values.clone())),
+                _ => Ok(None),
+            },
+            PyPersistedTrialSource::StorageBacked { values, .. } => Ok(values.clone()),
         }
     }
 
     #[getter]
     fn distributions(&self) -> PyResult<HashMap<String, PyDistribution>> {
-        let mut distributions = HashMap::new();
-        for (name, dist) in &self.0.distributions {
-            let distribution = PyDistribution::new(dist.clone(), name, &self.1);
-            distributions.insert(name.clone(), distribution);
+        let (study_id, distributions) = self.collect_distributions()?;
+        let mut result = HashMap::with_capacity(distributions.len());
+        for (name, dist) in distributions {
+            let labels = match dist {
+                Distribution::Categorical { cardinality } => {
+                    self.category_labels_for_param(study_id, &name, cardinality)?
+                }
+                _ => None,
+            };
+            let distribution = PyDistribution::new_with_category_labels(dist, labels);
+            result.insert(name, distribution);
         }
-        Ok(distributions)
+        Ok(result)
     }
 
     #[getter]
     fn internal_params(&self) -> PyResult<HashMap<String, f64>> {
-        Ok(self.0.internal_params.clone())
+        match &self.source {
+            PyPersistedTrialSource::Owned(trial) => Ok(trial.internal_params.clone()),
+            PyPersistedTrialSource::StorageBacked {
+                internal_params, ..
+            } => Ok(internal_params.clone()),
+        }
     }
 
     #[getter]
     fn params(&self) -> PyResult<HashMap<String, PyObject>> {
+        let (study_id, params) = self.collect_params()?;
+        let mut labels_map: HashMap<String, Option<Vec<CategoryLabel>>> = HashMap::new();
+        for (name, _, dist) in &params {
+            if let Distribution::Categorical { cardinality } = dist {
+                let labels = self.category_labels_for_param(study_id, name, *cardinality)?;
+                labels_map.insert(name.clone(), labels);
+            }
+        }
         Python::with_gil(|py| {
-            self.0
-                .internal_params
-                .iter()
-                .map(|(name, internal_repr)| {
-                    let maybe_pyobj: PyResult<PyObject> = match self.0.distributions.get(name) {
-                        Some(dist) => py_to_external_repr(py, dist, *internal_repr, name, &self.1)
-                            .map(|b| b.unbind()),
-                        None => Err(PyValueError::new_err(format!("No distribution for {name}"))),
-                    };
-                    maybe_pyobj.map(|v| (name.to_string(), v))
+            params
+                .into_iter()
+                .map(|(name, internal_repr, dist)| {
+                    let labels = labels_map.get(&name).and_then(|labels| labels.as_deref());
+                    let maybe_pyobj: PyResult<PyObject> =
+                        py_to_external_repr(py, &dist, internal_repr, labels).map(|b| b.unbind());
+                    maybe_pyobj.map(|v| (name, v))
                 })
                 .collect()
         })
@@ -283,30 +465,32 @@ impl PyPersistedTrial {
 
     #[getter]
     fn user_attrs(&self) -> PyResult<HashMap<String, String>> {
-        let user_attrs = self
-            .0
-            .attrs
-            .iter()
-            .filter_map(|(key, value)| match key {
-                AttrKey::User(k) => Some((k.clone(), value.clone())),
-                _ => None,
-            })
-            .collect();
-        Ok(user_attrs)
+        self.with_trial(|trial| {
+            let user_attrs = trial
+                .attrs
+                .iter()
+                .filter_map(|(key, value)| match key {
+                    AttrKey::User(k) => Some((k.clone(), value.clone())),
+                    _ => None,
+                })
+                .collect();
+            Ok(user_attrs)
+        })
     }
 
     #[getter]
     fn system_attrs(&self) -> PyResult<HashMap<String, String>> {
-        let system_attrs = self
-            .0
-            .attrs
-            .iter()
-            .filter_map(|(key, value)| match key {
-                AttrKey::System(k) => Some((k.clone(), value.clone())),
-                _ => None,
-            })
-            .collect();
-        Ok(system_attrs)
+        self.with_trial(|trial| {
+            let system_attrs = trial
+                .attrs
+                .iter()
+                .filter_map(|(key, value)| match key {
+                    AttrKey::System(k) => Some((k.clone(), value.clone())),
+                    _ => None,
+                })
+                .collect();
+            Ok(system_attrs)
+        })
     }
 
     fn __repr__(slf: &Bound<'_, Self>) -> PyResult<String> {
@@ -324,7 +508,7 @@ impl PyPersistedTrial {
             "number={} state={:?} values={:?} params={} distributions={:?} user_attrs={:?} system_attrs={:?}",
             self.number()?,
             self.state()?,
-            self.values(),
+            self.values()?,
             params,
             self.distributions()?,
             self.user_attrs()?,

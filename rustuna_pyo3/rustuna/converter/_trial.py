@@ -26,12 +26,10 @@ if typing.TYPE_CHECKING:
     from optuna.distributions import BaseDistribution
     from optuna.trial import TrialState
 
-
 # This is a dummy datetime since Rustuna does not store the datetime_start and datetime_complete.
 dummy_datetime = datetime.datetime(
     2023, 11, 26, 16, 56, 38
 )  # Date of the initial commit of Rustuna
-
 
 to_rustuna_state_map = {
     optuna.trial.TrialState.RUNNING: rustuna.TrialState.RUNNING,
@@ -105,10 +103,12 @@ class FrozenTrialLike(FrozenTrial):
     def __init__(self, persisted_trial: rustuna.PersistedTrial) -> None:
         self._persisted_trial = persisted_trial
 
-        # The following field is defined to support property.setter
+        # Pre-cache frequently accessed lightweight fields to avoid repeated conversions
+        self.__number: int = persisted_trial.number
+        self.__state: TrialState = to_optuna_state(persisted_trial.state)
+
+        # The following fields are defined to support property.setter (lazy evaluation)
         self.__trial_id: int | None = None
-        self.__number: int | None = None
-        self.__state: TrialState | None = None
         self.__values: list[float] | None = None
         self.__intermediate_values: dict[int, float] | None = None
         self.__datetime_start: datetime.datetime | None = None
@@ -149,9 +149,7 @@ class FrozenTrialLike(FrozenTrial):
 
     @property
     def number(self) -> int:
-        if self.__number is not None:
-            return self._number
-        return self._persisted_trial.number
+        return self.__number
 
     @number.setter
     def number(self, value: int) -> None:
@@ -159,7 +157,7 @@ class FrozenTrialLike(FrozenTrial):
 
     @property
     def state(self) -> TrialState:
-        return self.__state or to_optuna_state(self._persisted_trial.state)
+        return self.__state
 
     @state.setter
     def state(self, value: TrialState) -> None:
