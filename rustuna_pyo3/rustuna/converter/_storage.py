@@ -141,33 +141,6 @@ class ToRustunaStorage:
 class ToOptunaStorage(BaseStorage):
     def __init__(self, storage: rustuna.OptunaStorageProtocol) -> None:
         self._storage = storage
-        self._trials_cache: dict[int, dict[int, FrozenTrial]] = {}
-        self._unfinished_trial_numbers: dict[int, list[int]] = {}
-        self._last_finished_trial_number: dict[int, int] = {}
-
-    def _refresh_trials_cache(self, study_id: int) -> None:
-        included_numbers = self._unfinished_trial_numbers.get(study_id, [])
-        trial_number_greater_than = self._last_finished_trial_number.get(study_id, -1)
-        try:
-            rustuna_trials = self._storage.get_trials_diff(
-                study_id, included_numbers, trial_number_greater_than
-            )
-        except AttributeError:
-            rustuna_trials = self._storage.get_trials(study_id)
-
-        cache = self._trials_cache.setdefault(study_id, {})
-        for trial in rustuna_trials:
-            cache[trial.number] = to_frozen_trial(trial)
-
-        unfinished_numbers: list[int] = []
-        last_finished = -1
-        for frozen_trial in cache.values():
-            if frozen_trial.state.is_finished():
-                last_finished = max(last_finished, frozen_trial.number)
-            else:
-                unfinished_numbers.append(frozen_trial.number)
-        self._unfinished_trial_numbers[study_id] = unfinished_numbers
-        self._last_finished_trial_number[study_id] = last_finished
 
     def create_new_study(
         self, directions: Sequence[StudyDirection], study_name: str | None = None
@@ -190,9 +163,6 @@ class ToOptunaStorage(BaseStorage):
 
     def delete_study(self, study_id: int) -> None:
         self._storage.delete_study(study_id=study_id)
-        self._trials_cache.pop(study_id, None)
-        self._unfinished_trial_numbers.pop(study_id, None)
-        self._last_finished_trial_number.pop(study_id, None)
 
     def set_study_user_attr(self, study_id: int, key: str, value: Any) -> None:
         self._storage.set_study_user_attrs(study_id, {key: json.dumps(value)})
@@ -338,9 +308,8 @@ class ToOptunaStorage(BaseStorage):
         deepcopy: bool = True,
         states: Container[TrialState] | None = None,
     ) -> list[FrozenTrial]:
-        self._refresh_trials_cache(study_id)
-        trials = list(self._trials_cache.get(study_id, {}).values())
-        trials.sort(key=lambda t: t.number)
+        rustuna_trials = self._storage.get_trials(study_id)
+        trials = [to_frozen_trial(t) for t in rustuna_trials]
         if states is not None:
             trials = [t for t in trials if t.state in states]
         if deepcopy:
