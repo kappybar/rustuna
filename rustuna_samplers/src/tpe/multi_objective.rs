@@ -356,7 +356,7 @@ mod tests {
     #[test]
     fn test_fast_non_dominated_sort_basic() {
         // simple 2D example
-        let pts = vec![
+        let pts = [
             vec![0.0, 0.0], // 0 -> front 0
             vec![1.0, 0.0], // 1 dominated by 0 -> front 1
             vec![0.0, 1.0], // 2 dominated by 0 -> front 1
