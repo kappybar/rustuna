@@ -32,13 +32,15 @@ impl Default for TpeConfig {
     }
 }
 
+type SplitKey = (Vec<u32>, usize);
+type SplitValue = (Vec<u32>, Vec<u32>);
 pub struct TpeSampler {
     rng: StdRng,
     multivariate: bool,
     n_startup_trials: usize,
     random_sampler: RandomSampler,
     // TODO(y0z): Change to LruCache<(Vec<&PersistedTrial>, usize), (Vec<&PersistedTrial>, Vec<&PersistedTrial>)>
-    split_cache: HashMap<(Vec<u32>, usize), (Vec<u32>, Vec<u32>)>,
+    split_cache: HashMap<SplitKey, SplitValue>,
 }
 impl Default for TpeSampler {
     fn default() -> Self {
@@ -349,20 +351,32 @@ impl TpeSampler {
     ) -> ParzenEstimator {
         let mut sorted_keys: Vec<&String> = search_space.keys().collect();
         sorted_keys.sort();
-        let mut observations: HashMap<String, Vec<f64>> = HashMap::with_capacity(sorted_keys.len());
+
+        let n_params = sorted_keys.len();
+        let n_trials = trials.len();
+        let mut observations: HashMap<String, Vec<f64>> = HashMap::with_capacity(n_params);
 
         // Handle conditional parameters
-        let mut active_indices = Vec::with_capacity(trials.len());
-        for (idx, key) in sorted_keys.iter().enumerate() {
-            let mut vals = Vec::with_capacity(trials.len());
-            for t in trials.iter() {
+        let mut active_counts = HashMap::new();
+        for key in sorted_keys.iter() {
+            let mut vals = Vec::with_capacity(n_trials);
+            for (idx, t) in trials.iter().enumerate() {
                 if let Some(&v) = t.internal_params.get(*key) {
                     vals.push(v);
-                    active_indices.push(idx);
+                    active_counts.entry(idx).and_modify(|e| *e += 1).or_insert(1);
                 }
             }
             observations.insert((*key).clone(), vals);
         }
+        let active_indices = (0..n_trials)
+            .filter_map(|idx| {
+                if active_counts.get(&idx) == Some(&n_params) {
+                    Some(idx)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<usize>>();
         let weights = if !is_multi_objective {
             Self::weights_for_single_objective(trials.len())
         } else {
@@ -456,7 +470,41 @@ mod tests {
                     Ok(vec![value])
                 },
                 sampler,
-                20,
+                50,
+            )
+            .unwrap();
+        let best_trial_number = get_best_trial(&study);
+        assert!(best_trial_number.is_ok());
+    }
+
+    #[test]
+    fn test_optimize_conditional() {
+        let storage = InMemoryStorage::new();
+        let directions = vec![Direction::Minimize];
+        let mut study = create_study("simple-quadratic", storage, directions).unwrap();
+
+        let sampler = Arc::new(Mutex::new(TpeSampler::new()));
+        study
+            .optimize(
+                |mut t| {
+                    let x = t.suggest_float("x", 0.0, 10.0)?;
+                    let y = t.suggest_float("y", 0.0, 10.0)?;
+
+                    let mut value = (x - 3.0).powi(2) + (y - 5.0).powi(2);
+                    if x < 5.0 {
+                        println!("{:2} x: {}, y: {}, value: {}", t.number, x, y, value);
+                    } else {
+                        let z = t.suggest_float("z", -5.0, 5.0)?;
+                        value += z;
+                        println!(
+                            "{:2} x: {}, y: {}, z: {}, value: {}",
+                            t.number, x, y, z, value
+                        );
+                    }
+                    Ok(vec![value])
+                },
+                sampler,
+                50,
             )
             .unwrap();
         let best_trial_number = get_best_trial(&study);
@@ -483,7 +531,7 @@ mod tests {
                     Ok(values)
                 },
                 sampler,
-                20,
+                50,
             )
             .unwrap();
         let best_trial_numbers = get_pareto_front(&study);
