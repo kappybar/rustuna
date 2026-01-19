@@ -6,7 +6,6 @@ members = [
     "rustuna_importance",
     "rustuna_js",
     "rustuna_pyo3",
-    "rustuna_c",
 ]
 resolver = "2"
 
