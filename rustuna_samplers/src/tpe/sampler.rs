@@ -369,13 +369,7 @@ impl TpeSampler {
             observations.insert((*key).clone(), vals);
         }
         let active_indices = (0..n_trials)
-            .filter_map(|idx| {
-                if active_counts.get(&idx) == Some(&n_params) {
-                    Some(idx)
-                } else {
-                    None
-                }
-            })
+            .filter(|idx| active_counts.get(idx) == Some(&n_params))
             .collect::<Vec<usize>>();
         let weights = if !is_multi_objective {
             Self::weights_for_single_objective(trials.len())
