@@ -147,7 +147,7 @@ impl Trial {
     // as it may be updated without going through the `Trial` object,
     // making it difficult to cache the value.
     pub fn get_user_attr(&mut self, key: &str) -> Option<&String> {
-        let key = AttrKey::User(key.to_string());
+        let key = AttrKey::User(key.into());
         self.cached_trial.attrs.get(&key)
     }
 
@@ -158,7 +158,7 @@ impl Trial {
             .map_err(|_| Error::new(ErrorKind::StorageError))?;
         let mut attrs = Attrs::new();
 
-        let key = AttrKey::User(key.to_string());
+        let key = AttrKey::User(key.into());
         attrs.insert(key.clone(), value.clone());
         guard.set_trial_attrs(self.study_id, self.number, attrs, false)?;
         self.cached_trial.attrs.insert(key, value);
@@ -232,17 +232,17 @@ mod tests {
             .write()
             .map_err(|_| Error::new(ErrorKind::StorageError))?;
         let mut attrs = Attrs::new();
-        attrs.insert(AttrKey::System("key".to_string()), "system".to_string());
+        attrs.insert(AttrKey::System("key".into()), "system".to_string());
         guard.set_trial_attrs(study.id, 0, attrs, false)?;
 
         // Check the attributes
         let trial = guard.get_trial(trial.id)?;
         assert_eq!(
-            trial.attrs.get(&AttrKey::User("key".to_string())),
+            trial.attrs.get(&AttrKey::User("key".into())),
             Some(&"user".to_string())
         );
         assert_eq!(
-            trial.attrs.get(&AttrKey::System("key".to_string())),
+            trial.attrs.get(&AttrKey::System("key".into())),
             Some(&"system".to_string())
         );
         Ok(())

@@ -85,7 +85,7 @@ impl NSGAIISampler {
         let mut generation_to_population_numbers =
             HashMap::<usize, Vec<u32>>::with_capacity(trials.len());
         for trial in trials {
-            let generation_or_none = trial.attrs.get(&AttrKey::System("generation".to_string()));
+            let generation_or_none = trial.attrs.get(&AttrKey::System("generation".into()));
             if generation_or_none.is_none() {
                 continue;
             }
@@ -226,7 +226,7 @@ impl Sampler for NSGAIISampler {
         let child_generation = u32::try_from(parent_generation + 1).unwrap();
         let mut attrs = Attrs::with_capacity(1);
         attrs.insert(
-            AttrKey::System("generation".to_string()),
+            AttrKey::System("generation".into()),
             (child_generation as f64).to_string(),
         );
         guard.set_trial_attrs(ctx.study_id, ctx.trial_number, attrs, false)?;

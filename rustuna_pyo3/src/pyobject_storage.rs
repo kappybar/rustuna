@@ -132,10 +132,10 @@ impl PyObjectStorage {
             for (k, v) in attrs.into_iter() {
                 match k {
                     AttrKey::System(k) => {
-                        py_system_attrs.set_item(k, v)?;
+                        py_system_attrs.set_item(k.as_str(), v)?;
                     }
                     AttrKey::User(k) => {
-                        py_user_attrs.set_item(k, v)?;
+                        py_user_attrs.set_item(k.as_str(), v)?;
                     }
                 }
             }
@@ -154,10 +154,10 @@ impl PyObjectStorage {
             for (k, v) in attrs.into_iter() {
                 match k {
                     AttrKey::System(k) => {
-                        py_system_attrs.set_item(k, v)?;
+                        py_system_attrs.set_item(k.as_str(), v)?;
                     }
                     AttrKey::User(k) => {
-                        py_user_attrs.set_item(k, v)?;
+                        py_user_attrs.set_item(k.as_str(), v)?;
                     }
                 }
             }

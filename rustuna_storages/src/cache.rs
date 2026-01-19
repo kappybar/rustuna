@@ -811,26 +811,26 @@ mod tests {
         storage.create_new_trial(study_id)?;
 
         let mut s_attrs = Attrs::new();
-        s_attrs.insert(AttrKey::User("foo".to_string()), "bar".to_string());
+        s_attrs.insert(AttrKey::User("foo".into()), "bar".to_string());
         storage.set_study_attrs(study_id, s_attrs, false)?;
         let study = storage.get_study(study_id)?;
         assert_eq!(
             study
                 .attrs
-                .get(&AttrKey::User("foo".to_string()))
+                .get(&AttrKey::User("foo".into()))
                 .expect("User attr 'foo' should exist"),
             "bar"
         );
 
         let mut t_attrs = Attrs::new();
-        t_attrs.insert(AttrKey::System("key".to_string()), "val".to_string());
+        t_attrs.insert(AttrKey::System("key".into()), "val".to_string());
         storage.set_trial_attrs(study_id, 0, t_attrs, false)?;
         let trial_id = storage.get_trials(study_id)?[0].id;
         let trial = storage.get_trial(trial_id)?;
         assert_eq!(
             trial
                 .attrs
-                .get(&AttrKey::System("key".to_string()))
+                .get(&AttrKey::System("key".into()))
                 .expect("System attr 'key' should exist"),
             "val"
         );

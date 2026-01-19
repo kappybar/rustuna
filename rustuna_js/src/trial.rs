@@ -156,14 +156,14 @@ impl JsPersistedTrial {
         let attrs = js_sys::Array::new();
         let user_attrs = self.0.attrs.iter().filter_map(|(key, value)| {
             if let rustuna_core::attr::AttrKey::User(key) = key {
-                Some((key, value))
+                Some((key.to_string(), value))
             } else {
                 None
             }
         });
         for (key, value) in user_attrs {
             let obj = js_sys::Object::new();
-            js_sys::Reflect::set(&obj, &JsValue::from_str("key"), &JsValue::from_str(key))
+            js_sys::Reflect::set(&obj, &JsValue::from_str("key"), &JsValue::from_str(&key))
                 .map_err(|e| JsError::new(&format!("Failed to set a property: {e:?}")))?;
             js_sys::Reflect::set(&obj, &JsValue::from_str("value"), &JsValue::from_str(value))
                 .map_err(|e| JsError::new(&format!("Failed to set a property: {e:?}")))?;

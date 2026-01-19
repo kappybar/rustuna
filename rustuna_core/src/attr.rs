@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 
+use compact_str::CompactString;
+
 pub type Attrs = HashMap<AttrKey, String>;
 
 #[derive(Eq, Hash, Clone, Debug, PartialEq)]
 pub enum AttrKey {
-    User(String),
-    System(String),
+    User(CompactString),
+    System(CompactString),
 }
 
 // Compatible with CategoricalChoiceType.
@@ -67,7 +69,7 @@ impl CategoryLabel {
 }
 
 pub fn system_key_category_label(param_name: &str, choice_idx: usize) -> AttrKey {
-    AttrKey::System(format!("category_labels:{param_name}:{choice_idx}"))
+    AttrKey::System(format!("category_labels:{param_name}:{choice_idx}").into())
 }
 
 pub fn category_labels_to_attrs(param_name: &str, labels: &[CategoryLabel]) -> Attrs {

@@ -13,7 +13,7 @@ pub fn pyobj_to_system_attrs(obj: &Bound<'_, PyAny>) -> PyResult<Attrs> {
     for (key, value) in user_attrs {
         let key = key.extract::<String>()?;
         let value = value.extract::<String>()?;
-        attrs.insert(AttrKey::System(key), value);
+        attrs.insert(AttrKey::System(key.into()), value);
     }
     Ok(attrs)
 }
@@ -27,7 +27,7 @@ pub fn pyobj_to_user_attrs(obj: &Bound<'_, PyAny>) -> PyResult<Attrs> {
     for (key, value) in system_attrs {
         let key = key.extract::<String>()?;
         let value = value.extract::<String>()?;
-        attrs.insert(AttrKey::User(key), value);
+        attrs.insert(AttrKey::User(key.into()), value);
     }
     Ok(attrs)
 }
@@ -48,12 +48,12 @@ pub fn pyobj_to_attrs(
     for (key, value) in user_attrs {
         let key = key.extract::<String>()?;
         let value = value.extract::<String>()?;
-        attrs.insert(AttrKey::User(key), value);
+        attrs.insert(AttrKey::User(key.into()), value);
     }
     for (key, value) in system_attrs {
         let key = key.extract::<String>()?;
         let value = value.extract::<String>()?;
-        attrs.insert(AttrKey::System(key), value);
+        attrs.insert(AttrKey::System(key.into()), value);
     }
     Ok(attrs)
 }
