@@ -375,7 +375,6 @@ fn check_trial_is_updatable(trial: &PersistedTrial) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::attr::{category_labels_to_attrs, CategoryLabel};
     use crate::distribution::Distribution;
 
     #[test]

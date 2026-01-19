@@ -26,12 +26,10 @@ if typing.TYPE_CHECKING:
     from optuna.distributions import BaseDistribution
     from optuna.trial import TrialState
 
-
 # This is a dummy datetime since Rustuna does not store the datetime_start and datetime_complete.
 dummy_datetime = datetime.datetime(
     2023, 11, 26, 16, 56, 38
 )  # Date of the initial commit of Rustuna
-
 
 to_rustuna_state_map = {
     optuna.trial.TrialState.RUNNING: rustuna.TrialState.RUNNING,
@@ -108,7 +106,7 @@ class FrozenTrialLike(FrozenTrial):
         # Pre-cache frequently accessed lightweight fields to avoid repeated conversions
         self.__number: int = persisted_trial.number
         self.__state: TrialState = to_optuna_state(persisted_trial.state)
-        
+
         # The following fields are defined to support property.setter (lazy evaluation)
         self.__trial_id: int | None = None
         self.__values: list[float] | None = None

@@ -165,6 +165,8 @@ enum PyPersistedTrialSource {
     },
 }
 
+type TrialParams = Vec<(String, f64, Distribution)>;
+
 #[pyclass(name = "PersistedTrial")]
 #[pyo3(module = "rustuna")]
 pub struct PyPersistedTrial {
@@ -227,7 +229,7 @@ impl PyPersistedTrial {
         }
     }
 
-    fn collect_params(&self) -> PyResult<(u32, Vec<(String, f64, Distribution)>)> {
+    fn collect_params(&self) -> PyResult<(u32, TrialParams)> {
         match &self.source {
             PyPersistedTrialSource::Owned(trial) => {
                 let mut params: Vec<(String, f64, Distribution)> =
