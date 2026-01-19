@@ -89,6 +89,7 @@ def to_persisted_trial(
         )
 
     return rustuna.PersistedTrial(
+        trial_id=trial._trial_id,
         study_id=study_id,
         number=trial.number,
         state=to_rustuna_state(trial.state),

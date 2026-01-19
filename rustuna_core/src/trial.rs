@@ -10,6 +10,7 @@ use crate::{Error, ErrorKind, Result};
 
 /// Trial is a struct that is equivalent to `optuna.trial.Trial`.
 pub struct Trial {
+    pub id: u32,
     pub study_id: u32,
     pub number: u32,
     directions: Vec<Direction>,
@@ -20,6 +21,7 @@ pub struct Trial {
 }
 impl Trial {
     pub fn new(
+        trial_id: u32,
         study_id: u32,
         number: u32,
         directions: Vec<Direction>,
@@ -27,8 +29,9 @@ impl Trial {
         sampler: Arc<Mutex<dyn Sampler>>,
         joint_params: HashMap<String, (Distribution, f64)>,
     ) -> Self {
-        let cached_trial = PersistedTrial::new(study_id, number);
+        let cached_trial = PersistedTrial::new(trial_id, study_id, number);
         Trial {
+            id: trial_id,
             study_id,
             number,
             directions,
@@ -47,13 +50,7 @@ impl Trial {
                     .storage
                     .write()
                     .map_err(|_| Error::new(ErrorKind::StorageError))?;
-                storage_guard.set_trial_param(
-                    self.study_id,
-                    self.number,
-                    name,
-                    distribution,
-                    param_value,
-                )?;
+                storage_guard.set_trial_param(self.id, name, distribution, param_value)?;
                 drop(storage_guard);
                 return Ok(param_value);
             }
@@ -76,13 +73,7 @@ impl Trial {
             .storage
             .write()
             .map_err(|_| Error::new(ErrorKind::StorageError))?;
-        storage_guard.set_trial_param(
-            self.study_id,
-            self.number,
-            name,
-            distribution,
-            param_value,
-        )?;
+        storage_guard.set_trial_param(self.id, name, distribution, param_value)?;
         drop(storage_guard);
 
         self.cached_trial
@@ -179,6 +170,7 @@ impl Trial {
 /// This is equivalent to `optuna.trial.FrozenTrial`.
 #[derive(Clone, Debug)]
 pub struct PersistedTrial {
+    pub id: u32,
     pub study_id: u32,
     pub number: u32,
     pub state_values: TrialStateValues,
@@ -187,8 +179,9 @@ pub struct PersistedTrial {
     pub attrs: Attrs,
 }
 impl PersistedTrial {
-    pub fn new(study_id: u32, number: u32) -> PersistedTrial {
+    pub fn new(id: u32, study_id: u32, number: u32) -> PersistedTrial {
         PersistedTrial {
+            id,
             study_id,
             number,
             state_values: TrialStateValues::Running,
@@ -243,7 +236,7 @@ mod tests {
         guard.set_trial_attrs(study.id, 0, attrs, false)?;
 
         // Check the attributes
-        let trial = guard.get_trial(study.id, 0)?;
+        let trial = guard.get_trial(trial.id)?;
         assert_eq!(
             trial.attrs.get(&AttrKey::User("key".to_string())),
             Some(&"user".to_string())

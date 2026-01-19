@@ -300,22 +300,32 @@ impl PyStudy {
             PyRuntimeError::new_err(format!("Failed to get the best trial: {:?}", e.kind))
         })?;
 
-        let mut guard = self.study.storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        let trial = guard
-            .get_trial(self.study.id, trial_number)
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get trials: {:?}", e.kind)))?
-            .clone();
-        let study_attrs = Arc::new(
-            guard
-                .get_study(self.study.id)
+        let (trial, study_attrs) = {
+            let mut guard = self.study.storage.write().map_err(|e| {
+                PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
+            })?;
+            let trial_id = guard
+                .get_trial_id_from_study_id_trial_number(self.study.id, trial_number)
                 .map_err(|e| {
-                    PyRuntimeError::new_err(format!("Failed to get the study: {:?}", e.kind))
+                    PyRuntimeError::new_err(format!("Failed to get trials: {:?}", e.kind))
+                })?;
+            let trial = guard
+                .get_trial(trial_id)
+                .map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to get trials: {:?}", e.kind))
                 })?
-                .attrs
-                .clone(),
-        );
+                .clone();
+            let study_attrs = Arc::new(
+                guard
+                    .get_study(self.study.id)
+                    .map_err(|e| {
+                        PyRuntimeError::new_err(format!("Failed to get the study: {:?}", e.kind))
+                    })?
+                    .attrs
+                    .clone(),
+            );
+            (trial, study_attrs)
+        };
         let trial = PyPersistedTrial::new_with_arc(trial, study_attrs);
         Ok(trial)
     }

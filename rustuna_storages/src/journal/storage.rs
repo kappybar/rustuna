@@ -168,17 +168,24 @@ impl Storage for JournalStorage {
 
     fn set_trial_param(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         name: &str,
         distribution: &Distribution,
         value: f64,
     ) -> Result<()> {
         self.sync_with_backend()?;
-        let trial_id = self
-            .replay
-            .trial_id_from_study_number(study_id, trial_number)?;
         self.replay.ensure_trial_updatable(trial_id)?;
+        let (study_id, _trial_number) = self
+            .replay
+            .trial_id_to_study_number
+            .get(&trial_id)
+            .copied()
+            .ok_or_else(|| {
+                Error::with_reason(
+                    ErrorKind::TrialNotFound,
+                    format!("Trial not found in storage: trial_id={trial_id}"),
+                )
+            })?;
         self.replay
             .check_param_compatibility(study_id, name, distribution)?;
         let labels = self.replay.labels_for_param(study_id, name);
@@ -202,15 +209,22 @@ impl Storage for JournalStorage {
 
     fn set_trial_state_values(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         state_values: TrialStateValues,
     ) -> Result<()> {
         self.sync_with_backend()?;
-        let trial_id = self
-            .replay
-            .trial_id_from_study_number(study_id, trial_number)?;
         self.replay.ensure_trial_updatable(trial_id)?;
+        let (study_id, trial_number) = self
+            .replay
+            .trial_id_to_study_number
+            .get(&trial_id)
+            .copied()
+            .ok_or_else(|| {
+                Error::with_reason(
+                    ErrorKind::TrialNotFound,
+                    format!("Trial not found in storage: trial_id={trial_id}"),
+                )
+            })?;
         let existing_trial = self
             .replay
             .trial_from_study_number(study_id, trial_number)?;
@@ -289,8 +303,19 @@ impl Storage for JournalStorage {
         Ok(trials)
     }
 
-    fn get_trial(&mut self, study_id: u32, trial_number: u32) -> Result<&PersistedTrial> {
+    fn get_trial(&mut self, trial_id: u32) -> Result<&PersistedTrial> {
         self.sync_with_backend()?;
+        let (study_id, trial_number) = self
+            .replay
+            .trial_id_to_study_number
+            .get(&trial_id)
+            .copied()
+            .ok_or_else(|| {
+                Error::with_reason(
+                    ErrorKind::TrialNotFound,
+                    format!("Trial not found in storage: trial_id={trial_id}"),
+                )
+            })?;
         let trials = self.replay.trials_by_study.get(&study_id).ok_or_else(|| {
             Error::with_reason(
                 ErrorKind::StudyNotFound,
@@ -307,6 +332,16 @@ impl Storage for JournalStorage {
                 ),
             )
         })
+    }
+
+    fn get_trial_id_from_study_id_trial_number(
+        &mut self,
+        study_id: u32,
+        trial_number: u32,
+    ) -> Result<u32> {
+        self.sync_with_backend()?;
+        self.replay
+            .trial_id_from_study_number(study_id, trial_number)
     }
 
     fn set_study_attrs(
@@ -422,30 +457,6 @@ impl Storage for JournalStorage {
 }
 
 impl OptunaCompatibleStorage for JournalStorage {
-    fn get_study_id_trial_number_from_trial_id(&mut self, trial_id: u32) -> Result<(u32, u32)> {
-        self.sync_with_backend()?;
-        self.replay
-            .trial_id_to_study_number
-            .get(&trial_id)
-            .copied()
-            .ok_or_else(|| {
-                Error::with_reason(
-                    ErrorKind::TrialNotFound,
-                    format!("Trial not found in storage: trial_id={trial_id}"),
-                )
-            })
-    }
-
-    fn get_trial_id_from_study_id_trial_number(
-        &mut self,
-        study_id: u32,
-        trial_number: u32,
-    ) -> Result<u32> {
-        self.sync_with_backend()?;
-        self.replay
-            .trial_id_from_study_number(study_id, trial_number)
-    }
-
     fn set_trial_datetime(
         &mut self,
         trial_id: u32,
@@ -812,7 +823,7 @@ impl JournalReplayState {
             .map(|ids| ids.len())
             .unwrap_or(0) as u32;
 
-        let mut trial = PersistedTrial::new(study_id, trial_number);
+        let mut trial = PersistedTrial::new(trial_id, study_id, trial_number);
         let state_code = log
             .fields
             .get("state")
@@ -2029,14 +2040,14 @@ mod tests {
     fn get_trials_and_get_trial_return_cached_refs() -> Result<()> {
         let (mut storage, _logs) = new_storage()?;
         let study_id = storage.create_new_study("s", vec![Direction::Minimize])?.id;
-        storage.create_new_trial(study_id)?;
-        storage.create_new_trial(study_id)?;
+        let t0_id = storage.create_new_trial(study_id)?.id;
+        let t1_id = storage.create_new_trial(study_id)?.id;
 
         let trials = storage.get_trials(study_id)?;
         assert_eq!(trials.len(), 2);
-        let t0 = storage.get_trial(study_id, 0)?;
+        let t0 = storage.get_trial(t0_id)?;
         assert_eq!(t0.number, 0);
-        let t1 = storage.get_trial(study_id, 1)?;
+        let t1 = storage.get_trial(t1_id)?;
         assert_eq!(t1.number, 1);
         Ok(())
     }
@@ -2084,10 +2095,10 @@ mod tests {
     fn set_trial_state_values_updates_cache() -> Result<()> {
         let (mut storage, _logs) = new_storage()?;
         let study_id = storage.create_new_study("s", vec![Direction::Minimize])?.id;
-        storage.create_new_trial(study_id)?;
+        let trial_id = storage.create_new_trial(study_id)?.id;
 
-        storage.set_trial_state_values(study_id, 0, TrialStateValues::Complete(vec![1.0]))?;
-        let trial = storage.get_trial(study_id, 0)?;
+        storage.set_trial_state_values(trial_id, TrialStateValues::Complete(vec![1.0]))?;
+        let trial = storage.get_trial(trial_id)?;
         assert!(matches!(trial.state_values, TrialStateValues::Complete(_)));
         Ok(())
     }
@@ -2103,9 +2114,9 @@ mod tests {
             step: None,
             log: false,
         };
-        storage.create_new_trial(study_id)?;
-        storage.set_trial_param(study_id, 0, "x", &dist, 0.5)?;
-        storage.set_trial_state_values(study_id, 0, TrialStateValues::Complete(vec![0.0]))?;
+        let trial_id = storage.create_new_trial(study_id)?.id;
+        storage.set_trial_param(trial_id, "x", &dist, 0.5)?;
+        storage.set_trial_state_values(trial_id, TrialStateValues::Complete(vec![0.0]))?;
 
         let search_space = storage.get_joint_search_space(study_id)?;
         assert!(search_space.contains_key("x"));
@@ -2133,7 +2144,8 @@ mod tests {
         let mut t_attrs = Attrs::new();
         t_attrs.insert(AttrKey::System("key".to_string()), "val".to_string());
         storage.set_trial_attrs(study_id, 0, t_attrs, false)?;
-        let trial = storage.get_trial(study_id, 0)?;
+        let trial_id = storage.get_trials(study_id)?[0].id;
+        let trial = storage.get_trial(trial_id)?;
         assert_eq!(
             trial
                 .attrs
@@ -2156,9 +2168,10 @@ mod tests {
             step: None,
             log: false,
         };
-        storage.set_trial_param(study_id, 0, "x", &dist, 0.5)?;
+        let trial_id = storage.get_trials(study_id)?[0].id;
+        storage.set_trial_param(trial_id, "x", &dist, 0.5)?;
 
-        let trial = storage.get_trial(study_id, 0)?;
+        let trial = storage.get_trial(trial_id)?;
         assert_eq!(trial.internal_params.get("x"), Some(&0.5));
         assert_eq!(
             trial.distributions.get("x"),
@@ -2179,8 +2192,8 @@ mod tests {
             .create_new_study("test1", vec![Direction::Minimize])?
             .id;
         storage.create_new_study("test2", vec![Direction::Minimize])?;
-        let trial_1_number = storage.create_new_trial(study_id)?.number;
-        let trial_2_number = storage.create_new_trial(study_id)?.number;
+        let trial_1_id = storage.create_new_trial(study_id)?.id;
+        let trial_2_id = storage.create_new_trial(study_id)?.id;
 
         let distribution_x = Distribution::Float {
             low: 1.0,
@@ -2196,15 +2209,15 @@ mod tests {
             log: true,
         };
 
-        storage.set_trial_param(study_id, trial_1_number, "x", &distribution_x, 0.5)?;
-        storage.set_trial_param(study_id, trial_1_number, "y", &distribution_y_1, 2.0)?;
-        let trial = storage.get_trial(study_id, trial_1_number)?;
+        storage.set_trial_param(trial_1_id, "x", &distribution_x, 0.5)?;
+        storage.set_trial_param(trial_1_id, "y", &distribution_y_1, 2.0)?;
+        let trial = storage.get_trial(trial_1_id)?;
         assert_eq!(trial.internal_params["x"], 0.5);
         assert_eq!(trial.internal_params["y"], 2.0);
 
-        storage.set_trial_param(study_id, trial_2_number, "x", &distribution_x, 0.3)?;
-        storage.set_trial_param(study_id, trial_2_number, "z", &distribution_z, 0.1)?;
-        let trial = storage.get_trial(study_id, trial_2_number)?;
+        storage.set_trial_param(trial_2_id, "x", &distribution_x, 0.3)?;
+        storage.set_trial_param(trial_2_id, "z", &distribution_z, 0.1)?;
+        let trial = storage.get_trial(trial_2_id)?;
         assert_eq!(trial.internal_params["x"], 0.3);
         assert_eq!(trial.internal_params["z"], 0.1);
 
@@ -2231,12 +2244,12 @@ mod tests {
             log: false,
         };
 
-        let trial0 = storage.create_new_trial(study_id)?.clone();
-        storage.set_trial_param(study_id, trial0.number, "x", &float_dist, 0.5)?;
+        let trial0_id = storage.create_new_trial(study_id)?.id;
+        storage.set_trial_param(trial0_id, "x", &float_dist, 0.5)?;
 
-        let trial1 = storage.create_new_trial(study_id)?.clone();
+        let trial1_id = storage.create_new_trial(study_id)?.id;
         let err = storage
-            .set_trial_param(study_id, trial1.number, "x", &int_dist, 1.0)
+            .set_trial_param(trial1_id, "x", &int_dist, 1.0)
             .expect_err("Expected IncompatibleDistribution error");
         assert!(matches!(err.kind, ErrorKind::IncompatibleDistribution));
         Ok(())

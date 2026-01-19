@@ -17,16 +17,14 @@ pub trait Storage: Send + Sync {
     fn create_new_trial(&mut self, study_id: u32) -> Result<&PersistedTrial>;
     fn set_trial_param(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         name: &str,
         distribution: &Distribution,
         value: f64,
     ) -> Result<()>;
     fn set_trial_state_values(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         state_values: TrialStateValues,
     ) -> Result<()>;
     // Design Note:
@@ -36,7 +34,12 @@ pub trait Storage: Send + Sync {
     fn get_studies(&mut self) -> Result<&Vec<PersistedStudy>>;
     fn get_study(&mut self, study_id: u32) -> Result<&PersistedStudy>;
     fn get_trials(&mut self, study_id: u32) -> Result<&Vec<PersistedTrial>>;
-    fn get_trial(&mut self, study_id: u32, trial_number: u32) -> Result<&PersistedTrial>;
+    fn get_trial(&mut self, trial_id: u32) -> Result<&PersistedTrial>;
+    fn get_trial_id_from_study_id_trial_number(
+        &mut self,
+        study_id: u32,
+        trial_number: u32,
+    ) -> Result<u32>;
     // Design Note:
     // Unlike the storage APIs in Optuna, the `set_study_attrs` and `set_trial_attrs` methods
     // are designed to receive multiple attributes for bulk insert operations.
@@ -64,17 +67,54 @@ pub trait Storage: Send + Sync {
 pub struct InMemoryStorage {
     studies: Vec<PersistedStudy>,
     trials: HashMap<u32, Vec<PersistedTrial>>,
+    trial_id_to_study_number: HashMap<u32, (u32, u32)>,
     study_caches: HashMap<u32, StudyCache>,
     next_study_id: u32,
+    next_trial_id: u32,
 }
 impl InMemoryStorage {
     pub fn new() -> InMemoryStorage {
         InMemoryStorage {
             studies: vec![],
             trials: HashMap::new(),
+            trial_id_to_study_number: HashMap::new(),
             study_caches: HashMap::new(),
             next_study_id: 0,
+            next_trial_id: 0,
         }
+    }
+
+    pub fn insert_trial_with_id(
+        &mut self,
+        study_id: u32,
+        trial_id: u32,
+        number: u32,
+    ) -> Result<&PersistedTrial> {
+        let trials = get_mut_trials_by_study_id(&mut self.trials, study_id)?;
+        let trials_len = trials.len() as u32;
+        if number > trials_len {
+            return Err(Error::new(ErrorKind::StorageError));
+        }
+        if number < trials_len {
+            let trial = trials
+                .get(number as usize)
+                .ok_or(Error::new(ErrorKind::TrialNotFound))?;
+            if trial.id != trial_id {
+                return Err(Error::new(ErrorKind::StorageError));
+            }
+            return Ok(trial);
+        }
+        if self.trial_id_to_study_number.contains_key(&trial_id) {
+            return Err(Error::new(ErrorKind::StorageError));
+        }
+        let trial = PersistedTrial::new(trial_id, study_id, number);
+        trials.push(trial);
+        self.trial_id_to_study_number
+            .insert(trial_id, (study_id, number));
+        if trial_id >= self.next_trial_id {
+            self.next_trial_id = trial_id + 1;
+        }
+        Ok(&trials[number as usize])
     }
 }
 fn get_trials_by_study_id(
@@ -94,6 +134,15 @@ fn get_mut_trials_by_study_id(
         .get_mut(&study_id)
         .ok_or(Error::new(ErrorKind::StudyNotFound))?;
     Ok(trials)
+}
+fn get_study_id_trial_number_by_trial_id(
+    trial_id_to_study_number: &HashMap<u32, (u32, u32)>,
+    trial_id: u32,
+) -> Result<(u32, u32)> {
+    trial_id_to_study_number
+        .get(&trial_id)
+        .copied()
+        .ok_or(Error::new(ErrorKind::TrialNotFound))
 }
 impl Storage for InMemoryStorage {
     fn create_new_study(
@@ -124,7 +173,11 @@ impl Storage for InMemoryStorage {
         }
 
         self.studies.retain(|s| s.id != study_id);
-        self.trials.remove(&study_id);
+        if let Some(trials) = self.trials.remove(&study_id) {
+            for trial in trials {
+                self.trial_id_to_study_number.remove(&trial.id);
+            }
+        }
         self.study_caches.remove(&study_id);
 
         Ok(())
@@ -132,19 +185,25 @@ impl Storage for InMemoryStorage {
 
     fn create_new_trial(&mut self, study_id: u32) -> Result<&PersistedTrial> {
         let trials = get_mut_trials_by_study_id(&mut self.trials, study_id)?;
+        let trial_id = self.next_trial_id;
+        self.next_trial_id += 1;
         let number = trials.len() as u32;
-        trials.push(PersistedTrial::new(study_id, number));
+        let trial = PersistedTrial::new(trial_id, study_id, number);
+        trials.push(trial);
+        self.trial_id_to_study_number
+            .insert(trial_id, (study_id, number));
         Ok(&trials[number as usize])
     }
 
     fn set_trial_param(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         name: &str,
         distribution: &Distribution,
         value: f64,
     ) -> Result<()> {
+        let (study_id, trial_number) =
+            get_study_id_trial_number_by_trial_id(&self.trial_id_to_study_number, trial_id)?;
         let trial = get_mut_trials_by_study_id(&mut self.trials, study_id)?
             .get_mut(trial_number as usize)
             .ok_or(Error::new(ErrorKind::TrialNotFound))?;
@@ -170,10 +229,11 @@ impl Storage for InMemoryStorage {
 
     fn set_trial_state_values(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         state_values: TrialStateValues,
     ) -> Result<()> {
+        let (study_id, trial_number) =
+            get_study_id_trial_number_by_trial_id(&self.trial_id_to_study_number, trial_id)?;
         let trial = get_mut_trials_by_study_id(&mut self.trials, study_id)?
             .get_mut(trial_number as usize)
             .ok_or(Error::new(ErrorKind::TrialNotFound))?;
@@ -199,11 +259,25 @@ impl Storage for InMemoryStorage {
         get_trials_by_study_id(&self.trials, study_id)
     }
 
-    fn get_trial(&mut self, study_id: u32, trial_number: u32) -> Result<&PersistedTrial> {
+    fn get_trial(&mut self, trial_id: u32) -> Result<&PersistedTrial> {
+        let (study_id, trial_number) =
+            get_study_id_trial_number_by_trial_id(&self.trial_id_to_study_number, trial_id)?;
         let trial = get_trials_by_study_id(&self.trials, study_id)?
             .get(trial_number as usize)
             .ok_or(Error::new(ErrorKind::TrialNotFound))?;
         Ok(trial)
+    }
+
+    fn get_trial_id_from_study_id_trial_number(
+        &mut self,
+        study_id: u32,
+        trial_number: u32,
+    ) -> Result<u32> {
+        self.trial_id_to_study_number
+            .iter()
+            .find(|(_, &(s_id, t_num))| s_id == study_id && t_num == trial_number)
+            .map(|(&trial_id, _)| trial_id)
+            .ok_or(Error::new(ErrorKind::TrialNotFound))
     }
 
     fn set_study_attrs(
@@ -309,15 +383,29 @@ mod tests {
             log: false,
         };
 
-        let trial0_number = storage.create_new_trial(study_id)?.number;
-        storage.set_trial_param(study_id, trial0_number, "x", &float_dist, 0.5)?;
+        let trial0_id = storage.create_new_trial(study_id)?.id;
+        storage.set_trial_param(trial0_id, "x", &float_dist, 0.5)?;
 
-        let trial1_number = storage.create_new_trial(study_id)?.number;
+        let trial1_id = storage.create_new_trial(study_id)?.id;
         let err = storage
-            .set_trial_param(study_id, trial1_number, "x", &int_dist, 1.0)
+            .set_trial_param(trial1_id, "x", &int_dist, 1.0)
             .err()
             .unwrap();
         assert!(matches!(err.kind, ErrorKind::IncompatibleDistribution));
+        Ok(())
+    }
+
+    #[test]
+    fn insert_trial_with_id_updates_next_trial_id() -> Result<()> {
+        let mut storage = InMemoryStorage::new();
+        let study_id = storage
+            .create_new_study("study", vec![Direction::Minimize])?
+            .id;
+
+        let trial = storage.insert_trial_with_id(study_id, 10, 0)?;
+        assert_eq!(trial.id, 10);
+        let trial = storage.create_new_trial(study_id)?;
+        assert_eq!(trial.id, 11);
         Ok(())
     }
 }

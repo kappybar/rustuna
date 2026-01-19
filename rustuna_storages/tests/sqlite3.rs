@@ -90,7 +90,11 @@ study.optimize(objective, n_trials=10)
     let studies = storage.get_studies()?;
     assert_eq!(studies.len(), 1);
 
-    let trial0 = storage.get_trial(studies[0].id, 0)?;
+    let trials = storage.get_trials_diff(studies[0].id, &[], -1)?;
+    let trial0 = trials
+        .into_iter()
+        .find(|trial| trial.number == 0)
+        .expect("trial number 0 should exist");
     assert_eq!(trial0.number, 0);
 
     // Distributions

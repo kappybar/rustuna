@@ -165,9 +165,10 @@ impl PyPersistedTrial {
 #[pymethods]
 impl PyPersistedTrial {
     #[new]
-    #[pyo3(signature = (study_id, number, state, values=None, internal_params=None, distributions=None, user_attrs=None, system_attrs=None))]
+    #[pyo3(signature = (trial_id, study_id, number, state, values=None, internal_params=None, distributions=None, user_attrs=None, system_attrs=None))]
     #[allow(clippy::too_many_arguments)]
     pub fn py_new(
+        trial_id: u32,
         study_id: u32,
         number: u32,
         state: PyTrialState,
@@ -182,7 +183,7 @@ impl PyPersistedTrial {
                 "values must be specified when state is COMPLETE",
             ))?;
         }
-        let mut trial = PersistedTrial::new(study_id, number);
+        let mut trial = PersistedTrial::new(trial_id, study_id, number);
         trial.state_values = match state {
             PyTrialState::RUNNING => TrialStateValues::Running,
             PyTrialState::COMPLETE => TrialStateValues::Complete(values.ok_or(
@@ -217,6 +218,11 @@ impl PyPersistedTrial {
 
         let study_attrs = Attrs::new();
         Ok(PyPersistedTrial(trial, Arc::new(study_attrs)))
+    }
+
+    #[getter]
+    fn id(&self) -> PyResult<u32> {
+        Ok(self.0.id)
     }
 
     #[getter]
@@ -331,8 +337,12 @@ pub fn pyobject_to_persisted_trial(
     trial: &Bound<'_, PyAny>,
     study_id: u32,
 ) -> PyResult<PersistedTrial> {
+    let trial_id = match trial.getattr("id") {
+        Ok(attr) => attr.extract::<u32>()?,
+        Err(_) => trial.getattr("_trial_id")?.extract::<u32>()?,
+    };
     let number = trial.getattr("number")?.extract::<u32>()?;
-    let mut persisted_trial = PersistedTrial::new(study_id, number);
+    let mut persisted_trial = PersistedTrial::new(trial_id, study_id, number);
 
     let state = trial.getattr("state")?.extract::<PyTrialState>()?;
     let values = trial.getattr("values")?.extract::<Option<Vec<f64>>>()?;
