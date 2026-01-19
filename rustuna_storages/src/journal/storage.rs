@@ -533,30 +533,6 @@ impl OptunaCompatibleStorage for JournalStorage {
         self.sync_with_backend()?;
         Ok(())
     }
-
-    fn get_trials_diff_optuna(
-        &mut self,
-        study_id: u32,
-        included_numbers: &[u32],
-        trial_number_greater_than: i32,
-    ) -> Result<Vec<PersistedTrial>> {
-        self.sync_with_backend()?;
-        let trials = self.replay.trials_by_study.get(&study_id).ok_or_else(|| {
-            Error::with_reason(
-                ErrorKind::StudyNotFound,
-                format!("Failed to get trials for study: study_id={study_id}"),
-            )
-        })?;
-        let mut result = Vec::new();
-        for trial in trials {
-            if included_numbers.contains(&trial.number)
-                || (trial.number as i32) > trial_number_greater_than
-            {
-                result.push(trial.clone());
-            }
-        }
-        Ok(result)
-    }
 }
 
 struct JournalReplayState {

@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use chrono::NaiveDateTime;
-use rustuna_core::trial::PersistedTrial;
 use rustuna_core::Result;
 use serde::{Deserialize, Serialize};
 
@@ -17,12 +16,6 @@ pub trait OptunaCompatibleStorage: Send + Sync {
         trial_id: u32,
         intermediate_values: HashMap<u32, f64>,
     ) -> Result<()>;
-    fn get_trials_diff_optuna(
-        &mut self,
-        study_id: u32,
-        included_numbers: &[u32],
-        trial_number_greater_than: i32,
-    ) -> Result<Vec<PersistedTrial>>;
 }
 
 /// Intermediate value entry for JSON serialization.

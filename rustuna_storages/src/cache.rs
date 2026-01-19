@@ -461,16 +461,6 @@ impl OptunaCompatibleStorage for CachedStorage {
             .set_trial_intermediate_values(trial_id, intermediate_values)?;
         Ok(())
     }
-
-    fn get_trials_diff_optuna(
-        &mut self,
-        study_id: u32,
-        included_numbers: &[u32],
-        trial_number_greater_than: i32,
-    ) -> Result<Vec<PersistedTrial>> {
-        self.backend
-            .get_trials_diff_optuna(study_id, included_numbers, trial_number_greater_than)
-    }
 }
 
 #[cfg(test)]
@@ -598,20 +588,6 @@ mod tests {
             _intermediate_values: HashMap<u32, f64>,
         ) -> Result<()> {
             todo!()
-        }
-
-        fn get_trials_diff_optuna(
-            &mut self,
-            study_id: u32,
-            included_numbers: &[u32],
-            trial_number_greater_than: i32,
-        ) -> Result<Vec<PersistedTrial>> {
-            <DummyBackend as CachedStorageBackend>::get_trials_diff(
-                self,
-                study_id,
-                included_numbers,
-                trial_number_greater_than,
-            )
         }
     }
     impl OptunaCachedStorageBackend for DummyBackend {}
