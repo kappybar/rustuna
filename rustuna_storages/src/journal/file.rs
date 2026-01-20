@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
+#[cfg(target_os = "macos")]
+use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -12,6 +14,32 @@ use super::{JournalBackend, JournalLog};
 
 const LOCK_FILE_SUFFIX: &str = ".lock";
 const RENAME_FILE_SUFFIX: &str = ".rename";
+
+fn fsync_file(file: &File) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        // NOTE:
+        // Rust's File::sync_all() uses F_FULLFSYNC on macOS, which can be very slow.
+        // Using fsync(2) is faster but may provide weaker durability guarantees
+        // (e.g., device internal cache might not be flushed on power loss).
+        loop {
+            let rc = unsafe { libc::fsync(file.as_raw_fd()) };
+            if rc == 0 {
+                return Ok(());
+            }
+            let err = std::io::Error::last_os_error();
+            if err.kind() == std::io::ErrorKind::Interrupted {
+                continue; // retry on EINTR
+            }
+            return Err(err);
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        file.sync_all()
+    }
+}
 
 pub trait JournalFileLock: Send + Sync {
     fn acquire(&self) -> Result<()>;
@@ -150,7 +178,7 @@ impl JournalBackend for JournalFileBackend {
         file.flush().map_err(|e| {
             Error::with_reason(ErrorKind::StorageError, format!("Failed to flush: {e}"))
         })?;
-        file.sync_all().map_err(|e| {
+        fsync_file(&file).map_err(|e| {
             Error::with_reason(ErrorKind::StorageError, format!("Failed to fsync: {e}"))
         })?;
         Ok(())
