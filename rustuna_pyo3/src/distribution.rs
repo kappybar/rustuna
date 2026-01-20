@@ -84,7 +84,7 @@ impl PyDistribution {
     }
 
     #[classmethod]
-    pub fn categorical(_cls: &Bound<'_, PyType>, choices: Vec<PyObject>) -> PyResult<Self> {
+    pub fn categorical(_cls: &Bound<'_, PyType>, choices: Vec<Py<PyAny>>) -> PyResult<Self> {
         let cardinality = choices.len();
         let mut labels: Vec<CategoryLabel> = Vec::with_capacity(choices.len());
         let py = _cls.py();
@@ -137,7 +137,7 @@ impl PyDistribution {
                 let dist = PyDict::new(py);
                 dist.set_item("type", "CategoricalDistribution")?;
 
-                let mut elements: Vec<PyObject> = Vec::with_capacity(*cardinality);
+                let mut elements: Vec<Py<PyAny>> = Vec::with_capacity(*cardinality);
                 let labels = match self.category_labels {
                     Some(ref labels) => labels.clone(),
                     None => {
@@ -168,7 +168,7 @@ impl PyDistribution {
     }
 
     fn __str__(&self) -> PyResult<String> {
-        Python::with_gil(|py| Ok(self.to_dict(py)?.to_string()))
+        Python::attach(|py| Ok(self.to_dict(py)?.to_string()))
     }
 }
 

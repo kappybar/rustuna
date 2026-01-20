@@ -27,8 +27,8 @@ use crate::trial::{PyPersistedTrial, PyTrial, PyTrialState};
 #[pyo3(name = "create_study", signature = (*, study_name = None, storage = None, sampler = None, direction = None, directions = None))]
 pub fn py_create_study(
     study_name: Option<String>,
-    storage: Option<PyObject>,
-    sampler: Option<PyObject>,
+    storage: Option<Py<PyAny>>,
+    sampler: Option<Py<PyAny>>,
     direction: Option<String>,
     directions: Option<Vec<String>>,
 ) -> PyResult<PyStudy> {
@@ -37,7 +37,7 @@ pub fn py_create_study(
         None => "default".to_string(), // TODO(c-bata): Generate random name with uuid.
     };
     let storage: PyResult<Arc<RwLock<dyn Storage>>> = match storage {
-        Some(storage_obj) => Python::with_gil(|py| {
+        Some(storage_obj) => Python::attach(|py| {
             let storage_ref = storage_obj.bind(py);
             if storage_ref.is_instance_of::<PyStorage>() {
                 let storage = storage_ref.extract::<PyStorage>().map_err(|e| {
@@ -45,7 +45,7 @@ pub fn py_create_study(
                 })?;
                 Ok(storage.storage)
             } else {
-                let is_distributed = Python::with_gil(|py| {
+                let is_distributed = Python::attach(|py| {
                     storage_obj
                         .getattr(py, "is_distributed")?
                         .extract::<bool>(py)
@@ -63,7 +63,7 @@ pub fn py_create_study(
     let study =
         create_study_with_arc(&study_name, storage?, directions).map_err(err_to_exceptions)?;
     let sampler: PyResult<Arc<Mutex<dyn Sampler>>> = match sampler {
-        Some(sampler_obj) => Python::with_gil(|py| {
+        Some(sampler_obj) => Python::attach(|py| {
             let sampler_ref = sampler_obj.bind(py);
             if sampler_ref.is_instance_of::<PySampler>() {
                 let sampler = sampler_ref.extract::<PySampler>().map_err(|e| {
@@ -95,10 +95,10 @@ pub fn py_create_study(
 #[pyo3(name = "load_study", signature = (study_name, storage, *, sampler = None))]
 pub fn py_load_study(
     study_name: String,
-    storage: PyObject,
-    sampler: Option<PyObject>,
+    storage: Py<PyAny>,
+    sampler: Option<Py<PyAny>>,
 ) -> PyResult<PyStudy> {
-    let storage: PyResult<Arc<RwLock<dyn Storage>>> = Python::with_gil(|py| {
+    let storage: PyResult<Arc<RwLock<dyn Storage>>> = Python::attach(|py| {
         let storage_ref = storage.bind(py);
         if storage_ref.is_instance_of::<PyStorage>() {
             let storage = storage_ref.extract::<PyStorage>().map_err(|e| {
@@ -130,7 +130,7 @@ pub fn py_load_study(
     let is_multi_objective = directions.len() > 1;
     let study = Study::new(study_id, study_name, directions, storage);
     let sampler: PyResult<Arc<Mutex<dyn Sampler>>> = match sampler {
-        Some(sampler_obj) => Python::with_gil(|py| {
+        Some(sampler_obj) => Python::attach(|py| {
             let sampler_ref = sampler_obj.bind(py);
             if sampler_ref.is_instance_of::<PySampler>() {
                 let sampler = sampler_ref.extract::<PySampler>().map_err(|e| {
@@ -185,7 +185,7 @@ impl PyStudy {
     }
 
     #[pyo3(signature = (objective, n_trials))]
-    pub fn optimize(&mut self, objective: PyObject, n_trials: usize) -> PyResult<()> {
+    pub fn optimize(&mut self, objective: Py<PyAny>, n_trials: usize) -> PyResult<()> {
         for _ in 0..n_trials {
             // Ask a trial
             let sampler = self.sampler.clone();
@@ -197,7 +197,7 @@ impl PyStudy {
             let trial: PyTrial = rs_trial.into();
 
             // Call an objective function
-            let result: PyResult<Vec<f64>> = Python::with_gil(|py| {
+            let result: PyResult<Vec<f64>> = Python::attach(|py| {
                 let val = objective.call1(py, (trial,))?;
                 let val_ref = val.bind(py);
                 if val_ref.is_instance_of::<PyFloat>() {
@@ -243,7 +243,7 @@ impl PyStudy {
     pub fn tell(
         &mut self,
         number: u32,
-        values: Option<PyObject>,
+        values: Option<Py<PyAny>>,
         state: Option<PyTrialState>,
     ) -> PyResult<()> {
         let state_values = match (state, values) {
@@ -262,7 +262,7 @@ impl PyStudy {
                 "values must be specified when state is COMPLETE",
             )),
             (Some(PyTrialState::COMPLETE), Some(values)) => {
-                let state_values: PyResult<TrialStateValues> = Python::with_gil(|py| {
+                let state_values: PyResult<TrialStateValues> = Python::attach(|py| {
                     let val = values.bind(py);
                     if val.is_instance_of::<PyFloat>() {
                         let val = val.extract::<f64>()?;
@@ -275,7 +275,7 @@ impl PyStudy {
                 state_values
             }
             (None, Some(values)) => {
-                let state_values: PyResult<TrialStateValues> = Python::with_gil(|py| {
+                let state_values: PyResult<TrialStateValues> = Python::attach(|py| {
                     let val = values.bind(py);
                     if val.is_instance_of::<PyFloat>() {
                         let val = val.extract::<f64>()?;

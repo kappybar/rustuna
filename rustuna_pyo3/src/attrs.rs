@@ -8,7 +8,7 @@ pub fn pyobj_to_system_attrs(obj: &Bound<'_, PyAny>) -> PyResult<Attrs> {
     if !obj.is_instance_of::<PyDict>() {
         return Err(PyRuntimeError::new_err("attrs must be a dict"));
     }
-    let user_attrs = obj.downcast::<PyDict>()?;
+    let user_attrs = obj.cast::<PyDict>()?;
     let mut attrs = Attrs::with_capacity(user_attrs.len()?);
     for (key, value) in user_attrs {
         let key = key.extract::<String>()?;
@@ -22,7 +22,7 @@ pub fn pyobj_to_user_attrs(obj: &Bound<'_, PyAny>) -> PyResult<Attrs> {
     if !obj.is_instance_of::<PyDict>() {
         return Err(PyRuntimeError::new_err("attrs must be a dict"));
     }
-    let system_attrs = obj.downcast::<PyDict>()?;
+    let system_attrs = obj.cast::<PyDict>()?;
     let mut attrs = Attrs::with_capacity(system_attrs.len()?);
     for (key, value) in system_attrs {
         let key = key.extract::<String>()?;
@@ -41,8 +41,8 @@ pub fn pyobj_to_attrs(
             "user_attrs and system_attrs must be a dict",
         ));
     }
-    let user_attrs = user_attrs.downcast::<PyDict>()?;
-    let system_attrs = system_attrs.downcast::<PyDict>()?;
+    let user_attrs = user_attrs.cast::<PyDict>()?;
+    let system_attrs = system_attrs.cast::<PyDict>()?;
     let cap = user_attrs.len()? + system_attrs.len()?;
     let mut attrs = Attrs::with_capacity(cap);
     for (key, value) in user_attrs {
