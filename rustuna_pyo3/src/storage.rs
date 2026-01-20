@@ -154,9 +154,9 @@ impl PyStorage {
         &mut self,
         study_id: u32,
         param_name: String,
-        choices: Vec<PyObject>,
+        choices: Vec<Py<PyAny>>,
     ) -> PyResult<()> {
-        let category_labels = Python::with_gil(|py| -> PyResult<Vec<CategoryLabel>> {
+        let category_labels = Python::attach(|py| -> PyResult<Vec<CategoryLabel>> {
             let mut labels: Vec<CategoryLabel> = Vec::with_capacity(choices.len());
             for choice in choices {
                 let label = pyobject_to_category_label(choice.bind(py))?;
@@ -172,12 +172,12 @@ impl PyStorage {
         study_id: u32,
         param_name: String,
         cardinality: usize,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let mut guard = self
             .storage
             .write()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             match guard
                 .get_category_labels(study_id, &param_name, cardinality)
                 .map_err(err_to_exceptions)?
@@ -294,8 +294,8 @@ impl PyStorage {
         Ok(trial_id)
     }
 
-    fn set_study_system_attrs(&mut self, study_id: u32, attrs: PyObject) -> PyResult<()> {
-        let system_attrs = Python::with_gil(|py| {
+    fn set_study_system_attrs(&mut self, study_id: u32, attrs: Py<PyAny>) -> PyResult<()> {
+        let system_attrs = Python::attach(|py| {
             let attrs = attrs.bind(py);
             pyobj_to_system_attrs(attrs)
         })?;
@@ -309,8 +309,8 @@ impl PyStorage {
         Ok(())
     }
 
-    fn set_study_user_attrs(&mut self, study_id: u32, attrs: PyObject) -> PyResult<()> {
-        let user_attrs = Python::with_gil(|py| {
+    fn set_study_user_attrs(&mut self, study_id: u32, attrs: Py<PyAny>) -> PyResult<()> {
+        let user_attrs = Python::attach(|py| {
             let attrs = attrs.bind(py);
             pyobj_to_user_attrs(attrs)
         })?;
@@ -324,8 +324,8 @@ impl PyStorage {
         Ok(())
     }
 
-    fn set_trial_system_attrs(&mut self, trial_id: u32, attrs: PyObject) -> PyResult<()> {
-        let system_attrs = Python::with_gil(|py| {
+    fn set_trial_system_attrs(&mut self, trial_id: u32, attrs: Py<PyAny>) -> PyResult<()> {
+        let system_attrs = Python::attach(|py| {
             let attrs = attrs.bind(py);
             pyobj_to_system_attrs(attrs)
         })?;
@@ -343,8 +343,8 @@ impl PyStorage {
         Ok(())
     }
 
-    fn set_trial_user_attrs(&mut self, trial_id: u32, attrs: PyObject) -> PyResult<()> {
-        let user_attrs = Python::with_gil(|py| {
+    fn set_trial_user_attrs(&mut self, trial_id: u32, attrs: Py<PyAny>) -> PyResult<()> {
+        let user_attrs = Python::attach(|py| {
             let attrs = attrs.bind(py);
             pyobj_to_user_attrs(attrs)
         })?;

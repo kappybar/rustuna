@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::types::PyDict;
-use pyo3::PyObject;
+use pyo3::Py;
 use pyo3::{prelude::*, types::PyType};
 
 use rustuna_core::sampler::{Context as SamplerContext, RandomSampler, Sampler};
@@ -186,10 +186,10 @@ impl PySamplerContext {
 }
 
 pub struct PyObjectSampler {
-    obj: PyObject,
+    obj: Py<PyAny>,
 }
 impl PyObjectSampler {
-    pub fn new(obj: PyObject) -> Self {
+    pub fn new(obj: Py<PyAny>) -> Self {
         PyObjectSampler { obj }
     }
 }
@@ -208,7 +208,7 @@ impl Sampler for PyObjectSampler {
         let study_attrs = study.attrs.clone();
         drop(guard);
 
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let py_ctx = PySamplerContext::from(ctx.clone());
             let py_storage = PyStorage {
                 storage: storage.clone(),
@@ -233,7 +233,7 @@ impl Sampler for PyObjectSampler {
     }
 
     fn support_joint_sampling(&self) -> bool {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             self.obj
                 .getattr(py, "support_joint_sampling")
                 .and_then(|x| x.extract::<bool>(py))
@@ -254,7 +254,7 @@ impl Sampler for PyObjectSampler {
         let study_attrs = study.attrs.clone();
         drop(guard);
 
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let py_ctx = PySamplerContext::from(ctx.clone());
             let py_storage = PyStorage {
                 storage: storage.clone(),

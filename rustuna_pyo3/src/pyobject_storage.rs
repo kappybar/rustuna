@@ -15,14 +15,14 @@ use crate::study::{pyobject_to_persisted_study, PyDirection};
 use crate::trial::{pyobject_to_persisted_trial, PyTrialState};
 
 pub struct PyObjectStorage {
-    obj: PyObject,
+    obj: Py<PyAny>,
     is_distributed: bool,
     cache: InMemoryStorage,
     cache_study_to_src_study: HashMap<u32, u32>,
     src_study_to_cache_study: HashMap<u32, u32>,
 }
 impl PyObjectStorage {
-    pub fn new(obj: PyObject, is_distributed: bool) -> Self {
+    pub fn new(obj: Py<PyAny>, is_distributed: bool) -> Self {
         PyObjectStorage {
             obj,
             is_distributed,
@@ -62,7 +62,7 @@ impl PyObjectStorage {
         study_name: &str,
         directions: &[Direction],
     ) -> PyResult<u32> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let py_directions: Vec<PyDirection> =
                 directions.iter().map(|d| d.clone().into()).collect();
             let py_study =
@@ -74,14 +74,14 @@ impl PyObjectStorage {
     }
 
     fn obj_delete_study(&mut self, study_id: u32) -> PyResult<()> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             self.obj.call_method1(py, "delete_study", (study_id,))?;
             Ok(())
         })
     }
 
     fn obj_create_new_trial(&mut self, study_id: u32) -> PyResult<PersistedTrial> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let py_trial = self.obj.call_method1(py, "create_new_trial", (study_id,))?;
             let py_trial = py_trial.bind(py);
             pyobject_to_persisted_trial(py_trial, study_id)
@@ -95,7 +95,7 @@ impl PyObjectStorage {
         distribution: &Distribution,
         value: f64,
     ) -> PyResult<()> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             // TODO(c-bata): Consider how to set category_labels.
             let attrs = Attrs::new();
             let py_distribution = PyDistribution::new(distribution.clone(), name, &attrs);
@@ -113,7 +113,7 @@ impl PyObjectStorage {
         trial_id: u32,
         state: &TrialStateValues,
     ) -> PyResult<()> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let values = match state {
                 TrialStateValues::Complete(ref values) => Some(values.clone()),
                 _ => None,
@@ -126,7 +126,7 @@ impl PyObjectStorage {
     }
 
     fn obj_set_study_attrs(&mut self, study_id: u32, attrs: Attrs) -> PyResult<()> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let py_system_attrs = pyo3::types::PyDict::new(py);
             let py_user_attrs = pyo3::types::PyDict::new(py);
             for (k, v) in attrs.into_iter() {
@@ -148,7 +148,7 @@ impl PyObjectStorage {
     }
 
     fn obj_set_trial_attrs(&mut self, trial_id: u32, attrs: Attrs) -> PyResult<()> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let py_system_attrs = pyo3::types::PyDict::new(py);
             let py_user_attrs = pyo3::types::PyDict::new(py);
             for (k, v) in attrs.into_iter() {
@@ -170,7 +170,7 @@ impl PyObjectStorage {
     }
 
     fn obj_get_study(&self, study_id: u32) -> PyResult<PersistedStudy> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let study = self.obj.call_method1(py, "get_study", (study_id,))?;
             let study = study.bind(py);
             pyobject_to_persisted_study(study)
@@ -178,13 +178,13 @@ impl PyObjectStorage {
     }
 
     fn obj_get_studies(&self) -> PyResult<Vec<PersistedStudy>> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let studies = self.obj.call_method1(py, "get_studies", ())?;
             let studies_ref = studies.bind(py);
             if !studies_ref.is_instance_of::<PyList>() {
                 return Err(PyRuntimeError::new_err("studies must be a list"));
             }
-            let studies = studies_ref.downcast::<PyList>()?;
+            let studies = studies_ref.cast::<PyList>()?;
             let mut persisted_studies: Vec<PersistedStudy> = Vec::with_capacity(studies.len());
             for study in studies.iter() {
                 persisted_studies.push(pyobject_to_persisted_study(&study)?);
@@ -194,13 +194,13 @@ impl PyObjectStorage {
     }
 
     fn obj_get_trials(&self, study_id: u32) -> PyResult<Vec<PersistedTrial>> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let trials = self.obj.call_method1(py, "get_trials", (study_id,))?;
             let trials_ref = trials.bind(py);
             if !trials_ref.is_instance_of::<PyList>() {
                 return Err(PyRuntimeError::new_err("studies must be a list"));
             }
-            let trials = trials_ref.downcast::<PyList>()?;
+            let trials = trials_ref.cast::<PyList>()?;
             let mut persisted_trials: Vec<PersistedTrial> = Vec::with_capacity(trials.len());
             for trial in trials.iter() {
                 persisted_trials.push(pyobject_to_persisted_trial(&trial, study_id)?);

@@ -116,10 +116,10 @@ impl PyTrial {
     pub fn suggest_categorical(
         &mut self,
         name: &str,
-        choices: Vec<PyObject>,
-    ) -> PyResult<PyObject> {
+        choices: Vec<Py<PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
         let mut category_labels: Vec<CategoryLabel> = Vec::with_capacity(choices.len());
-        let category_labels = Python::with_gil(|py| {
+        let category_labels = Python::attach(|py| {
             for choice in choices {
                 match pyobject_to_category_label(choice.bind(py)) {
                     Ok(label) => category_labels.push(label),
@@ -140,7 +140,7 @@ impl PyTrial {
                 }
             })?;
 
-        Python::with_gil(|py| category_label_to_pyobject(py, label).map(|b| b.unbind()))
+        Python::attach(|py| category_label_to_pyobject(py, label).map(|b| b.unbind()))
     }
     #[pyo3(signature = (key, value))]
     pub fn set_user_attr(&mut self, key: &str, value: String) -> PyResult<()> {
@@ -481,7 +481,7 @@ impl PyPersistedTrial {
     }
 
     #[getter]
-    fn params(&self) -> PyResult<HashMap<String, PyObject>> {
+    fn params(&self) -> PyResult<HashMap<String, Py<PyAny>>> {
         let (study_id, params) = self.collect_params()?;
         let mut labels_map: HashMap<String, Option<Vec<CategoryLabel>>> = HashMap::new();
         for (name, _, dist) in &params {
@@ -490,12 +490,12 @@ impl PyPersistedTrial {
                 labels_map.insert(name.clone(), labels);
             }
         }
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             params
                 .into_iter()
                 .map(|(name, internal_repr, dist)| {
                     let labels = labels_map.get(&name).and_then(|labels| labels.as_deref());
-                    let maybe_pyobj: PyResult<PyObject> =
+                    let maybe_pyobj: PyResult<Py<PyAny>> =
                         py_to_external_repr(py, &dist, internal_repr, labels).map(|b| b.unbind());
                     maybe_pyobj.map(|v| (name, v))
                 })
@@ -540,7 +540,7 @@ impl PyPersistedTrial {
     }
 
     fn __str__(&self) -> PyResult<String> {
-        let params = Python::with_gil(|py| -> PyResult<String> {
+        let params = Python::attach(|py| -> PyResult<String> {
             let py_params = self.params()?.into_pyobject(py)?;
             Ok(py_params.str()?.to_str()?.to_owned())
         })?;
@@ -603,7 +603,7 @@ pub fn pyobject_to_persisted_trial(
     if !src_internal_params.is_instance_of::<PyDict>() {
         return Err(PyRuntimeError::new_err("internal_params must be a dict"));
     }
-    let src_internal_params = src_internal_params.downcast::<PyDict>()?;
+    let src_internal_params = src_internal_params.cast::<PyDict>()?;
     let mut internal_params: HashMap<String, f64> =
         HashMap::with_capacity(src_internal_params.len());
     for (key, value) in src_internal_params.iter() {
@@ -617,7 +617,7 @@ pub fn pyobject_to_persisted_trial(
     if !src_distributions.is_instance_of::<PyDict>() {
         return Err(PyRuntimeError::new_err("distributions must be a dict"));
     }
-    let src_distributions = src_distributions.downcast::<PyDict>()?;
+    let src_distributions = src_distributions.cast::<PyDict>()?;
     let mut distributions: HashMap<String, Distribution> =
         HashMap::with_capacity(src_distributions.len());
     for (key, value) in src_distributions.iter() {
