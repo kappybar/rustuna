@@ -208,7 +208,7 @@ impl Study {
             .map_err(|_| Error::new(ErrorKind::Unexpected))?;
         let study = guard.get_study(self.id)?;
 
-        let key = AttrKey::User(key);
+        let key = AttrKey::User(key.into());
         match study.attrs.get(&key) {
             Some(value) => Ok(Some(value.clone())),
             _ => Ok(None),
@@ -222,7 +222,7 @@ impl Study {
             .map_err(|_| Error::new(ErrorKind::Unexpected))?;
         let mut a = Attrs::new();
         for (key, value) in attrs {
-            a.insert(AttrKey::User(key), value);
+            a.insert(AttrKey::User(key.into()), value);
         }
         guard.set_study_attrs(self.id, a, false)?;
         Ok(())

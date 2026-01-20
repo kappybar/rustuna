@@ -205,7 +205,7 @@ impl CachedStorageBackend for SQLite3Storage {
             })?;
             trial
                 .attrs
-                .insert(AttrKey::System("datetime_start".to_string()), v);
+                .insert(AttrKey::System("datetime_start".into()), v);
         }
         Ok(trial)
     }
@@ -458,7 +458,7 @@ impl CachedStorageBackend for SQLite3Storage {
                         format!("Database query failed: {e}"),
                     )
                 })?;
-                attrs.insert(AttrKey::User(key), value);
+                attrs.insert(AttrKey::User(key.into()), value);
             }
 
             let mut system_stmt = guard
@@ -486,7 +486,7 @@ impl CachedStorageBackend for SQLite3Storage {
                         format!("Database query failed: {e}"),
                     )
                 })?;
-                attrs.insert(AttrKey::System(key), value);
+                attrs.insert(AttrKey::System(key.into()), value);
             }
 
             let study = PersistedStudy::new_with_attrs(study_id, study_name, directions, attrs);
@@ -621,7 +621,7 @@ impl CachedStorageBackend for SQLite3Storage {
                     format!("Database query failed: {e}"),
                 )
             })?;
-            attrs.insert(AttrKey::User(key), value);
+            attrs.insert(AttrKey::User(key.into()), value);
         }
 
         // System attributes
@@ -650,11 +650,11 @@ impl CachedStorageBackend for SQLite3Storage {
                     format!("Database query failed: {e}"),
                 )
             })?;
-            attrs.insert(AttrKey::System(key), value);
+            attrs.insert(AttrKey::System(key.into()), value);
         }
         if let Some(dt) = datetime_start {
             if let std::collections::hash_map::Entry::Vacant(e) =
-                attrs.entry(AttrKey::System("datetime_start".to_string()))
+                attrs.entry(AttrKey::System("datetime_start".into()))
             {
                 let v = serde_json::to_string(&dt).map_err(|e| {
                     Error::with_reason(
@@ -667,7 +667,7 @@ impl CachedStorageBackend for SQLite3Storage {
         }
         if let Some(dt) = datetime_complete {
             if let std::collections::hash_map::Entry::Vacant(e) =
-                attrs.entry(AttrKey::System("datetime_complete".to_string()))
+                attrs.entry(AttrKey::System("datetime_complete".into()))
             {
                 let v = serde_json::to_string(&dt).map_err(|e| {
                     Error::with_reason(
@@ -719,7 +719,7 @@ impl CachedStorageBackend for SQLite3Storage {
                 )
             })?;
             attrs.insert(
-                AttrKey::System("intermediate_values".to_string()),
+                AttrKey::System("intermediate_values".into()),
                 intermediate_json,
             );
         }
@@ -744,8 +744,8 @@ impl CachedStorageBackend for SQLite3Storage {
         let mut system_attrs = Vec::new();
         for (key, value) in attrs {
             match key {
-                AttrKey::User(key_str) => user_attrs.push((key_str, value)),
-                AttrKey::System(key_str) => system_attrs.push((key_str, value)),
+                AttrKey::User(key_str) => user_attrs.push((key_str.to_string(), value)),
+                AttrKey::System(key_str) => system_attrs.push((key_str.to_string(), value)),
             }
         }
 
@@ -858,8 +858,8 @@ impl CachedStorageBackend for SQLite3Storage {
         let mut system_attrs = Vec::new();
         for (key, value) in attrs {
             match key {
-                AttrKey::User(key_str) => user_attrs.push((key_str, value)),
-                AttrKey::System(key_str) => system_attrs.push((key_str, value)),
+                AttrKey::User(key_str) => user_attrs.push((key_str.to_string(), value)),
+                AttrKey::System(key_str) => system_attrs.push((key_str.to_string(), value)),
             }
         }
 
@@ -1144,7 +1144,7 @@ impl CachedStorageBackend for SQLite3Storage {
                         format!("Database query failed: {e}"),
                     )
                 })?;
-                attrs.insert(AttrKey::User(key), value);
+                attrs.insert(AttrKey::User(key.into()), value);
             }
 
             // Get system attributes
@@ -1173,11 +1173,11 @@ impl CachedStorageBackend for SQLite3Storage {
                         format!("Database query failed: {e}"),
                     )
                 })?;
-                attrs.insert(AttrKey::System(key), value);
+                attrs.insert(AttrKey::System(key.into()), value);
             }
             if let Some(dt) = datetime_start.clone() {
                 if let std::collections::hash_map::Entry::Vacant(e) =
-                    attrs.entry(AttrKey::System("datetime_start".to_string()))
+                    attrs.entry(AttrKey::System("datetime_start".into()))
                 {
                     let v = serde_json::to_string(&dt).map_err(|e| {
                         Error::with_reason(
@@ -1190,7 +1190,7 @@ impl CachedStorageBackend for SQLite3Storage {
             }
             if let Some(dt) = datetime_complete.clone() {
                 if let std::collections::hash_map::Entry::Vacant(e) =
-                    attrs.entry(AttrKey::System("datetime_complete".to_string()))
+                    attrs.entry(AttrKey::System("datetime_complete".into()))
                 {
                     let v = serde_json::to_string(&dt).map_err(|e| {
                         Error::with_reason(
@@ -1243,7 +1243,7 @@ impl CachedStorageBackend for SQLite3Storage {
                         )
                     })?;
                 attrs.insert(
-                    AttrKey::System("intermediate_values".to_string()),
+                    AttrKey::System("intermediate_values".into()),
                     intermediate_json,
                 );
             }
@@ -1846,12 +1846,9 @@ mod tests {
             .id;
 
         let mut attrs = Attrs::new();
+        attrs.insert(AttrKey::User("user_key".into()), "user_value".to_string());
         attrs.insert(
-            AttrKey::User("user_key".to_string()),
-            "user_value".to_string(),
-        );
-        attrs.insert(
-            AttrKey::System("system_key".to_string()),
+            AttrKey::System("system_key".into()),
             "system_value".to_string(),
         );
 
@@ -1860,11 +1857,11 @@ mod tests {
         let study = storage.get_study(study_id)?;
         assert_eq!(study.attrs.len(), 2);
         assert_eq!(
-            study.attrs.get(&AttrKey::User("user_key".to_string())),
+            study.attrs.get(&AttrKey::User("user_key".into())),
             Some(&"user_value".to_string())
         );
         assert_eq!(
-            study.attrs.get(&AttrKey::System("system_key".to_string())),
+            study.attrs.get(&AttrKey::System("system_key".into())),
             Some(&"system_value".to_string())
         );
         Ok(())
@@ -1878,19 +1875,16 @@ mod tests {
             .id;
 
         let mut attrs = Attrs::new();
-        attrs.insert(
-            AttrKey::User("user_key".to_string()),
-            "user_value".to_string(),
-        );
+        attrs.insert(AttrKey::User("user_key".into()), "user_value".to_string());
         storage.set_study_attrs(study_id, attrs, false)?;
 
         let mut overwrite = Attrs::new();
         overwrite.insert(
-            AttrKey::User("user_key".to_string()),
+            AttrKey::User("user_key".into()),
             "user_value_overwrite".to_string(),
         );
         overwrite.insert(
-            AttrKey::User("another_key".to_string()),
+            AttrKey::User("another_key".into()),
             "another_value".to_string(),
         );
         let err = storage
@@ -1900,12 +1894,12 @@ mod tests {
 
         let study = storage.get_study(study_id)?;
         assert_eq!(
-            study.attrs.get(&AttrKey::User("user_key".to_string())),
+            study.attrs.get(&AttrKey::User("user_key".into())),
             Some(&"user_value".to_string())
         );
         assert!(!study
             .attrs
-            .contains_key(&AttrKey::User("another_key".to_string())));
+            .contains_key(&AttrKey::User("another_key".into())));
 
         Ok(())
     }
@@ -1920,11 +1914,11 @@ mod tests {
 
         let mut attrs = Attrs::new();
         attrs.insert(
-            AttrKey::User("trial_user_key".to_string()),
+            AttrKey::User("trial_user_key".into()),
             "trial_user_value".to_string(),
         );
         attrs.insert(
-            AttrKey::System("trial_system_key".to_string()),
+            AttrKey::System("trial_system_key".into()),
             "trial_system_value".to_string(),
         );
 
@@ -1932,15 +1926,11 @@ mod tests {
 
         let trial = storage.get_trial(trial.id)?;
         assert_eq!(
-            trial
-                .attrs
-                .get(&AttrKey::User("trial_user_key".to_string())),
+            trial.attrs.get(&AttrKey::User("trial_user_key".into())),
             Some(&"trial_user_value".to_string())
         );
         assert_eq!(
-            trial
-                .attrs
-                .get(&AttrKey::System("trial_system_key".to_string())),
+            trial.attrs.get(&AttrKey::System("trial_system_key".into())),
             Some(&"trial_system_value".to_string())
         );
         Ok(())
@@ -1956,18 +1946,18 @@ mod tests {
 
         let mut attrs = Attrs::new();
         attrs.insert(
-            AttrKey::User("trial_user_key".to_string()),
+            AttrKey::User("trial_user_key".into()),
             "trial_user_value".to_string(),
         );
         storage.set_trial_attrs(study_id, trial.number, attrs, false)?;
 
         let mut overwrite = Attrs::new();
         overwrite.insert(
-            AttrKey::User("trial_user_key".to_string()),
+            AttrKey::User("trial_user_key".into()),
             "overwritten".to_string(),
         );
         overwrite.insert(
-            AttrKey::User("new_user_key".to_string()),
+            AttrKey::User("new_user_key".into()),
             "new_value".to_string(),
         );
         let err = storage
@@ -1977,14 +1967,12 @@ mod tests {
 
         let trial = storage.get_trial(trial.id)?;
         assert_eq!(
-            trial
-                .attrs
-                .get(&AttrKey::User("trial_user_key".to_string())),
+            trial.attrs.get(&AttrKey::User("trial_user_key".into())),
             Some(&"trial_user_value".to_string())
         );
         assert!(!trial
             .attrs
-            .contains_key(&AttrKey::User("new_user_key".to_string())));
+            .contains_key(&AttrKey::User("new_user_key".into())));
 
         Ok(())
     }
@@ -2166,7 +2154,7 @@ mod tests {
         let trial1_result = storage.get_trial(trial1.id)?;
         let intermediate_json = trial1_result
             .attrs
-            .get(&AttrKey::System("intermediate_values".to_string()))
+            .get(&AttrKey::System("intermediate_values".into()))
             .expect("intermediate_values should exist");
         let intermediate_entries: Vec<IntermediateValueEntry> =
             serde_json::from_str(intermediate_json).expect("Failed to parse intermediate values");
@@ -2182,13 +2170,13 @@ mod tests {
         let trial2_result = storage.get_trial(trial2.id)?;
         assert!(!trial2_result
             .attrs
-            .contains_key(&AttrKey::System("intermediate_values".to_string())));
+            .contains_key(&AttrKey::System("intermediate_values".into())));
 
         // Verify trial 3
         let trial3_result = storage.get_trial(trial3.id)?;
         let intermediate_json = trial3_result
             .attrs
-            .get(&AttrKey::System("intermediate_values".to_string()))
+            .get(&AttrKey::System("intermediate_values".into()))
             .expect("intermediate_values should exist");
         let intermediate_entries: Vec<IntermediateValueEntry> =
             serde_json::from_str(intermediate_json).expect("Failed to parse intermediate values");
@@ -2210,7 +2198,7 @@ mod tests {
         let trial4_result = storage.get_trial(trial4.id)?;
         let intermediate_json = trial4_result
             .attrs
-            .get(&AttrKey::System("intermediate_values".to_string()))
+            .get(&AttrKey::System("intermediate_values".into()))
             .expect("intermediate_values should exist");
         let intermediate_entries: Vec<IntermediateValueEntry> =
             serde_json::from_str(intermediate_json).expect("Failed to parse intermediate values");
@@ -2227,7 +2215,7 @@ mod tests {
         let trial1_updated = storage.get_trial(trial1.id)?;
         let intermediate_json = trial1_updated
             .attrs
-            .get(&AttrKey::System("intermediate_values".to_string()))
+            .get(&AttrKey::System("intermediate_values".into()))
             .expect("intermediate_values should exist");
         let intermediate_entries: Vec<IntermediateValueEntry> =
             serde_json::from_str(intermediate_json).expect("Failed to parse intermediate values");

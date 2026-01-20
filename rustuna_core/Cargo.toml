@@ -13,3 +13,6 @@ readme = "README.md"
 rand = { workspace = true }
 rand_distr = "0.4.3"
 statrs = "0.18.0"
+compact_str = "0.9"
+lasso = { version = "0.7", features = ["multi-threaded"] }
+once_cell = "1.21"

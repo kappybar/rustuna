@@ -468,10 +468,10 @@ impl From<PersistedStudy> for PyPersistedStudy {
         for (key, val) in item.attrs {
             match key {
                 AttrKey::User(k) => {
-                    user_attrs.insert(k, val);
+                    user_attrs.insert(k.to_string(), val);
                 }
                 AttrKey::System(k) => {
-                    system_attrs.insert(k, val);
+                    system_attrs.insert(k.to_string(), val);
                 }
             }
         }

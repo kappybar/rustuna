@@ -357,10 +357,10 @@ impl PyPersistedTrial {
         let n_system_attrs = user_attrs.len();
         let mut trial_attrs = Attrs::with_capacity(n_user_attrs + n_system_attrs);
         for (key, value) in user_attrs {
-            trial_attrs.insert(AttrKey::User(key), value);
+            trial_attrs.insert(AttrKey::User(key.into()), value);
         }
         for (key, value) in system_attrs {
-            trial_attrs.insert(AttrKey::System(key), value);
+            trial_attrs.insert(AttrKey::System(key.into()), value);
         }
         trial.attrs = trial_attrs;
 
@@ -475,7 +475,7 @@ impl PyPersistedTrial {
                 .attrs
                 .iter()
                 .filter_map(|(key, value)| match key {
-                    AttrKey::User(k) => Some((k.clone(), value.clone())),
+                    AttrKey::User(k) => Some((k.to_string(), value.clone())),
                     _ => None,
                 })
                 .collect();
@@ -490,7 +490,7 @@ impl PyPersistedTrial {
                 .attrs
                 .iter()
                 .filter_map(|(key, value)| match key {
-                    AttrKey::System(k) => Some((k.clone(), value.clone())),
+                    AttrKey::System(k) => Some((k.to_string(), value.clone())),
                     _ => None,
                 })
                 .collect();

@@ -257,7 +257,7 @@ impl Storage for JournalStorage {
             && (!matches!(existing_trial.state_values, TrialStateValues::Running)
                 || !existing_trial
                     .attrs
-                    .contains_key(&AttrKey::System("datetime_start".to_string())))
+                    .contains_key(&AttrKey::System("datetime_start".into())))
         {
             fields.insert(
                 "datetime_start".to_string(),
@@ -405,13 +405,13 @@ impl Storage for JournalStorage {
             match key {
                 AttrKey::User(k) => {
                     let mut map = Map::new();
-                    map.insert(k, Value::String(value));
+                    map.insert(k.to_string(), Value::String(value));
                     fields.insert("user_attr".to_string(), Value::Object(map));
                     self.write_log(JournalOperation::SetStudyUserAttr, fields)?;
                 }
                 AttrKey::System(k) => {
                     let mut map = Map::new();
-                    map.insert(k, Value::String(value));
+                    map.insert(k.to_string(), Value::String(value));
                     fields.insert("system_attr".to_string(), Value::Object(map));
                     self.write_log(JournalOperation::SetStudySystemAttr, fields)?;
                 }
@@ -454,13 +454,13 @@ impl Storage for JournalStorage {
             match key {
                 AttrKey::User(k) => {
                     let mut map = Map::new();
-                    map.insert(k, Value::String(value));
+                    map.insert(k.to_string(), Value::String(value));
                     fields.insert("user_attr".to_string(), Value::Object(map));
                     self.write_log(JournalOperation::SetTrialUserAttr, fields)?;
                 }
                 AttrKey::System(k) => {
                     let mut map = Map::new();
-                    map.insert(k, Value::String(value));
+                    map.insert(k.to_string(), Value::String(value));
                     fields.insert("system_attr".to_string(), Value::Object(map));
                     self.write_log(JournalOperation::SetTrialSystemAttr, fields)?;
                 }
@@ -772,8 +772,8 @@ impl JournalReplayState {
             })?;
         if let Some(study) = self.studies.get_mut(&study_id) {
             for (key, value) in attrs {
-                let v = json_value_to_attr(value)?;
-                study.attrs.insert(AttrKey::User(key.clone()), v);
+                let value = json_value_to_attr(value)?;
+                study.attrs.insert(AttrKey::User(key.clone().into()), value);
             }
         }
         Ok(())
@@ -809,7 +809,7 @@ impl JournalReplayState {
                 } else {
                     json_value_to_attr(value)?
                 };
-                study.attrs.insert(AttrKey::System(key.clone()), v);
+                study.attrs.insert(AttrKey::System(key.clone().into()), v);
             }
         }
         Ok(())
@@ -892,7 +892,7 @@ impl JournalReplayState {
 
         if let Some(dt) = log.fields.get("datetime_start").and_then(|v| v.as_str()) {
             attrs.insert(
-                AttrKey::System("datetime_start".to_string()),
+                AttrKey::System("datetime_start".into()),
                 serde_json::to_string(&dt).map_err(|_| {
                     Error::with_reason(
                         ErrorKind::StorageError,
@@ -903,7 +903,7 @@ impl JournalReplayState {
         }
         if let Some(dt) = log.fields.get("datetime_complete").and_then(|v| v.as_str()) {
             attrs.insert(
-                AttrKey::System("datetime_complete".to_string()),
+                AttrKey::System("datetime_complete".into()),
                 serde_json::to_string(&dt).map_err(|_| {
                     Error::with_reason(
                         ErrorKind::StorageError,
@@ -915,13 +915,13 @@ impl JournalReplayState {
         if let Some(user_attrs) = log.fields.get("user_attrs").and_then(|v| v.as_object()) {
             for (k, v) in user_attrs {
                 let value = json_value_to_attr(v)?;
-                attrs.insert(AttrKey::User(k.clone()), value);
+                attrs.insert(AttrKey::User(k.clone().into()), value);
             }
         }
         if let Some(system_attrs) = log.fields.get("system_attrs").and_then(|v| v.as_object()) {
             for (k, v) in system_attrs {
                 let value = json_value_to_attr(v)?;
-                attrs.insert(AttrKey::System(k.clone()), value);
+                attrs.insert(AttrKey::System(k.clone().into()), value);
             }
         }
         if let Some(values) = log
@@ -936,7 +936,7 @@ impl JournalReplayState {
                     "Failed to serialize intermediate values",
                 )
             })?;
-            attrs.insert(AttrKey::System("intermediate_values".to_string()), json);
+            attrs.insert(AttrKey::System("intermediate_values".into()), json);
         }
 
         trial.attrs = attrs;
@@ -1094,7 +1094,7 @@ impl JournalReplayState {
         if state_code == 0 {
             if let Some(dt) = log.fields.get("datetime_start").and_then(|v| v.as_str()) {
                 trial.attrs.insert(
-                    AttrKey::System("datetime_start".to_string()),
+                    AttrKey::System("datetime_start".into()),
                     serde_json::to_string(&dt).map_err(|_| {
                         Error::with_reason(
                             ErrorKind::StorageError,
@@ -1110,7 +1110,7 @@ impl JournalReplayState {
         } else if matches!(state_code, 1 | 2 | 4) {
             if let Some(dt) = log.fields.get("datetime_complete").and_then(|v| v.as_str()) {
                 trial.attrs.insert(
-                    AttrKey::System("datetime_complete".to_string()),
+                    AttrKey::System("datetime_complete".into()),
                     serde_json::to_string(&dt).map_err(|_| {
                         Error::with_reason(
                             ErrorKind::StorageError,
@@ -1169,7 +1169,7 @@ impl JournalReplayState {
         })?;
         trial
             .attrs
-            .insert(AttrKey::System("intermediate_values".to_string()), json);
+            .insert(AttrKey::System("intermediate_values".into()), json);
         Ok(())
     }
 
@@ -1214,7 +1214,7 @@ impl JournalReplayState {
         })?;
         for (key, value) in attrs {
             let v = json_value_to_attr(value)?;
-            trial.attrs.insert(AttrKey::User(key.clone()), v);
+            trial.attrs.insert(AttrKey::User(key.clone().into()), v);
         }
         Ok(())
     }
@@ -1270,7 +1270,7 @@ impl JournalReplayState {
                 return Ok(());
             }
             let v = json_value_to_attr(value)?;
-            trial.attrs.insert(AttrKey::System(key.clone()), v);
+            trial.attrs.insert(AttrKey::System(key.clone().into()), v);
         }
         Ok(())
     }
@@ -1701,7 +1701,7 @@ fn intermediate_entries_from_map(map: &Map<String, Value>) -> Result<Vec<Interme
 fn intermediate_entries_from_attrs(trial: &PersistedTrial) -> Result<Vec<IntermediateValueEntry>> {
     let raw = trial
         .attrs
-        .get(&AttrKey::System("intermediate_values".to_string()))
+        .get(&AttrKey::System("intermediate_values".into()))
         .cloned();
     match raw {
         None => Ok(Vec::new()),
@@ -1818,7 +1818,7 @@ fn extract_category_labels(attrs: &Attrs, param_name: &str) -> Option<Vec<Catego
     let mut labels = Vec::new();
     let mut index = 0;
     loop {
-        let key = AttrKey::System(format!("category_labels:{param_name}:{index}"));
+        let key = AttrKey::System(format!("category_labels:{param_name}:{index}").into());
         match attrs.get(&key) {
             Some(raw) => {
                 let label = CategoryLabel::deserialize(raw)?;
@@ -2128,26 +2128,26 @@ mod tests {
         storage.create_new_trial(study_id)?;
 
         let mut s_attrs = Attrs::new();
-        s_attrs.insert(AttrKey::User("foo".to_string()), "bar".to_string());
+        s_attrs.insert(AttrKey::User("foo".into()), "bar".to_string());
         storage.set_study_attrs(study_id, s_attrs, false)?;
         let study = storage.get_study(study_id)?;
         assert_eq!(
             study
                 .attrs
-                .get(&AttrKey::User("foo".to_string()))
+                .get(&AttrKey::User("foo".into()))
                 .expect("User attr 'foo' should exist"),
             "\"bar\""
         );
 
         let mut t_attrs = Attrs::new();
-        t_attrs.insert(AttrKey::System("key".to_string()), "val".to_string());
+        t_attrs.insert(AttrKey::System("key".into()), "val".to_string());
         storage.set_trial_attrs(study_id, 0, t_attrs, false)?;
         let trial_id = storage.get_trials(study_id)?[0].id;
         let trial = storage.get_trial(trial_id)?;
         assert_eq!(
             trial
                 .attrs
-                .get(&AttrKey::System("key".to_string()))
+                .get(&AttrKey::System("key".into()))
                 .expect("System attr 'key' should exist"),
             "\"val\""
         );
