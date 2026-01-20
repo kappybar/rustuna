@@ -1,9 +1,5 @@
-use std::collections::HashMap;
-use std::sync::Mutex;
-
 use crate::cache::{CachedStorageBackend, OptunaCachedStorageBackend};
 use crate::optuna::{IntermediateValueEntry, OptunaCompatibleStorage};
-use chrono::NaiveDateTime;
 use rusqlite::{params, Connection, Error as RusqliteError, OptionalExtension};
 use rustuna_core::attr::{AttrKey, Attrs, CategoryLabel};
 use rustuna_core::distribution::Distribution;
@@ -11,6 +7,8 @@ use rustuna_core::study::{Direction, PersistedStudy};
 use rustuna_core::trial::{PersistedTrial, TrialStateValues};
 use rustuna_core::{Error, ErrorKind, Result};
 use serde_json::{json, Number, Value};
+use std::collections::HashMap;
+use std::sync::Mutex;
 
 pub struct SQLite3Storage {
     conn: Mutex<Connection>,
@@ -145,7 +143,7 @@ impl CachedStorageBackend for SQLite3Storage {
         guard
             .execute(
                 "INSERT INTO trials (number, study_id, state, datetime_start, datetime_complete) \
-             VALUES (NULL, ?, ?, datetime('now','localtime'), NULL)",
+             VALUES (NULL, ?, ?, strftime('%Y-%m-%d %H:%M:%f','now','localtime'), NULL)",
                 params![study_id, "RUNNING"],
             )
             .map_err(|e| {
@@ -196,17 +194,7 @@ impl CachedStorageBackend for SQLite3Storage {
             })?;
 
         let mut trial = PersistedTrial::new(trial_id, study_id, number);
-        if let Some(dt) = datetime_start {
-            let v = serde_json::to_string(&dt).map_err(|e| {
-                Error::with_reason(
-                    ErrorKind::StorageError,
-                    format!("JSON serialization failed: {e}"),
-                )
-            })?;
-            trial
-                .attrs
-                .insert(AttrKey::System("datetime_start".into()), v);
-        }
+        trial.datetime_start = datetime_start;
         Ok(trial)
     }
 
@@ -289,7 +277,7 @@ impl CachedStorageBackend for SQLite3Storage {
             TrialStateValues::Complete(values) => {
                 guard
                     .execute(
-                        "UPDATE trials SET state = ?, datetime_complete = CURRENT_TIMESTAMP WHERE trial_id = ?",
+                        "UPDATE trials SET state = ?, datetime_complete = strftime('%Y-%m-%d %H:%M:%f','now','localtime') WHERE trial_id = ?",
                         params!["COMPLETE", trial_id],
                     )
                     .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {e}")))?;
@@ -318,7 +306,7 @@ impl CachedStorageBackend for SQLite3Storage {
             TrialStateValues::Pruned => {
                 guard
                     .execute(
-                        "UPDATE trials SET state = ?, datetime_complete = CURRENT_TIMESTAMP WHERE trial_id = ?",
+                        "UPDATE trials SET state = ?, datetime_complete = strftime('%Y-%m-%d %H:%M:%f','now','localtime') WHERE trial_id = ?",
                         params!["PRUNED", trial_id],
                     )
                     .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {e}")))?;
@@ -326,7 +314,7 @@ impl CachedStorageBackend for SQLite3Storage {
             TrialStateValues::Fail => {
                 guard
                     .execute(
-                        "UPDATE trials SET state = ?, datetime_complete = CURRENT_TIMESTAMP WHERE trial_id = ?",
+                        "UPDATE trials SET state = ?, datetime_complete = strftime('%Y-%m-%d %H:%M:%f','now','localtime') WHERE trial_id = ?",
                         params!["FAIL", trial_id],
                     )
                     .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {e}")))?;
@@ -652,32 +640,6 @@ impl CachedStorageBackend for SQLite3Storage {
             })?;
             attrs.insert(AttrKey::System(key.into()), value);
         }
-        if let Some(dt) = datetime_start {
-            if let std::collections::hash_map::Entry::Vacant(e) =
-                attrs.entry(AttrKey::System("datetime_start".into()))
-            {
-                let v = serde_json::to_string(&dt).map_err(|e| {
-                    Error::with_reason(
-                        ErrorKind::StorageError,
-                        format!("JSON serialization failed: {e}"),
-                    )
-                })?;
-                e.insert(v);
-            }
-        }
-        if let Some(dt) = datetime_complete {
-            if let std::collections::hash_map::Entry::Vacant(e) =
-                attrs.entry(AttrKey::System("datetime_complete".into()))
-            {
-                let v = serde_json::to_string(&dt).map_err(|e| {
-                    Error::with_reason(
-                        ErrorKind::StorageError,
-                        format!("JSON serialization failed: {e}"),
-                    )
-                })?;
-                e.insert(v);
-            }
-        }
 
         // Intermediate values
         let mut stmt = guard
@@ -729,6 +691,8 @@ impl CachedStorageBackend for SQLite3Storage {
         trial.internal_params = internal_params;
         trial.distributions = distributions;
         trial.attrs = attrs;
+        trial.datetime_start = datetime_start;
+        trial.datetime_complete = datetime_complete;
         Ok(trial)
     }
 
@@ -1175,32 +1139,6 @@ impl CachedStorageBackend for SQLite3Storage {
                 })?;
                 attrs.insert(AttrKey::System(key.into()), value);
             }
-            if let Some(dt) = datetime_start.clone() {
-                if let std::collections::hash_map::Entry::Vacant(e) =
-                    attrs.entry(AttrKey::System("datetime_start".into()))
-                {
-                    let v = serde_json::to_string(&dt).map_err(|e| {
-                        Error::with_reason(
-                            ErrorKind::StorageError,
-                            format!("JSON serialization failed: {e}"),
-                        )
-                    })?;
-                    e.insert(v);
-                }
-            }
-            if let Some(dt) = datetime_complete.clone() {
-                if let std::collections::hash_map::Entry::Vacant(e) =
-                    attrs.entry(AttrKey::System("datetime_complete".into()))
-                {
-                    let v = serde_json::to_string(&dt).map_err(|e| {
-                        Error::with_reason(
-                            ErrorKind::StorageError,
-                            format!("JSON serialization failed: {e}"),
-                        )
-                    })?;
-                    e.insert(v);
-                }
-            }
 
             // Intermediate values
             let mut intermediate_stmt = guard
@@ -1253,6 +1191,8 @@ impl CachedStorageBackend for SQLite3Storage {
             trial.internal_params = internal_params;
             trial.distributions = distributions;
             trial.attrs = attrs;
+            trial.datetime_start = datetime_start;
+            trial.datetime_complete = datetime_complete;
             trials.push(trial);
         }
 
@@ -1439,51 +1379,9 @@ impl OptunaCompatibleStorage for SQLite3Storage {
 
         Ok(())
     }
-
-    fn set_trial_datetime(
-        &mut self,
-        trial_id: u32,
-        datetime_start: Option<NaiveDateTime>,
-        datetime_complete: Option<NaiveDateTime>,
-    ) -> Result<()> {
-        let guard = self
-            .conn
-            .lock()
-            .map_err(|_| Error::new(ErrorKind::StorageError))?;
-        let exists: Option<u32> = guard
-            .query_row(
-                "SELECT trial_id FROM trials WHERE trial_id = ?",
-                params![trial_id],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|e| {
-                Error::with_reason(
-                    ErrorKind::StorageError,
-                    format!("Database query failed: {e}"),
-                )
-            })?;
-        if exists.is_none() {
-            return Err(Error::new(ErrorKind::TrialNotFound));
-        }
-
-        let start_str = datetime_start.map(format_naive_datetime);
-        let complete_str = datetime_complete.map(format_naive_datetime);
-        guard
-            .execute(
-                "UPDATE trials SET datetime_start = COALESCE(?, datetime_start), datetime_complete = COALESCE(?, datetime_complete) WHERE trial_id = ?",
-                params![start_str, complete_str, trial_id],
-            )
-            .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {e}")))?;
-        Ok(())
-    }
 }
 
 impl OptunaCachedStorageBackend for SQLite3Storage {}
-
-fn format_naive_datetime(dt: NaiveDateTime) -> String {
-    dt.format("%Y-%m-%d %H:%M:%S%.f").to_string()
-}
 
 fn distribution_to_json(distribution: &Distribution, labels: Option<&[CategoryLabel]>) -> String {
     let (name, attributes) = match distribution {

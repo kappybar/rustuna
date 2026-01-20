@@ -91,6 +91,8 @@ class PersistedTrial:
         distributions: dict[str, Distribution] | None = None,
         user_attrs: dict[str, str] | None = None,
         system_attrs: dict[str, str] | None = None,
+        datetime_start: datetime.datetime | None = None,
+        datetime_complete: datetime.datetime | None = None,
         id: int | None = None,
     ) -> None: ...
     @property
@@ -115,6 +117,10 @@ class PersistedTrial:
     def internal_params(self) -> dict[str, float]: ...
     @property
     def params(self) -> dict[str, CategoricalChoiceType]: ...
+    @property
+    def datetime_start(self) -> datetime.datetime | None: ...
+    @property
+    def datetime_complete(self) -> datetime.datetime | None: ...
 
 # Study
 ObjectiveFuncType = Callable[[Trial], float | tuple[float, ...]]
@@ -234,12 +240,6 @@ class StorageProtocol(Protocol):
     ) -> list[CategoricalChoiceType]: ...
 
 class OptunaStorageProtocol(StorageProtocol, Protocol):
-    def set_trial_datetime(
-        self,
-        trial_id: int,
-        datetime_start: datetime.datetime | None,
-        datetime_complete: datetime.datetime | None,
-    ) -> None: ...
     def set_trial_intermediate_value(
         self, trial_id: int, step: int, intermediate_value: float
     ) -> None: ...

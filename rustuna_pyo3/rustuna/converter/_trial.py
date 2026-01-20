@@ -26,10 +26,6 @@ if typing.TYPE_CHECKING:
     from optuna.distributions import BaseDistribution
     from optuna.trial import TrialState
 
-# This is a dummy datetime since Rustuna does not store the datetime_start and datetime_complete.
-dummy_datetime = datetime.datetime(
-    2023, 11, 26, 16, 56, 38
-)  # Date of the initial commit of Rustuna
 
 to_rustuna_state_map = {
     optuna.trial.TrialState.RUNNING: rustuna.TrialState.RUNNING,
@@ -66,14 +62,6 @@ def to_persisted_trial(
     study_id: int,
 ) -> rustuna.PersistedTrial:
     optuna_system_attrs = trial.system_attrs.copy()
-    if trial.datetime_start is not None:
-        optuna_system_attrs["datetime_start"] = trial.datetime_start.isoformat(
-            timespec="microseconds"
-        )
-    if trial.datetime_complete is not None:
-        optuna_system_attrs["datetime_complete"] = trial.datetime_complete.isoformat(
-            timespec="microseconds"
-        )
     if trial.intermediate_values:
         optuna_system_attrs["intermediate_values"] = trial.intermediate_values
 
@@ -96,6 +84,8 @@ def to_persisted_trial(
         distributions=distributions,
         user_attrs={k: json.dumps(v) for k, v in trial.user_attrs.items()},
         system_attrs={k: json.dumps(v) for k, v in optuna_system_attrs.items()},
+        datetime_start=trial.datetime_start,
+        datetime_complete=trial.datetime_complete,
     )
 
 
@@ -201,14 +191,8 @@ class FrozenTrialLike(FrozenTrial):
     @property
     def datetime_start(self) -> datetime.datetime | None:
         if self.__datetime_start is not None:
-            return self._datetime_start
-        system_attrs = self._persisted_trial.system_attrs
-        if "datetime_start" in system_attrs:
-            datetime_start_raw = typing.cast(
-                str, json.loads(system_attrs["datetime_start"])
-            )
-            return datetime.datetime.fromisoformat(datetime_start_raw)
-        return None
+            return self.__datetime_start
+        return self._persisted_trial.datetime_start
 
     @datetime_start.setter
     def datetime_start(self, value: datetime.datetime | None) -> None:
@@ -218,13 +202,7 @@ class FrozenTrialLike(FrozenTrial):
     def datetime_complete(self) -> datetime.datetime | None:
         if self.__datetime_complete is not None:
             return self.__datetime_complete
-        system_attrs = self._persisted_trial.system_attrs
-        if "datetime_complete" in system_attrs:
-            datetime_complete_raw = typing.cast(
-                str, json.loads(system_attrs["datetime_complete"])
-            )
-            return datetime.datetime.fromisoformat(datetime_complete_raw)
-        return None
+        return self._persisted_trial.datetime_complete
 
     @datetime_complete.setter
     def datetime_complete(self, value: datetime.datetime | None) -> None:

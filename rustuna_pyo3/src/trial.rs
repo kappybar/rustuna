@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+use chrono::NaiveDateTime;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -162,6 +163,8 @@ enum PyPersistedTrialSource {
         values: Option<Vec<f64>>,
         internal_params: HashMap<String, f64>,
         distributions: HashMap<String, Distribution>,
+        datetime_start: Option<String>,
+        datetime_complete: Option<String>,
     },
 }
 
@@ -209,6 +212,8 @@ impl PyPersistedTrial {
                 values,
                 internal_params: trial.internal_params.clone(),
                 distributions: trial.distributions.clone(),
+                datetime_start: trial.datetime_start.clone(),
+                datetime_complete: trial.datetime_complete.clone(),
             },
             study_attrs: None,
         }
@@ -313,7 +318,7 @@ impl PyPersistedTrial {
 #[pymethods]
 impl PyPersistedTrial {
     #[new]
-    #[pyo3(signature = (trial_id, study_id, number, state, values=None, internal_params=None, distributions=None, user_attrs=None, system_attrs=None))]
+    #[pyo3(signature = (trial_id, study_id, number, state, values=None, internal_params=None, distributions=None, user_attrs=None, system_attrs=None, datetime_start=None, datetime_complete=None))]
     #[allow(clippy::too_many_arguments)]
     pub fn py_new(
         trial_id: u32,
@@ -325,6 +330,8 @@ impl PyPersistedTrial {
         distributions: Option<HashMap<String, PyDistribution>>,
         user_attrs: Option<HashMap<String, String>>,
         system_attrs: Option<HashMap<String, String>>,
+        datetime_start: Option<NaiveDateTime>,
+        datetime_complete: Option<NaiveDateTime>,
     ) -> PyResult<Self> {
         if matches!(state, PyTrialState::COMPLETE) && values.is_none() {
             Err(PyValueError::new_err(
@@ -363,6 +370,8 @@ impl PyPersistedTrial {
             trial_attrs.insert(AttrKey::System(key.into()), value);
         }
         trial.attrs = trial_attrs;
+        trial.datetime_start = datetime_start.map(|dt| dt.to_string());
+        trial.datetime_complete = datetime_complete.map(|dt| dt.to_string());
 
         let study_attrs = Attrs::new();
         Ok(PyPersistedTrial::new(trial, study_attrs))
@@ -446,6 +455,32 @@ impl PyPersistedTrial {
     }
 
     #[getter]
+    fn datetime_start(&self) -> PyResult<Option<NaiveDateTime>> {
+        let value = match &self.source {
+            PyPersistedTrialSource::Owned(trial) => trial.datetime_start.as_ref(),
+            PyPersistedTrialSource::StorageBacked { datetime_start, .. } => datetime_start.as_ref(),
+        };
+        match value {
+            Some(raw) => Ok(Some(parse_naive_datetime(raw)?)),
+            None => Ok(None),
+        }
+    }
+
+    #[getter]
+    fn datetime_complete(&self) -> PyResult<Option<NaiveDateTime>> {
+        let value = match &self.source {
+            PyPersistedTrialSource::Owned(trial) => trial.datetime_complete.as_ref(),
+            PyPersistedTrialSource::StorageBacked {
+                datetime_complete, ..
+            } => datetime_complete.as_ref(),
+        };
+        match value {
+            Some(raw) => Ok(Some(parse_naive_datetime(raw)?)),
+            None => Ok(None),
+        }
+    }
+
+    #[getter]
     fn params(&self) -> PyResult<HashMap<String, PyObject>> {
         let (study_id, params) = self.collect_params()?;
         let mut labels_map: HashMap<String, Option<Vec<CategoryLabel>>> = HashMap::new();
@@ -522,6 +557,12 @@ impl PyPersistedTrial {
     }
 }
 
+fn parse_naive_datetime(value: &str) -> PyResult<NaiveDateTime> {
+    NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S%.f")
+        .or_else(|_| NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S"))
+        .map_err(|e| PyValueError::new_err(format!("Failed to parse datetime: {e}")))
+}
+
 pub fn pyobject_to_persisted_trial(
     trial: &Bound<'_, PyAny>,
     study_id: u32,
@@ -547,6 +588,16 @@ pub fn pyobject_to_persisted_trial(
         PyTrialState::WAITING => TrialStateValues::Waiting,
         PyTrialState::FAIL => TrialStateValues::Fail,
     };
+    let datetime_start = match trial.getattr("datetime_start") {
+        Ok(value) => value.extract::<Option<NaiveDateTime>>()?,
+        Err(_) => None,
+    };
+    let datetime_complete = match trial.getattr("datetime_complete") {
+        Ok(value) => value.extract::<Option<NaiveDateTime>>()?,
+        Err(_) => None,
+    };
+    persisted_trial.datetime_start = datetime_start.map(|dt| dt.to_string());
+    persisted_trial.datetime_complete = datetime_complete.map(|dt| dt.to_string());
 
     let src_internal_params = trial.getattr("internal_params")?;
     if !src_internal_params.is_instance_of::<PyDict>() {

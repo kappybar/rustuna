@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import datetime
 import json
 import threading
 import typing
@@ -207,7 +206,6 @@ class ToOptunaStorage(BaseStorage):
         trial_id = trial.id
 
         if template_trial is None:
-            self._storage.set_trial_datetime(trial_id, datetime.datetime.now(), None)
             return trial_id
         if template_trial.user_attrs:
             user_attrs = {
@@ -235,9 +233,6 @@ class ToOptunaStorage(BaseStorage):
         rustuna_state = to_rustuna_state(template_trial.state)
         self._storage.set_trial_state_values(
             trial_id, rustuna_state, template_trial.values
-        )
-        self._storage.set_trial_datetime(
-            trial_id, template_trial.datetime_start, template_trial.datetime_complete
         )
         return trial_id
 

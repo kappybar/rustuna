@@ -118,6 +118,8 @@ mod tests {
                 .cloned()
                 .collect(),
                 attrs: Attrs::new(),
+                datetime_start: None,
+                datetime_complete: None,
             },
             PersistedTrial {
                 id: 1,
@@ -127,6 +129,8 @@ mod tests {
                 internal_params: HashMap::new(),
                 distributions: HashMap::new(),
                 attrs: Attrs::new(),
+                datetime_start: None,
+                datetime_complete: None,
             },
             PersistedTrial {
                 id: 2,
@@ -136,6 +140,8 @@ mod tests {
                 internal_params: HashMap::new(),
                 distributions: HashMap::new(),
                 attrs: Attrs::new(),
+                datetime_start: None,
+                datetime_complete: None,
             },
             PersistedTrial {
                 id: 3,
@@ -170,6 +176,8 @@ mod tests {
                 .cloned()
                 .collect(),
                 attrs: Attrs::new(),
+                datetime_start: None,
+                datetime_complete: None,
             },
         ];
 
@@ -191,6 +199,8 @@ mod tests {
                 internal_params: HashMap::new(),
                 distributions: HashMap::new(),
                 attrs: Attrs::new(),
+                datetime_start: None,
+                datetime_complete: None,
             },
             PersistedTrial {
                 id: 1,
@@ -200,6 +210,8 @@ mod tests {
                 internal_params: HashMap::new(),
                 distributions: HashMap::new(),
                 attrs: Attrs::new(),
+                datetime_start: None,
+                datetime_complete: None,
             },
             PersistedTrial {
                 id: 2,
@@ -209,6 +221,8 @@ mod tests {
                 internal_params: HashMap::new(),
                 distributions: HashMap::new(),
                 attrs: Attrs::new(),
+                datetime_start: None,
+                datetime_complete: None,
             },
             PersistedTrial {
                 id: 3,
@@ -218,6 +232,8 @@ mod tests {
                 internal_params: HashMap::new(),
                 distributions: HashMap::new(),
                 attrs: Attrs::new(),
+                datetime_start: None,
+                datetime_complete: None,
             },
             PersistedTrial {
                 id: 4,
@@ -227,6 +243,8 @@ mod tests {
                 internal_params: HashMap::new(),
                 distributions: HashMap::new(),
                 attrs: Attrs::new(),
+                datetime_start: None,
+                datetime_complete: None,
             },
         ];
 

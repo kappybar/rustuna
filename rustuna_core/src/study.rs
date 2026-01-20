@@ -105,6 +105,8 @@ impl Study {
         let trial = guard.create_new_trial(self.id)?;
         let trial_id = trial.id;
         let trial_number = trial.number;
+        let datetime_start = trial.datetime_start.clone();
+        let datetime_complete = trial.datetime_complete.clone();
         drop(guard);
 
         // Joint sampling
@@ -141,6 +143,8 @@ impl Study {
             trial_id,
             self.id,
             trial_number,
+            datetime_start,
+            datetime_complete,
             self.directions.clone(),
             Arc::clone(&self.storage),
             sampler.clone(),

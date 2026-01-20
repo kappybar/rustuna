@@ -1,16 +1,9 @@
 use std::collections::HashMap;
 
-use chrono::NaiveDateTime;
 use rustuna_core::Result;
 use serde::{Deserialize, Serialize};
 
 pub trait OptunaCompatibleStorage: Send + Sync {
-    fn set_trial_datetime(
-        &mut self,
-        trial_id: u32,
-        datetime_start: Option<NaiveDateTime>,
-        datetime_complete: Option<NaiveDateTime>,
-    ) -> Result<()>;
     fn set_trial_intermediate_values(
         &mut self,
         trial_id: u32,
