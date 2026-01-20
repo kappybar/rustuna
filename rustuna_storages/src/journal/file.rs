@@ -156,7 +156,6 @@ impl JournalBackend for JournalFileBackend {
 
         Ok(())
     }
-
     fn append_logs(&mut self, logs: &[JournalLog]) -> Result<()> {
         let _guard = JournalFileLockGuard::new(self.lock.as_ref())?;
         let what_to_write = encode_logs(logs)?;

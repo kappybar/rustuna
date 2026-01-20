@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use serde::Serialize;
+use serde_json::value::{to_raw_value, RawValue};
 use serde_json::{Map, Number, Value};
 
 use rustuna_core::attr::{
@@ -43,7 +45,11 @@ impl JournalStorage {
         )
     }
 
-    fn write_log(&mut self, op_code: JournalOperation, fields: Map<String, Value>) -> Result<()> {
+    fn write_log(
+        &mut self,
+        op_code: JournalOperation,
+        fields: HashMap<String, Box<RawValue>>,
+    ) -> Result<()> {
         let worker_id = self.worker_id();
         let log = JournalLog {
             op_code: op_code as i32,
@@ -69,22 +75,16 @@ impl Storage for JournalStorage {
         study_name: &str,
         directions: Vec<Direction>,
     ) -> Result<&PersistedStudy> {
-        let mut fields = Map::new();
-        fields.insert(
-            "study_name".to_string(),
-            Value::String(study_name.to_string()),
-        );
+        let mut fields = HashMap::new();
+        fields.insert("study_name".to_string(), to_raw(&study_name.to_string())?);
         let directions_val = directions
             .iter()
-            .map(|d| {
-                let v = match d {
-                    Direction::Minimize => 1,
-                    Direction::Maximize => 2,
-                };
-                Value::Number(Number::from(v))
+            .map(|d| match d {
+                Direction::Minimize => 1,
+                Direction::Maximize => 2,
             })
             .collect::<Vec<_>>();
-        fields.insert("directions".to_string(), Value::Array(directions_val));
+        fields.insert("directions".to_string(), to_raw(&directions_val)?);
         self.write_log(JournalOperation::CreateStudy, fields)?;
         self.sync_with_backend()?;
         let study = self
@@ -102,25 +102,19 @@ impl Storage for JournalStorage {
     }
 
     fn delete_study(&mut self, study_id: u32) -> Result<()> {
-        let mut fields = Map::new();
-        fields.insert(
-            "study_id".to_string(),
-            Value::Number(Number::from(study_id)),
-        );
+        let mut fields = HashMap::new();
+        fields.insert("study_id".to_string(), to_raw(&study_id)?);
         self.write_log(JournalOperation::DeleteStudy, fields)?;
         self.sync_with_backend()?;
         Ok(())
     }
 
     fn create_new_trial(&mut self, study_id: u32) -> Result<&PersistedTrial> {
-        let mut fields = Map::new();
-        fields.insert(
-            "study_id".to_string(),
-            Value::Number(Number::from(study_id)),
-        );
+        let mut fields = HashMap::new();
+        fields.insert("study_id".to_string(), to_raw(&study_id)?);
         fields.insert(
             "datetime_start".to_string(),
-            Value::String(chrono::Local::now().naive_local().to_string()),
+            to_raw(&chrono::Local::now().naive_local().to_string())?,
         );
         self.write_log(JournalOperation::CreateTrial, fields)?;
         self.sync_with_backend()?;
@@ -193,17 +187,14 @@ impl Storage for JournalStorage {
         let labels = self.replay.labels_for_param(study_id, name);
         let dist_json = distribution_to_json(distribution, labels.as_deref())?;
 
-        let mut fields = Map::new();
-        fields.insert(
-            "trial_id".to_string(),
-            Value::Number(Number::from(trial_id)),
-        );
-        fields.insert("param_name".to_string(), Value::String(name.to_string()));
+        let mut fields = HashMap::new();
+        fields.insert("trial_id".to_string(), to_raw(&trial_id)?);
+        fields.insert("param_name".to_string(), to_raw(&name.to_string())?);
         fields.insert(
             "param_value_internal".to_string(),
-            Value::String(format!("{value:.17e}")),
+            to_raw(&format!("{value:.17e}"))?,
         );
-        fields.insert("distribution".to_string(), Value::String(dist_json));
+        fields.insert("distribution".to_string(), to_raw(&dist_json)?);
         self.write_log(JournalOperation::SetTrialParam, fields)?;
         self.sync_with_backend()?;
         Ok(())
@@ -238,20 +229,17 @@ impl Storage for JournalStorage {
             TrialStateValues::Waiting => (3, None),
             TrialStateValues::Fail => (4, None),
         };
-        let mut fields = Map::new();
-        fields.insert(
-            "trial_id".to_string(),
-            Value::Number(Number::from(trial_id)),
-        );
-        fields.insert("state".to_string(), Value::Number(Number::from(state_code)));
+        let mut fields = HashMap::new();
+        fields.insert("trial_id".to_string(), to_raw(&trial_id)?);
+        fields.insert("state".to_string(), to_raw(&state_code)?);
         if let Some(values) = values {
             let arr = values
                 .iter()
                 .map(|value| value_to_json(*value))
                 .collect::<Vec<_>>();
-            fields.insert("values".to_string(), Value::Array(arr));
+            fields.insert("values".to_string(), to_raw(&arr)?);
         } else {
-            fields.insert("values".to_string(), Value::Null);
+            fields.insert("values".to_string(), to_raw(&Value::Null)?);
         }
         if state_code == 0
             && (!matches!(existing_trial.state_values, TrialStateValues::Running)
@@ -259,12 +247,12 @@ impl Storage for JournalStorage {
         {
             fields.insert(
                 "datetime_start".to_string(),
-                Value::String(chrono::Local::now().naive_local().to_string()),
+                to_raw(&chrono::Local::now().naive_local().to_string())?,
             );
         } else if matches!(state_code, 1 | 2 | 4) {
             fields.insert(
                 "datetime_complete".to_string(),
-                Value::String(chrono::Local::now().naive_local().to_string()),
+                to_raw(&chrono::Local::now().naive_local().to_string())?,
             );
         }
         self.write_log(JournalOperation::SetTrialStateValues, fields)?;
@@ -395,22 +383,19 @@ impl Storage for JournalStorage {
         }
 
         for (key, value) in attrs {
-            let mut fields = Map::new();
-            fields.insert(
-                "study_id".to_string(),
-                Value::Number(Number::from(study_id)),
-            );
+            let mut fields = HashMap::new();
+            fields.insert("study_id".to_string(), to_raw(&study_id)?);
             match key {
                 AttrKey::User(k) => {
-                    let mut map = Map::new();
-                    map.insert(k.to_string(), Value::String(value));
-                    fields.insert("user_attr".to_string(), Value::Object(map));
+                    let mut map = HashMap::new();
+                    map.insert(k.to_string(), value);
+                    fields.insert("user_attr".to_string(), to_raw(&map)?);
                     self.write_log(JournalOperation::SetStudyUserAttr, fields)?;
                 }
                 AttrKey::System(k) => {
-                    let mut map = Map::new();
-                    map.insert(k.to_string(), Value::String(value));
-                    fields.insert("system_attr".to_string(), Value::Object(map));
+                    let mut map = HashMap::new();
+                    map.insert(k.to_string(), value);
+                    fields.insert("system_attr".to_string(), to_raw(&map)?);
                     self.write_log(JournalOperation::SetStudySystemAttr, fields)?;
                 }
             }
@@ -451,22 +436,19 @@ impl Storage for JournalStorage {
             }
         }
         for (key, value) in attrs {
-            let mut fields = Map::new();
-            fields.insert(
-                "trial_id".to_string(),
-                Value::Number(Number::from(trial_id)),
-            );
+            let mut fields = HashMap::new();
+            fields.insert("trial_id".to_string(), to_raw(&trial_id)?);
             match key {
                 AttrKey::User(k) => {
-                    let mut map = Map::new();
-                    map.insert(k.to_string(), Value::String(value));
-                    fields.insert("user_attr".to_string(), Value::Object(map));
+                    let mut map = HashMap::new();
+                    map.insert(k.to_string(), value);
+                    fields.insert("user_attr".to_string(), to_raw(&map)?);
                     self.write_log(JournalOperation::SetTrialUserAttr, fields)?;
                 }
                 AttrKey::System(k) => {
-                    let mut map = Map::new();
-                    map.insert(k.to_string(), Value::String(value));
-                    fields.insert("system_attr".to_string(), Value::Object(map));
+                    let mut map = HashMap::new();
+                    map.insert(k.to_string(), value);
+                    fields.insert("system_attr".to_string(), to_raw(&map)?);
                     self.write_log(JournalOperation::SetTrialSystemAttr, fields)?;
                 }
             }
@@ -503,13 +485,13 @@ impl OptunaCompatibleStorage for JournalStorage {
         let worker_id = self.worker_id();
         let mut logs = Vec::with_capacity(intermediate_values.len());
         for (step, value) in intermediate_values {
-            let mut fields = Map::new();
+            let mut fields = HashMap::new();
+            fields.insert("trial_id".to_string(), to_raw(&trial_id)?);
+            fields.insert("step".to_string(), to_raw(&step)?);
             fields.insert(
-                "trial_id".to_string(),
-                Value::Number(Number::from(trial_id)),
+                "intermediate_value".to_string(),
+                to_raw(&value_to_json(value))?,
             );
-            fields.insert("step".to_string(), Value::Number(Number::from(step)));
-            fields.insert("intermediate_value".to_string(), value_to_json(value));
             logs.push(JournalLog {
                 op_code: JournalOperation::SetTrialIntermediateValue as i32,
                 worker_id: worker_id.clone(),
@@ -582,13 +564,13 @@ impl JournalReplayState {
                 JournalOperation::SetTrialSystemAttr => {
                     self.apply_set_trial_system_attr(log, worker_id)?
                 }
-            }
+            };
         }
         Ok(())
     }
 
     fn is_issued_by_this_worker(&self, log: &JournalLog, worker_id: &str) -> bool {
-        log.worker_id == worker_id
+        log.worker_id() == worker_id
     }
 
     fn study_exists(&self, study_id: u32, log: &JournalLog, worker_id: &str) -> Result<bool> {
@@ -646,24 +628,9 @@ impl JournalReplayState {
 
     fn apply_create_study(&mut self, log: &JournalLog, worker_id: &str) -> Result<()> {
         let study_name = get_string(&log.fields, "study_name")?;
-        let directions_raw = log
-            .fields
-            .get("directions")
-            .and_then(|v| v.as_array())
-            .ok_or_else(|| {
-                Error::with_reason(
-                    ErrorKind::StorageError,
-                    "Failed to parse directions array from create study log",
-                )
-            })?;
+        let directions_raw = get_vec_i32(&log.fields, "directions")?;
         let mut directions = Vec::with_capacity(directions_raw.len());
-        for d in directions_raw {
-            let value = d.as_i64().ok_or_else(|| {
-                Error::with_reason(
-                    ErrorKind::StorageError,
-                    "Failed to parse direction value as i64",
-                )
-            })?;
+        for value in directions_raw {
             let dir = match value {
                 1 => Direction::Minimize,
                 2 => Direction::Maximize,
@@ -716,22 +683,13 @@ impl JournalReplayState {
 
     fn apply_set_study_user_attr(&mut self, log: &JournalLog, worker_id: &str) -> Result<()> {
         let study_id = get_u32(&log.fields, "study_id")?;
+        let attrs = get_raw_map(&log.fields, "user_attr")?;
         if !self.study_exists(study_id, log, worker_id)? {
             return Ok(());
         }
-        let attrs = log
-            .fields
-            .get("user_attr")
-            .and_then(|v| v.as_object())
-            .ok_or_else(|| {
-                Error::with_reason(
-                    ErrorKind::StorageError,
-                    "Failed to parse user_attr object from set study user attr log",
-                )
-            })?;
         if let Some(study) = self.studies.get_mut(&study_id) {
             for (key, value) in attrs {
-                let value = json_value_to_attr(value)?;
+                let value = raw_value_to_attr_string(&value)?;
                 study.attrs.insert(AttrKey::User(key.clone().into()), value);
             }
         }
@@ -740,33 +698,16 @@ impl JournalReplayState {
 
     fn apply_set_study_system_attr(&mut self, log: &JournalLog, worker_id: &str) -> Result<()> {
         let study_id = get_u32(&log.fields, "study_id")?;
+        let attrs = get_raw_map(&log.fields, "system_attr")?;
         if !self.study_exists(study_id, log, worker_id)? {
             return Ok(());
         }
-        let attrs = log
-            .fields
-            .get("system_attr")
-            .and_then(|v| v.as_object())
-            .ok_or_else(|| {
-                Error::with_reason(
-                    ErrorKind::StorageError,
-                    "Failed to parse system_attr object from set study system attr log",
-                )
-            })?;
         if let Some(study) = self.studies.get_mut(&study_id) {
             for (key, value) in attrs {
                 let v = if key.starts_with("category_labels:") {
-                    value
-                        .as_str()
-                        .ok_or_else(|| {
-                            Error::with_reason(
-                                ErrorKind::StorageError,
-                                format!("Failed to parse category label as string: key={key}"),
-                            )
-                        })?
-                        .to_string()
+                    raw_value_to_plain_string(&value)?
                 } else {
-                    json_value_to_attr(value)?
+                    raw_value_to_attr_string(&value)?
                 };
                 study.attrs.insert(AttrKey::System(key.clone().into()), v);
             }
@@ -776,6 +717,16 @@ impl JournalReplayState {
 
     fn apply_create_trial(&mut self, log: &JournalLog, worker_id: &str) -> Result<()> {
         let study_id = get_u32(&log.fields, "study_id")?;
+        let state = get_optional_i64(&log.fields, "state")?;
+        let values = get_optional_raw_vec(&log.fields, "values")?;
+        let value = get_optional_raw(&log.fields, "value");
+        let params = get_optional_raw_map(&log.fields, "params")?;
+        let distributions = get_optional_raw_map(&log.fields, "distributions")?;
+        let user_attrs = get_optional_raw_map(&log.fields, "user_attrs")?;
+        let system_attrs = get_optional_raw_map(&log.fields, "system_attrs")?;
+        let intermediate_values = get_optional_raw_map(&log.fields, "intermediate_values")?;
+        let datetime_start = get_optional_string(&log.fields, "datetime_start")?;
+        let datetime_complete = get_optional_string(&log.fields, "datetime_complete")?;
         if !self.study_exists(study_id, log, worker_id)? {
             return Ok(());
         }
@@ -787,22 +738,15 @@ impl JournalReplayState {
             .unwrap_or(0) as u32;
 
         let mut trial = PersistedTrial::new(trial_id, study_id, trial_number);
-        let state_code = log
-            .fields
-            .get("state")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
+        let state_code = state.unwrap_or(0);
         trial.state_values = match state_code {
             0 => TrialStateValues::Running,
             1 => {
-                if let Some(values) = log.fields.get("values").and_then(|v| v.as_array()) {
-                    let parsed = values
-                        .iter()
-                        .map(parse_f64_value)
-                        .collect::<Result<Vec<_>>>()?;
+                if let Some(values) = values.as_ref() {
+                    let parsed = parse_f64_vec_raw(values)?;
                     TrialStateValues::Complete(parsed)
-                } else if let Some(value) = log.fields.get("value") {
-                    let parsed = parse_f64_value(value)?;
+                } else if let Some(value) = value {
+                    let parsed = parse_f64_raw(value)?;
                     TrialStateValues::Complete(vec![parsed])
                 } else {
                     TrialStateValues::Complete(Vec::new())
@@ -819,54 +763,45 @@ impl JournalReplayState {
             }
         };
 
-        if let Some(params) = log.fields.get("params").and_then(|v| v.as_object()) {
-            for (name, val) in params {
-                if let Some(value) = val.as_f64() {
+        if let Some(params) = params {
+            for (name, raw) in params {
+                if let Ok(value) = serde_json::from_str::<f64>(raw.get()) {
                     trial.internal_params.insert(name.clone(), value);
                 }
             }
         }
-        if let Some(dists) = log.fields.get("distributions").and_then(|v| v.as_object()) {
+        if let Some(dists) = distributions {
             for (name, dist_json) in dists {
-                let dist_json = dist_json.as_str().ok_or_else(|| {
-                    Error::with_reason(
-                        ErrorKind::StorageError,
-                        format!("Failed to parse distribution as string: param_name={name}"),
-                    )
-                })?;
-                let (dist, labels) = json_to_distribution(dist_json)?;
+                let dist_json = raw_value_to_json_string(&dist_json)?;
+                let (dist, labels) = json_to_distribution(&dist_json)?;
                 if let Some(labels) = labels {
-                    let attrs = category_labels_to_attrs(name, &labels);
+                    let attrs = category_labels_to_attrs(&name, &labels);
                     if let Some(study) = self.studies.get_mut(&study_id) {
                         for (k, v) in attrs {
                             study.attrs.entry(k).or_insert(v);
                         }
                     }
                 }
-                trial.distributions.insert(name.clone(), dist);
+                trial.distributions.insert(name.to_string(), dist);
             }
         }
 
         let mut attrs: Attrs = Attrs::new();
 
-        if let Some(user_attrs) = log.fields.get("user_attrs").and_then(|v| v.as_object()) {
+        if let Some(user_attrs) = user_attrs {
             for (k, v) in user_attrs {
-                let value = json_value_to_attr(v)?;
+                let value = raw_value_to_attr_string(&v)?;
                 attrs.insert(AttrKey::User(k.clone().into()), value);
             }
         }
-        if let Some(system_attrs) = log.fields.get("system_attrs").and_then(|v| v.as_object()) {
+        if let Some(system_attrs) = system_attrs {
             for (k, v) in system_attrs {
-                let value = json_value_to_attr(v)?;
+                let value = raw_value_to_attr_string(&v)?;
                 attrs.insert(AttrKey::System(k.clone().into()), value);
             }
         }
-        if let Some(values) = log
-            .fields
-            .get("intermediate_values")
-            .and_then(|v| v.as_object())
-        {
-            let entries = intermediate_entries_from_map(values)?;
+        if let Some(values) = intermediate_values {
+            let entries = intermediate_entries_from_raw(&values)?;
             let json = serde_json::to_string(&entries).map_err(|_| {
                 Error::with_reason(
                     ErrorKind::StorageError,
@@ -877,12 +812,8 @@ impl JournalReplayState {
         }
         trial.attrs = attrs;
 
-        if let Some(dt) = log.fields.get("datetime_start").and_then(|v| v.as_str()) {
-            trial.datetime_start = Some(dt.to_string());
-        }
-        if let Some(dt) = log.fields.get("datetime_complete").and_then(|v| v.as_str()) {
-            trial.datetime_complete = Some(dt.to_string());
-        }
+        trial.datetime_start = datetime_start;
+        trial.datetime_complete = datetime_complete;
         self.trials_by_study
             .entry(study_id)
             .or_default()
@@ -907,12 +838,14 @@ impl JournalReplayState {
 
     fn apply_set_trial_param(&mut self, log: &JournalLog, worker_id: &str) -> Result<()> {
         let trial_id = get_u32(&log.fields, "trial_id")?;
+        let param_name = get_string(&log.fields, "param_name")?;
+        let param_value_internal = get_raw(&log.fields, "param_value_internal")?;
+        let distribution = get_raw(&log.fields, "distribution")?;
         if !self.trial_exists_and_updatable(trial_id, log, worker_id)? {
             return Ok(());
         }
-        let param_name = get_string(&log.fields, "param_name")?;
-        let param_value = get_f64(&log.fields, "param_value_internal")?;
-        let dist_json = get_string(&log.fields, "distribution")?;
+        let param_value = parse_f64_raw(param_value_internal)?;
+        let dist_json = raw_value_to_json_string(distribution)?;
         let (dist, labels) = json_to_distribution(&dist_json)?;
         let (study_id, trial_number) = self
             .trial_id_to_study_number
@@ -966,7 +899,7 @@ impl JournalReplayState {
         let cache = self.study_caches.entry(study_id).or_default();
         let dist_clone = trial
             .distributions
-            .get(&param_name)
+            .get(param_name.as_str())
             .ok_or_else(|| {
                 Error::with_reason(
                     ErrorKind::StorageError,
@@ -974,18 +907,19 @@ impl JournalReplayState {
                 )
             })?
             .clone();
-        cache
-            .param_distribution
-            .insert(param_name.clone(), dist_clone);
+        cache.param_distribution.insert(param_name, dist_clone);
         Ok(())
     }
 
     fn apply_set_trial_state_values(&mut self, log: &JournalLog, worker_id: &str) -> Result<()> {
         let trial_id = get_u32(&log.fields, "trial_id")?;
+        let state_code = get_i64(&log.fields, "state")?;
+        let values = get_optional_raw_vec(&log.fields, "values")?;
+        let datetime_start = get_optional_string(&log.fields, "datetime_start")?;
+        let datetime_complete = get_optional_string(&log.fields, "datetime_complete")?;
         if !self.trial_exists_and_updatable(trial_id, log, worker_id)? {
             return Ok(());
         }
-        let state_code = get_i64(&log.fields, "state")?;
         let (study_id, trial_number) = self
             .trial_id_to_study_number
             .get(&trial_id)
@@ -1015,13 +949,10 @@ impl JournalReplayState {
         let state = match state_code {
             0 => TrialStateValues::Running,
             1 => {
-                let values = log
-                    .fields
-                    .get("values")
-                    .and_then(|v| v.as_array())
-                    .map(|vals| vals.iter().map(parse_f64_value).collect::<Result<Vec<_>>>())
-                    .transpose()?
-                    .unwrap_or_default();
+                let values = match values.as_ref() {
+                    Some(raws) => parse_f64_vec_raw(raws)?,
+                    None => Vec::new(),
+                };
                 TrialStateValues::Complete(values)
             }
             2 => TrialStateValues::Pruned,
@@ -1035,16 +966,16 @@ impl JournalReplayState {
             }
         };
         if state_code == 0 {
-            if let Some(dt) = log.fields.get("datetime_start").and_then(|v| v.as_str()) {
-                trial.datetime_start = Some(dt.to_string());
+            if let Some(dt) = datetime_start {
+                trial.datetime_start = Some(dt);
             }
             if issued_by_this_worker {
                 self.worker_id_to_owned_trial_id
                     .insert(worker_id.to_string(), trial_id);
             }
         } else if matches!(state_code, 1 | 2 | 4) {
-            if let Some(dt) = log.fields.get("datetime_complete").and_then(|v| v.as_str()) {
-                trial.datetime_complete = Some(dt.to_string());
+            if let Some(dt) = datetime_complete {
+                trial.datetime_complete = Some(dt);
             }
         }
         trial.state_values = state;
@@ -1057,11 +988,12 @@ impl JournalReplayState {
         worker_id: &str,
     ) -> Result<()> {
         let trial_id = get_u32(&log.fields, "trial_id")?;
+        let step = get_u32(&log.fields, "step")?;
+        let intermediate_value = get_raw(&log.fields, "intermediate_value")?;
         if !self.trial_exists_and_updatable(trial_id, log, worker_id)? {
             return Ok(());
         }
-        let step = get_u32(&log.fields, "step")?;
-        let value = get_f64(&log.fields, "intermediate_value")?;
+        let value = parse_f64_raw(intermediate_value)?;
         let (study_id, trial_number) = self
             .trial_id_to_study_number
             .get(&trial_id)
@@ -1102,19 +1034,10 @@ impl JournalReplayState {
 
     fn apply_set_trial_user_attr(&mut self, log: &JournalLog, worker_id: &str) -> Result<()> {
         let trial_id = get_u32(&log.fields, "trial_id")?;
+        let attrs = get_raw_map(&log.fields, "user_attr")?;
         if !self.trial_exists_and_updatable(trial_id, log, worker_id)? {
             return Ok(());
         }
-        let attrs = log
-            .fields
-            .get("user_attr")
-            .and_then(|v| v.as_object())
-            .ok_or_else(|| {
-                Error::with_reason(
-                    ErrorKind::StorageError,
-                    "Failed to parse user_attr object from set trial user attr log",
-                )
-            })?;
         let (study_id, trial_number) = self
             .trial_id_to_study_number
             .get(&trial_id)
@@ -1140,7 +1063,7 @@ impl JournalReplayState {
             )
         })?;
         for (key, value) in attrs {
-            let v = json_value_to_attr(value)?;
+            let v = raw_value_to_attr_string(&value)?;
             trial.attrs.insert(AttrKey::User(key.clone().into()), v);
         }
         Ok(())
@@ -1148,16 +1071,7 @@ impl JournalReplayState {
 
     fn apply_set_trial_system_attr(&mut self, log: &JournalLog, worker_id: &str) -> Result<()> {
         let trial_id = get_u32(&log.fields, "trial_id")?;
-        let attrs = log
-            .fields
-            .get("system_attr")
-            .and_then(|v| v.as_object())
-            .ok_or_else(|| {
-                Error::with_reason(
-                    ErrorKind::StorageError,
-                    "Failed to parse system_attr object from set trial system attr log",
-                )
-            })?;
+        let attrs = get_raw_map(&log.fields, "system_attr")?;
         let (study_id, trial_number) = match self.trial_id_to_study_number.get(&trial_id) {
             Some(v) => *v,
             None => {
@@ -1195,7 +1109,7 @@ impl JournalReplayState {
                 }
                 return Ok(());
             }
-            let v = json_value_to_attr(value)?;
+            let v = raw_value_to_attr_string(&value)?;
             trial.attrs.insert(AttrKey::System(key.clone().into()), v);
         }
         Ok(())
@@ -1292,51 +1206,6 @@ impl JournalReplayState {
         }
         None
     }
-}
-
-fn get_string(map: &Map<String, Value>, key: &str) -> Result<String> {
-    map.get(key)
-        .and_then(|v| v.as_str())
-        .map(|v| v.to_string())
-        .ok_or_else(|| {
-            Error::with_reason(
-                ErrorKind::StorageError,
-                format!("Failed to get string value from map: key={key}"),
-            )
-        })
-}
-
-fn get_u32(map: &Map<String, Value>, key: &str) -> Result<u32> {
-    map.get(key)
-        .and_then(|v| v.as_u64())
-        .map(|v| v as u32)
-        .ok_or_else(|| {
-            Error::with_reason(
-                ErrorKind::StorageError,
-                format!("Failed to get u32 value from map: key={key}"),
-            )
-        })
-}
-
-fn get_i64(map: &Map<String, Value>, key: &str) -> Result<i64> {
-    map.get(key).and_then(|v| v.as_i64()).ok_or_else(|| {
-        Error::with_reason(
-            ErrorKind::StorageError,
-            format!("Failed to get i64 value from map: key={key}"),
-        )
-    })
-}
-
-fn get_f64(map: &Map<String, Value>, key: &str) -> Result<f64> {
-    map.get(key)
-        .map(parse_f64_value)
-        .transpose()?
-        .ok_or_else(|| {
-            Error::with_reason(
-                ErrorKind::StorageError,
-                format!("Failed to get f64 value from map: key={key}"),
-            )
-        })
 }
 
 fn distribution_to_json(
@@ -1608,22 +1477,6 @@ fn json_map(entries: Vec<(&str, Value)>) -> Map<String, Value> {
     map
 }
 
-fn intermediate_entries_from_map(map: &Map<String, Value>) -> Result<Vec<IntermediateValueEntry>> {
-    let mut entries = Vec::new();
-    for (k, v) in map {
-        let step: u32 = k.parse().map_err(|_| {
-            Error::with_reason(
-                ErrorKind::StorageError,
-                format!("Failed to parse step as u32: {k}"),
-            )
-        })?;
-        let value = parse_f64_value(v)?;
-        entries.push(intermediate_entry(step, value));
-    }
-    entries.sort_by_key(|e| e.step);
-    Ok(entries)
-}
-
 fn intermediate_entries_from_attrs(trial: &PersistedTrial) -> Result<Vec<IntermediateValueEntry>> {
     let raw = trial
         .attrs
@@ -1687,42 +1540,224 @@ fn unique_prefix() -> String {
     format!("{nanos}")
 }
 
-fn parse_f64_value(value: &Value) -> Result<f64> {
-    if let Some(v) = value.as_f64() {
-        return Ok(v);
-    }
-    if let Some(s) = value.as_str() {
-        match s {
-            "nan" | "NaN" => return Ok(f64::NAN),
-            "inf" | "Infinity" | "INF" => return Ok(f64::INFINITY),
-            "-inf" | "-Infinity" | "-INF" => return Ok(f64::NEG_INFINITY),
-            _ => {}
-        }
-        if let Ok(v) = s.parse::<f64>() {
-            return Ok(v);
-        }
-    }
-    Err(Error::with_reason(
-        ErrorKind::StorageError,
-        format!("Failed to parse f64 value: {value:?}"),
-    ))
+fn to_raw<T: Serialize>(value: &T) -> Result<Box<RawValue>> {
+    to_raw_value(value).map_err(|e| Error::with_reason(ErrorKind::StorageError, e.to_string()))
 }
 
-fn json_value_to_attr(value: &Value) -> Result<String> {
-    if let Value::String(s) = value {
-        if matches!(s.as_str(), "Infinity" | "-Infinity" | "NaN") {
-            return Ok(s.clone());
-        }
-        if serde_json::from_str::<Value>(s).is_ok() {
-            return Ok(s.clone());
-        }
-    }
-    serde_json::to_string(value).map_err(|_| {
+fn get_raw<'a>(fields: &'a HashMap<String, Box<RawValue>>, key: &str) -> Result<&'a RawValue> {
+    fields.get(key).map(|v| v.as_ref()).ok_or_else(|| {
         Error::with_reason(
             ErrorKind::StorageError,
-            format!("Failed to serialize value to JSON: {value:?}"),
+            format!("Missing field in journal log: key={key}"),
         )
     })
+}
+
+fn get_optional_raw<'a>(
+    fields: &'a HashMap<String, Box<RawValue>>,
+    key: &str,
+) -> Option<&'a RawValue> {
+    fields.get(key).and_then(|v| {
+        if v.get() == "null" {
+            None
+        } else {
+            Some(v.as_ref())
+        }
+    })
+}
+
+fn get_string(fields: &HashMap<String, Box<RawValue>>, key: &str) -> Result<String> {
+    raw_value_to_plain_string(get_raw(fields, key)?)
+}
+
+fn get_optional_string(
+    fields: &HashMap<String, Box<RawValue>>,
+    key: &str,
+) -> Result<Option<String>> {
+    match get_optional_raw(fields, key) {
+        Some(raw) => raw_value_to_plain_string(raw).map(Some),
+        None => Ok(None),
+    }
+}
+
+fn get_u32(fields: &HashMap<String, Box<RawValue>>, key: &str) -> Result<u32> {
+    parse_u32_raw(get_raw(fields, key)?)
+}
+
+fn get_i64(fields: &HashMap<String, Box<RawValue>>, key: &str) -> Result<i64> {
+    parse_i64_raw(get_raw(fields, key)?)
+}
+
+fn get_optional_i64(fields: &HashMap<String, Box<RawValue>>, key: &str) -> Result<Option<i64>> {
+    match get_optional_raw(fields, key) {
+        Some(raw) => parse_i64_raw(raw).map(Some),
+        None => Ok(None),
+    }
+}
+
+fn get_vec_i32(fields: &HashMap<String, Box<RawValue>>, key: &str) -> Result<Vec<i32>> {
+    let raw = get_raw(fields, key)?;
+    serde_json::from_str::<Vec<i32>>(raw.get()).map_err(|_| {
+        Error::with_reason(
+            ErrorKind::StorageError,
+            format!("Failed to parse i32 array from field: key={key}"),
+        )
+    })
+}
+
+fn get_raw_map(
+    fields: &HashMap<String, Box<RawValue>>,
+    key: &str,
+) -> Result<HashMap<String, Box<RawValue>>> {
+    let raw = get_raw(fields, key)?;
+    serde_json::from_str::<HashMap<String, Box<RawValue>>>(raw.get()).map_err(|_| {
+        Error::with_reason(
+            ErrorKind::StorageError,
+            format!("Failed to parse object from field: key={key}"),
+        )
+    })
+}
+
+fn get_optional_raw_map(
+    fields: &HashMap<String, Box<RawValue>>,
+    key: &str,
+) -> Result<Option<HashMap<String, Box<RawValue>>>> {
+    match get_optional_raw(fields, key) {
+        Some(raw) => serde_json::from_str::<HashMap<String, Box<RawValue>>>(raw.get())
+            .map(Some)
+            .map_err(|_| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Failed to parse object from field: key={key}"),
+                )
+            }),
+        None => Ok(None),
+    }
+}
+
+fn get_optional_raw_vec(
+    fields: &HashMap<String, Box<RawValue>>,
+    key: &str,
+) -> Result<Option<Vec<Box<RawValue>>>> {
+    match get_optional_raw(fields, key) {
+        Some(raw) => serde_json::from_str::<Vec<Box<RawValue>>>(raw.get())
+            .map(Some)
+            .map_err(|_| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Failed to parse array from field: key={key}"),
+                )
+            }),
+        None => Ok(None),
+    }
+}
+
+fn parse_u32_raw(value: &RawValue) -> Result<u32> {
+    serde_json::from_str::<u64>(value.get())
+        .map_err(|_| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Failed to parse u32 value: {}", value.get()),
+            )
+        })
+        .map(|v| v as u32)
+}
+
+fn parse_i64_raw(value: &RawValue) -> Result<i64> {
+    serde_json::from_str::<i64>(value.get()).map_err(|_| {
+        Error::with_reason(
+            ErrorKind::StorageError,
+            format!("Failed to parse i64 value: {}", value.get()),
+        )
+    })
+}
+
+fn parse_f64_raw(value: &RawValue) -> Result<f64> {
+    parse_f64_json(value.get())
+}
+
+fn parse_f64_json(raw: &str) -> Result<f64> {
+    if raw.starts_with('"') {
+        let s: String = serde_json::from_str(raw).map_err(|_| {
+            Error::with_reason(ErrorKind::StorageError, "Failed to parse string as JSON")
+        })?;
+        return parse_f64_from_str(&s);
+    }
+    serde_json::from_str::<f64>(raw).map_err(|_| {
+        Error::with_reason(
+            ErrorKind::StorageError,
+            format!("Failed to parse f64 value: {raw}"),
+        )
+    })
+}
+
+fn parse_f64_from_str(raw: &str) -> Result<f64> {
+    match raw {
+        "nan" | "NaN" => Ok(f64::NAN),
+        "inf" | "Infinity" | "INF" => Ok(f64::INFINITY),
+        "-inf" | "-Infinity" | "-INF" => Ok(f64::NEG_INFINITY),
+        _ => raw.parse::<f64>().map_err(|_| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Failed to parse f64 value: {raw}"),
+            )
+        }),
+    }
+}
+
+fn raw_value_to_plain_string(value: &RawValue) -> Result<String> {
+    serde_json::from_str::<String>(value.get())
+        .map_err(|_| Error::with_reason(ErrorKind::StorageError, "Failed to parse value as string"))
+}
+
+fn raw_value_to_json_string(value: &RawValue) -> Result<String> {
+    let raw = value.get();
+    if raw.starts_with('"') {
+        return raw_value_to_plain_string(value);
+    }
+    Ok(raw.to_string())
+}
+
+fn raw_value_to_attr_string(value: &RawValue) -> Result<String> {
+    let raw = value.get();
+    if raw.starts_with('"') {
+        let s = raw_value_to_plain_string(value)?;
+        if matches!(s.as_str(), "Infinity" | "-Infinity" | "NaN") {
+            return Ok(s);
+        }
+        if serde_json::from_str::<Value>(&s).is_ok() {
+            return Ok(s);
+        }
+        return serde_json::to_string(&s).map_err(|_| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Failed to serialize value to JSON: {raw}"),
+            )
+        });
+    }
+    Ok(raw.to_string())
+}
+
+fn parse_f64_vec_raw(values: &[Box<RawValue>]) -> Result<Vec<f64>> {
+    values.iter().map(|v| parse_f64_raw(v)).collect()
+}
+
+fn intermediate_entries_from_raw(
+    map: &HashMap<String, Box<RawValue>>,
+) -> Result<Vec<IntermediateValueEntry>> {
+    let mut entries = Vec::with_capacity(map.len());
+    for (k, v) in map {
+        let step: u32 = k.parse().map_err(|_| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Failed to parse step as u32: {k}"),
+            )
+        })?;
+        let value = parse_f64_raw(v)?;
+        entries.push(intermediate_entry(step, value));
+    }
+    entries.sort_by_key(|e| e.step);
+    Ok(entries)
 }
 
 fn value_to_json(value: f64) -> Value {
@@ -1851,19 +1886,19 @@ mod tests {
     }
 
     fn create_study_log(study_name: &str, directions: Vec<Direction>) -> JournalLog {
-        let mut fields = Map::new();
+        let mut fields = HashMap::new();
         fields.insert(
             "study_name".to_string(),
-            Value::String(study_name.to_string()),
+            to_raw(&study_name.to_string()).unwrap(),
         );
         let dirs = directions
             .into_iter()
             .map(|d| match d {
-                Direction::Minimize => Value::Number(Number::from(1)),
-                Direction::Maximize => Value::Number(Number::from(2)),
+                Direction::Minimize => 1,
+                Direction::Maximize => 2,
             })
             .collect::<Vec<_>>();
-        fields.insert("directions".to_string(), Value::Array(dirs));
+        fields.insert("directions".to_string(), to_raw(&dirs).unwrap());
         JournalLog {
             op_code: JournalOperation::CreateStudy as i32,
             worker_id: "external".to_string(),
@@ -1872,14 +1907,11 @@ mod tests {
     }
 
     fn create_trial_log(study_id: u32) -> JournalLog {
-        let mut fields = Map::new();
-        fields.insert(
-            "study_id".to_string(),
-            Value::Number(Number::from(study_id)),
-        );
+        let mut fields = HashMap::new();
+        fields.insert("study_id".to_string(), to_raw(&study_id).unwrap());
         fields.insert(
             "datetime_start".to_string(),
-            Value::String("2024-01-01 00:00:00".to_string()),
+            to_raw(&"2024-01-01 00:00:00".to_string()).unwrap(),
         );
         JournalLog {
             op_code: JournalOperation::CreateTrial as i32,
