@@ -132,8 +132,8 @@ pub(crate) trait CategoricalDistributionBuilder {
     ) -> Distributions;
 }
 
-pub struct DefaultNumericalDistributionBuilder;
-pub struct DefaultCategoricalDistributionBuilder;
+pub(crate) struct DefaultNumericalDistributionBuilder;
+pub(crate) struct DefaultCategoricalDistributionBuilder;
 
 impl NumericalDistributionBuilder for DefaultNumericalDistributionBuilder {
     fn calculate_numerical_distribution(
