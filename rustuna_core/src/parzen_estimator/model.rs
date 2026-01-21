@@ -7,6 +7,7 @@ use super::probability_distributions::{
     MixtureOfProductDistribution, TruncLogNormDistributions, TruncNormDistributions,
 };
 use crate::distribution::Distribution;
+use crate::parzen_estimator::scott::ScottNumericalDistributionBuilder;
 
 pub struct ParzenEstimator {
     mixuture_distribution: MixtureOfProductDistribution,
@@ -25,6 +26,22 @@ impl ParzenEstimator {
             weights,
             prior_weight,
             &DefaultNumericalDistributionBuilder,
+            &DefaultCategoricalDistributionBuilder,
+        )
+    }
+
+    pub fn new_with_scott(
+        observations: &HashMap<String, Vec<f64>>,
+        search_space: &HashMap<String, Distribution>,
+        weights: &[f64],
+        prior_weight: f64,
+    ) -> Self {
+        Self::with_builder(
+            observations,
+            search_space,
+            weights,
+            prior_weight,
+            &ScottNumericalDistributionBuilder::new(weights),
             &DefaultCategoricalDistributionBuilder,
         )
     }
