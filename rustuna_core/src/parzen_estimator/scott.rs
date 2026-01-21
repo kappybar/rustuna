@@ -5,7 +5,6 @@ use crate::parzen_estimator::probability_distributions::{
     TruncLogNormDistributions, TruncNormDistributions,
 };
 
-
 pub(crate) struct ScottNumericalDistributionBuilder<'a> {
     weights: &'a [f64],
 }
