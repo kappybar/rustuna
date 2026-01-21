@@ -34,6 +34,11 @@ impl<'a> NumericalDistributionBuilder for ScottNumericalDistributionBuilder<'a> 
         };
         let weights_sum = self.weights.iter().sum::<f64>();
         let n_observations = observations.len();
+        let observations = if log {
+            observations.iter().map(|v| v.ln()).collect()
+        } else {
+            observations.to_vec()
+        };
 
         let mean_est = observations
             .iter()
@@ -54,7 +59,7 @@ impl<'a> NumericalDistributionBuilder for ScottNumericalDistributionBuilder<'a> 
         let inter_quantile_range = if observations.is_empty() {
             0.0
         } else {
-            let mut sorted_obs = observations.to_vec();
+            let mut sorted_obs = observations.clone();
             sorted_obs.sort_by(|a, b| a.total_cmp(b));
             let q1_idx =
                 ((0.25 * (n_observations as f64 - 1.0)).floor() as usize).min(n_observations - 1);
@@ -67,8 +72,7 @@ impl<'a> NumericalDistributionBuilder for ScottNumericalDistributionBuilder<'a> 
         let sigmas = std::iter::repeat_n(sigma_est, n_observations);
 
         let mus_with_prior = observations
-            .iter()
-            .copied()
+            .into_iter()
             .chain(std::iter::once((low + high) / 2.0));
         let sigmas_with_prior = sigmas.chain(std::iter::once(high - low + 1.0));
 
