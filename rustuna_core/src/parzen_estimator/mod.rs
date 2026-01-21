@@ -1,6 +1,6 @@
 mod model;
 mod probability_distributions;
-mod truncnorm;
 mod scott;
+mod truncnorm;
 
 pub use model::ParzenEstimator;
