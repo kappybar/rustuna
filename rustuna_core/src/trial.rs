@@ -250,7 +250,7 @@ mod tests {
         guard.set_trial_attrs(trial.id, attrs, false)?;
 
         // Check the attributes
-        let trial = guard.get_trial(trial.id)?;
+        let trial = guard.get_trial(trial.id, false)?;
         assert_eq!(
             trial.attrs.get(&AttrKey::User("key".into())),
             Some(&"user".to_string())

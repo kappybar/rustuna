@@ -131,7 +131,7 @@ impl NSGAIISampler {
         let mut guard = storage
             .write()
             .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
-        let trials = guard.get_trials(ctx.study_id)?;
+        let trials = guard.get_trials(ctx.study_id, false)?;
         let population_params = trials
             .iter()
             .filter(|trial| population_numbers.contains(&trial.number))
@@ -220,7 +220,7 @@ impl Sampler for NSGAIISampler {
         let mut guard = storage
             .write()
             .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
-        let trials = guard.get_trials(ctx.study_id)?;
+        let trials = guard.get_trials(ctx.study_id, false)?;
         let (parent_generation, parent_population_numbers) =
             self.get_parent_population_numbers(ctx, trials)?;
         let child_generation = u32::try_from(parent_generation + 1).unwrap();

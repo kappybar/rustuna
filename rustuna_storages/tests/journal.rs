@@ -120,8 +120,8 @@ study.optimize(objective, n_trials=10)
         studies[0].id
     };
 
-    let trial_id = storage.get_trials(study_id)?[0].id;
-    let trial0 = storage.get_trial(trial_id)?;
+    let trial_id = storage.get_trials(study_id, false)?[0].id;
+    let trial0 = storage.get_trial(trial_id, false)?;
     assert_eq!(trial0.number, 0);
 
     // Distributions
@@ -192,7 +192,7 @@ study.optimize(objective, n_trials=10)
         assert_eq!(studies.len(), 1);
         studies[0].id
     };
-    let trials = storage.get_trials(study_id)?;
+    let trials = storage.get_trials(study_id, false)?;
     assert_eq!(trials.len(), 10);
 
     // Evaluate more 10 trials with load_if_exists=True
@@ -220,7 +220,7 @@ study.optimize(objective, n_trials=10)
         script_continue,
     )?;
     let mut storage = JournalStorage::new(Box::new(JournalFileBackend::new(&journal_path, None)?))?;
-    let trials = storage.get_trials(study_id)?;
+    let trials = storage.get_trials(study_id, false)?;
     assert_eq!(trials.len(), 20);
     assert_eq!(trials[0].distributions.len(), 3);
     assert_eq!(
