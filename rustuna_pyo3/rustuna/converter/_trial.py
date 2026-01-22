@@ -89,6 +89,54 @@ def to_persisted_trial(
     )
 
 
+class _LazyJSONAttrs(dict[str, typing.Any]):
+    def __init__(self, raw: dict[str, str]) -> None:
+        super().__init__(raw)
+        self._decoded_keys: set[str] = set()
+
+    def __getitem__(self, key: str) -> typing.Any:
+        if key in self._decoded_keys:
+            return super().__getitem__(key)
+        raw = super().__getitem__(key)
+        decoded = json.loads(raw)
+        super().__setitem__(key, decoded)
+        self._decoded_keys.add(key)
+        return decoded
+
+    def __setitem__(self, key: str, value: typing.Any) -> None:
+        super().__setitem__(key, value)
+        self._decoded_keys.add(key)
+
+    def __delitem__(self, key: str) -> None:
+        super().__delitem__(key)
+        self._decoded_keys.discard(key)
+
+    def get(self, key: str, default: typing.Any = None) -> typing.Any:
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def items(self):  # type: ignore[override]
+        return {key: self[key] for key in self}.items()
+
+    def values(self):  # type: ignore[override]
+        return {key: self[key] for key in self}.values()
+
+    def __repr__(self) -> str:
+        return repr(dict(self.items()))
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, dict):
+            if len(self) != len(other):
+                return False
+            for key in self:
+                if other.get(key) != self[key]:
+                    return False
+            return True
+        return NotImplemented
+
+
 class FrozenTrialLike(FrozenTrial):
     def __init__(self, persisted_trial: rustuna.PersistedTrial) -> None:
         self._persisted_trial = persisted_trial
@@ -232,7 +280,7 @@ class FrozenTrialLike(FrozenTrial):
             return self.__user_attrs
 
         user_attrs = self._persisted_trial.user_attrs
-        return {k: json.loads(user_attrs[k]) for k in user_attrs}
+        return _LazyJSONAttrs(user_attrs)
 
     @user_attrs.setter
     def user_attrs(self, value: dict[str, Any]) -> None:
@@ -240,15 +288,15 @@ class FrozenTrialLike(FrozenTrial):
 
     @property
     def system_attrs(self) -> dict[str, Any]:
-        return self.__system_attrs or {
-            key: json.loads(self._persisted_trial.system_attrs[key])
+        if self.__system_attrs is not None:
+            return self.__system_attrs
+        system_attrs = {
+            key: self._persisted_trial.system_attrs[key]
             for key in self._persisted_trial.system_attrs
-            if not key.startswith("category_labels:")
-            and key != "trial_id"
-            and key != "datetime_start"
-            and key != "datetime_complete"
-            and key != "intermediate_values"
+            if not key.startswith("category_labels:") and key != "intermediate_values"
         }
+        self.__system_attrs = _LazyJSONAttrs(system_attrs)
+        return self.__system_attrs
 
     @system_attrs.setter
     def system_attrs(self, value: Mapping[str, JSONSerializable]) -> None:
