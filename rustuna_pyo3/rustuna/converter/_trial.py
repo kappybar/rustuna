@@ -5,7 +5,6 @@ import datetime
 import json
 import typing
 import warnings
-from collections.abc import Iterable
 from typing import cast, overload
 
 import optuna
@@ -118,16 +117,24 @@ class _LazyJSONAttrs(dict[str, typing.Any]):
         except KeyError:
             return default
 
-    def items(self) -> Iterable[tuple[str, typing.Any]]:
-        for key in self:
-            yield (key, self[key])
+    def items(self):  # type: ignore[override]
+        return {key: self[key] for key in self}.items()
 
-    def values(self) -> Iterable[typing.Any]:
-        for key in self:
-            yield self[key]
+    def values(self):  # type: ignore[override]
+        return {key: self[key] for key in self}.values()
 
     def __repr__(self) -> str:
         return repr(dict(self.items()))
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, dict):
+            if len(self) != len(other):
+                return False
+            for key in self:
+                if other.get(key) != self[key]:
+                    return False
+            return True
+        return NotImplemented
 
 
 class FrozenTrialLike(FrozenTrial):
