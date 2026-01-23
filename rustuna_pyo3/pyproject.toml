@@ -25,6 +25,7 @@ dev = [
     "optuna @ git+https://github.com/optuna/optuna.git@master",
     "ruff",
     "pytest",
+    "maturin",
     "mypy",
     "freezegun",
 ]
