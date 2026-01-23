@@ -74,7 +74,9 @@ impl<'a> NumericalDistributionBuilder for ScottNumericalDistributionBuilder<'a> 
             sorted_obs[q3_idx] - sorted_obs[q1_idx]
         };
         let sigma_est = 1.059 * sigma_est.min(inter_quantile_range / 1.34) * weights_sum.powf(-0.2);
-        let sigmas = std::iter::repeat_n(sigma_est, n_observations);
+        // To avoid numerical errors. 0.5/1.64 means 1.64sigma (=90%) will fit in the target grid.
+        let sigma_min = 0.5 / 1.64;
+        let sigmas = std::iter::repeat_n(sigma_est.max(sigma_min), n_observations);
 
         let mus_with_prior = observations
             .into_iter()
