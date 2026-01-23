@@ -7,6 +7,7 @@ use super::probability_distributions::{
     MixtureOfProductDistribution, TruncLogNormDistributions, TruncNormDistributions,
 };
 use crate::distribution::Distribution;
+use crate::parzen_estimator::scott::ScottNumericalDistributionBuilder;
 
 pub struct ParzenEstimator {
     mixuture_distribution: MixtureOfProductDistribution,
@@ -19,7 +20,7 @@ impl ParzenEstimator {
         weights: &[f64],
         prior_weight: f64,
     ) -> Self {
-        Self::new_with_builder(
+        Self::with_builder(
             observations,
             search_space,
             weights,
@@ -29,7 +30,23 @@ impl ParzenEstimator {
         )
     }
 
-    pub(crate) fn new_with_builder(
+    pub fn new_with_scott(
+        observations: &HashMap<String, Vec<f64>>,
+        search_space: &HashMap<String, Distribution>,
+        weights: &[f64],
+        prior_weight: f64,
+    ) -> Self {
+        Self::with_builder(
+            observations,
+            search_space,
+            weights,
+            prior_weight,
+            &ScottNumericalDistributionBuilder::new(weights),
+            &DefaultCategoricalDistributionBuilder,
+        )
+    }
+
+    pub(crate) fn with_builder(
         observations: &HashMap<String, Vec<f64>>,
         search_space: &HashMap<String, Distribution>,
         weights: &[f64],
@@ -115,8 +132,8 @@ pub(crate) trait CategoricalDistributionBuilder {
     ) -> Distributions;
 }
 
-pub struct DefaultNumericalDistributionBuilder;
-pub struct DefaultCategoricalDistributionBuilder;
+pub(crate) struct DefaultNumericalDistributionBuilder;
+pub(crate) struct DefaultCategoricalDistributionBuilder;
 
 impl NumericalDistributionBuilder for DefaultNumericalDistributionBuilder {
     fn calculate_numerical_distribution(
