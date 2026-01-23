@@ -74,7 +74,7 @@ impl<'a> NumericalDistributionBuilder for ScottNumericalDistributionBuilder<'a> 
             sorted_obs[q3_idx] - sorted_obs[q1_idx]
         };
         let sigma_est =
-            (1.059 * sigma_est.min(inter_quantile_range / 1.34) * weights_sum).powf(-0.2);
+            1.059 * sigma_est.min(inter_quantile_range / 1.34) * weights_sum.powf(-0.2);
         let sigmas = std::iter::repeat_n(sigma_est, n_observations);
 
         let mus_with_prior = observations
