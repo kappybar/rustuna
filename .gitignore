@@ -40,6 +40,7 @@ coverage.xml
 
 *.mo
 docs/_build/
+docs/site/
 
 # Other
 .DS_Store

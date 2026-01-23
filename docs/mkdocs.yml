@@ -1,0 +1,49 @@
+site_name: Rustuna Documentation
+site_description: Fast hyperparameter optimization library written in Rust
+site_url: https://optuna.github.io/rustuna/
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: false
+            members_order: source
+
+nav:
+  - Home: index.md
+  - Tutorial:
+      - Getting Started: tutorial/getting-started.md
+  - API Reference:
+      - Study: api/study.md
+      - Trial: api/trial.md
+      - Samplers: api/samplers.md
+      - Storage: api/storage.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
