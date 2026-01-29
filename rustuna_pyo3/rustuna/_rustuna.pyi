@@ -435,7 +435,8 @@ class OptunaStorageProtocol(StorageProtocol, Protocol):
     ) -> None: ...
 
 class Storage:
-    """Factory class for creating storage instances."""
+    """Storage for persisting optimization history."""
+
     @classmethod
     def in_memory(cls) -> StorageProtocol:
         """Create an in-memory storage.
@@ -468,6 +469,192 @@ class Storage:
 
         Returns:
             A Journal storage instance.
+        """
+    def create_new_study(
+        self, study_name: str, directions: list[StudyDirection]
+    ) -> PersistedStudy:
+        """Create a new study.
+
+        Args:
+            study_name: Name of the study.
+            directions: Optimization directions.
+
+        Returns:
+            The created study.
+        """
+    def delete_study(self, study_id: int) -> None:
+        """Delete a study.
+
+        Args:
+            study_id: ID of the study to delete.
+        """
+    def create_new_trial(self, study_id: int) -> PersistedTrial:
+        """Create a new trial in the specified study.
+
+        Args:
+            study_id: ID of the study.
+
+        Returns:
+            The created trial.
+        """
+    def set_trial_param(
+        self,
+        trial_id: int,
+        name: str,
+        distribution: Distribution,
+        value: float,
+    ) -> None:
+        """Set a parameter value for a trial.
+
+        Args:
+            trial_id: ID of the trial.
+            name: Parameter name.
+            distribution: Parameter distribution.
+            value: Internal representation of the parameter value.
+        """
+    def set_trial_state_values(
+        self,
+        trial_id: int,
+        state: TrialState,
+        values: None | list[float] = None,
+    ) -> None:
+        """Set the state and values of a trial.
+
+        Args:
+            trial_id: ID of the trial.
+            state: New state of the trial.
+            values: Objective values (required when state is COMPLETE).
+        """
+    def get_studies(self) -> list[PersistedStudy]:
+        """Get all studies.
+
+        Returns:
+            List of all studies.
+        """
+    def get_study(self, study_id: int) -> PersistedStudy:
+        """Get a study by ID.
+
+        Args:
+            study_id: ID of the study.
+
+        Returns:
+            The study.
+        """
+    def get_trials(self, study_id: int) -> list[PersistedTrial]:
+        """Get all trials in a study.
+
+        Args:
+            study_id: ID of the study.
+
+        Returns:
+            List of all trials in the study.
+        """
+    def get_n_trials(self, study_id: int) -> int:
+        """Get the number of trials in a study.
+
+        Args:
+            study_id: ID of the study.
+
+        Returns:
+            Number of trials.
+        """
+    def get_trial(self, trial_id: int) -> PersistedTrial:
+        """Get a trial by ID.
+
+        Args:
+            trial_id: ID of the trial.
+
+        Returns:
+            The trial.
+        """
+    def get_trial_by_number(self, study_id: int, trial_number: int) -> PersistedTrial:
+        """Get a trial by study ID and trial number.
+
+        Args:
+            study_id: ID of the study.
+            trial_number: Number of the trial within the study.
+
+        Returns:
+            The trial.
+        """
+    def get_trial_id_from_study_id_trial_number(
+        self, study_id: int, trial_number: int
+    ) -> int:
+        """Get a trial ID from study ID and trial number.
+
+        Args:
+            study_id: ID of the study.
+            trial_number: Number of the trial within the study.
+
+        Returns:
+            ID of the trial.
+        """
+    def set_study_system_attrs(self, study_id: int, attrs: dict[str, str]) -> None:
+        """Set system attributes of a study.
+
+        Args:
+            study_id: ID of the study.
+            attrs: System attributes to set.
+        """
+    def set_study_user_attrs(self, study_id: int, attrs: dict[str, str]) -> None:
+        """Set user attributes of a study.
+
+        Args:
+            study_id: ID of the study.
+            attrs: User attributes to set.
+        """
+    def set_trial_system_attrs(self, trial_id: int, attrs: dict[str, str]) -> None:
+        """Set system attributes of a trial.
+
+        Args:
+            trial_id: ID of the trial.
+            attrs: System attributes to set.
+        """
+    def set_trial_user_attrs(self, trial_id: int, attrs: dict[str, str]) -> None:
+        """Set user attributes of a trial.
+
+        Args:
+            trial_id: ID of the trial.
+            attrs: User attributes to set.
+        """
+    def set_category_labels(
+        self,
+        study_id: int,
+        param_name: str,
+        choices: list[CategoricalChoiceType],
+    ) -> None:
+        """Set category labels for a categorical parameter.
+
+        Args:
+            study_id: ID of the study.
+            param_name: Name of the categorical parameter.
+            choices: List of category labels.
+        """
+    def get_category_labels(
+        self,
+        study_id: int,
+        param_name: str,
+        cardinality: int,
+    ) -> list[CategoricalChoiceType] | None:
+        """Get category labels for a categorical parameter.
+
+        Args:
+            study_id: ID of the study.
+            param_name: Name of the categorical parameter.
+            cardinality: Number of categories.
+
+        Returns:
+            List of category labels, or None if not set.
+        """
+    def set_trial_intermediate_value(
+        self, trial_id: int, step: int, intermediate_value: float
+    ) -> None:
+        """Set an intermediate value for a trial.
+
+        Args:
+            trial_id: ID of the trial.
+            step: Step at which the intermediate value is reported.
+            intermediate_value: Intermediate objective value.
         """
 
 # Sampler
