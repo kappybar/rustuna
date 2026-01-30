@@ -3,17 +3,23 @@ on:
   pull_request:
     branches:
       - main
+    paths:
+      - '.github/workflows/checks_js.yml'
+      - 'rustuna_js/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rustuna_core/src/**'
 jobs:
-  js_lint:
+  js_test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: wasm32-unknown-unknown
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '24'
       - name: Installing biome.js
@@ -44,37 +50,7 @@ jobs:
       - name: Run tsc
         working-directory: rustuna_js
         run: tsc --noEmit --project tsconfig.examples.json
-  js_test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          target: wasm32-unknown-unknown
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - name: Cache cargo binaries
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/bin
-          key: ${{ runner.os }}-cargo-bin-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-bin-
-      - name: Install wasm-bindgen-cli and wasm-opt
-        run: |
-          WASM_BINDGEN_VERSION=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')
-          if ! command -v wasm-bindgen &> /dev/null; then
-            cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
-          fi
-          if ! command -v wasm-opt &> /dev/null; then
-            cargo install wasm-opt
-          fi
-      - name: Build JS binding
-        working-directory: rustuna_js
-        run: ./build.sh
       - name: Run tests
         working-directory: rustuna_js
         run: node --test
+
