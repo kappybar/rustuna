@@ -276,7 +276,7 @@ impl PyObjectStorage {
             return Ok(());
         }
         self.cache
-            .set_trial_attrs(cache_study_id, cache_trial.number, src_trial.attrs, false)?;
+            .set_trial_attrs(src_trial.id, src_trial.attrs, false)?;
 
         for (name, distribution) in src_trial.distributions {
             let internal_repr =
@@ -538,37 +538,22 @@ impl Storage for PyObjectStorage {
 
     fn set_trial_attrs(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         attrs: rustuna_core::attr::Attrs,
         _error_on_overwrite: bool,
     ) -> rustuna_core::Result<()> {
         // TODO(c-bata): Emit warnings if error_on_overwrite is true, since Optuna storage cannot support it.
         let attrs_for_obj = attrs.clone();
         let attrs_for_retry = attrs.clone();
-        let trial_id = match self
-            .cache
-            .get_trial_id_from_study_id_trial_number(study_id, trial_number)
-        {
-            Ok(trial_id) => trial_id,
-            Err(_) => {
-                self.sync_all_trials()?;
-                self.cache
-                    .get_trial_id_from_study_id_trial_number(study_id, trial_number)?
-            }
-        };
         self.obj_set_trial_attrs(trial_id, attrs_for_obj)
             .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
-        match self
-            .cache
-            .set_trial_attrs(study_id, trial_number, attrs, false)
-        {
+        match self.cache.set_trial_attrs(trial_id, attrs, false) {
             Ok(_) => Ok(()),
             Err(e) => match e.kind {
                 rustuna_core::ErrorKind::StudyNotFound | rustuna_core::ErrorKind::TrialNotFound => {
                     self.sync_all_trials()?;
                     self.cache
-                        .set_trial_attrs(study_id, trial_number, attrs_for_retry, false)?;
+                        .set_trial_attrs(trial_id, attrs_for_retry, false)?;
                     Ok(())
                 }
                 _ => Err(e),

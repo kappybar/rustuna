@@ -59,6 +59,10 @@ impl From<Trial> for PyTrial {
 #[pymethods]
 impl PyTrial {
     #[getter]
+    pub fn id(&self) -> PyResult<u32> {
+        Ok(self.0.id)
+    }
+    #[getter]
     pub fn study_id(&self) -> PyResult<u32> {
         Ok(self.0.study_id)
     }

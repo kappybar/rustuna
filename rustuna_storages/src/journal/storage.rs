@@ -421,12 +421,22 @@ impl Storage for JournalStorage {
 
     fn set_trial_attrs(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         attrs: Attrs,
         error_on_overwrite: bool,
     ) -> Result<()> {
         self.sync_with_backend()?;
+        let (study_id, trial_number) = self
+            .replay
+            .trial_id_to_study_number
+            .get(&trial_id)
+            .copied()
+            .ok_or_else(|| {
+                Error::with_reason(
+                    ErrorKind::TrialNotFound,
+                    format!("Trial not found during set_trial_attrs: trial_id={trial_id}"),
+                )
+            })?;
         let trial = self
             .replay
             .trial_from_study_number(study_id, trial_number)?;
@@ -440,9 +450,6 @@ impl Storage for JournalStorage {
                 }
             }
         }
-        let trial_id = self
-            .replay
-            .trial_id_from_study_number(study_id, trial_number)?;
         for (key, value) in attrs {
             let mut fields = Map::new();
             fields.insert(
@@ -1973,7 +1980,7 @@ mod tests {
     fn get_trials_replays_from_backend_logs() -> Result<()> {
         let (mut storage, logs) = new_storage()?;
         let study_id = storage.create_new_study("s", vec![Direction::Minimize])?.id;
-        storage.create_new_trial(study_id)?;
+        let _trial = storage.create_new_trial(study_id)?;
 
         let backend = InMemoryJournalBackend { logs: logs.clone() };
         let mut storage2 = JournalStorage::new(Box::new(backend))?;
@@ -2044,7 +2051,7 @@ mod tests {
     fn set_study_and_trial_attrs_update_cache() -> Result<()> {
         let (mut storage, _logs) = new_storage()?;
         let study_id = storage.create_new_study("s", vec![Direction::Minimize])?.id;
-        storage.create_new_trial(study_id)?;
+        let trial_id = storage.create_new_trial(study_id)?.id;
 
         let mut s_attrs = Attrs::new();
         s_attrs.insert(AttrKey::User("foo".into()), "bar".to_string());
@@ -2060,8 +2067,7 @@ mod tests {
 
         let mut t_attrs = Attrs::new();
         t_attrs.insert(AttrKey::System("key".into()), "val".to_string());
-        storage.set_trial_attrs(study_id, 0, t_attrs, false)?;
-        let trial_id = storage.get_trials(study_id)?[0].id;
+        storage.set_trial_attrs(trial_id, t_attrs, false)?;
         let trial = storage.get_trial(trial_id)?;
         assert_eq!(
             trial

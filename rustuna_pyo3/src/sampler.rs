@@ -153,16 +153,18 @@ impl From<SamplerContext> for PySamplerContext {
 #[pymethods]
 impl PySamplerContext {
     #[new]
-    #[pyo3(signature = (study_id, trial_number, directions))]
+    #[pyo3(signature = (*, study_id, trial_number, trial_id, directions))]
     pub fn py_new(
         study_id: u32,
         trial_number: u32,
+        trial_id: u32,
         directions: Vec<PyDirection>,
     ) -> PyResult<Self> {
         Ok(PySamplerContext {
             context: SamplerContext {
                 study_id,
                 trial_number,
+                trial_id,
                 directions: directions.into_iter().map(|d| d.into()).collect(),
             },
         })
@@ -174,6 +176,10 @@ impl PySamplerContext {
     #[getter]
     fn trial_number(&self) -> u32 {
         self.context.trial_number
+    }
+    #[getter]
+    fn trial_id(&self) -> u32 {
+        self.context.trial_id
     }
     #[getter]
     fn directions(&self) -> Vec<PyDirection> {

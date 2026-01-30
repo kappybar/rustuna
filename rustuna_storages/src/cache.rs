@@ -45,8 +45,7 @@ pub trait CachedStorageBackend: Send + Sync {
     ) -> Result<()>;
     fn set_trial_attrs(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         attrs: Attrs,
         error_on_overwrite: bool,
     ) -> Result<()>;
@@ -419,11 +418,11 @@ impl rustuna_core::storage::Storage for CachedStorage {
 
     fn set_trial_attrs(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         attrs: Attrs,
         error_on_overwrite: bool,
     ) -> Result<()> {
+        let (study_id, trial_number) = self.resolve_trial_location(trial_id)?;
         self.refresh_trials(study_id)?;
         {
             let trials = self
@@ -438,7 +437,7 @@ impl rustuna_core::storage::Storage for CachedStorage {
             }
         }
         self.backend
-            .set_trial_attrs(study_id, trial_number, attrs.clone(), error_on_overwrite)?;
+            .set_trial_attrs(trial_id, attrs.clone(), error_on_overwrite)?;
         self.refresh_trials(study_id)?;
         let trials = self
             .trials
@@ -581,13 +580,12 @@ mod tests {
 
         fn set_trial_attrs(
             &mut self,
-            study_id: u32,
-            trial_number: u32,
+            trial_id: u32,
             attrs: Attrs,
             error_on_overwrite: bool,
         ) -> Result<()> {
             self.inner
-                .set_trial_attrs(study_id, trial_number, attrs, error_on_overwrite)
+                .set_trial_attrs(trial_id, attrs, error_on_overwrite)
         }
     }
     impl OptunaCompatibleStorage for DummyBackend {
@@ -782,7 +780,7 @@ mod tests {
     fn set_study_and_trial_attrs_update_cache() -> Result<()> {
         let mut storage = CachedStorage::new(Box::new(DummyBackend::new()));
         let study_id = storage.create_new_study("s", vec![Direction::Minimize])?.id;
-        storage.create_new_trial(study_id)?;
+        let trial_id = storage.create_new_trial(study_id)?.id;
 
         let mut s_attrs = Attrs::new();
         s_attrs.insert(AttrKey::User("foo".into()), "bar".to_string());
@@ -798,8 +796,7 @@ mod tests {
 
         let mut t_attrs = Attrs::new();
         t_attrs.insert(AttrKey::System("key".into()), "val".to_string());
-        storage.set_trial_attrs(study_id, 0, t_attrs, false)?;
-        let trial_id = storage.get_trials(study_id)?[0].id;
+        storage.set_trial_attrs(trial_id, t_attrs, false)?;
         let trial = storage.get_trial(trial_id)?;
         assert_eq!(
             trial

@@ -68,6 +68,7 @@ impl Trial {
         let context = SamplerContext {
             study_id: self.study_id,
             trial_number: self.number,
+            trial_id: self.id,
             directions: self.directions.clone(),
         };
         let mut sampler_guard = self
@@ -169,7 +170,7 @@ impl Trial {
 
         let key = AttrKey::User(key.into());
         attrs.insert(key.clone(), value.clone());
-        guard.set_trial_attrs(self.study_id, self.number, attrs, false)?;
+        guard.set_trial_attrs(self.id, attrs, false)?;
         self.cached_trial.attrs.insert(key, value);
         Ok(())
     }
@@ -246,7 +247,7 @@ mod tests {
             .map_err(|_| Error::new(ErrorKind::StorageError))?;
         let mut attrs = Attrs::new();
         attrs.insert(AttrKey::System("key".into()), "system".to_string());
-        guard.set_trial_attrs(study.id, 0, attrs, false)?;
+        guard.set_trial_attrs(trial.id, attrs, false)?;
 
         // Check the attributes
         let trial = guard.get_trial(trial.id)?;
