@@ -85,7 +85,7 @@ impl PyTrial {
             rustuna_core::ErrorKind::UnsupportedMultiObjective => PyRuntimeError::new_err(
                 "The TPE sampler of rustuna currently only supports single objective study.",
             ),
-            _ => PyRuntimeError::new_err(format!("Failed to suggest float: {:?}", e.kind)),
+            _ => PyRuntimeError::new_err(format!("Failed to suggest float: {e:?}")),
         })?;
         Ok(value)
     }
@@ -108,7 +108,7 @@ impl PyTrial {
             rustuna_core::ErrorKind::UnsupportedMultiObjective => PyRuntimeError::new_err(
                 "The TPE sampler of rustuna currently only supports single objective study.",
             ),
-            _ => PyRuntimeError::new_err(format!("Failed to suggest int: {:?}", e.kind)),
+            _ => PyRuntimeError::new_err(format!("Failed to suggest int: {e:?}")),
         })?;
         Ok(value as i64)
     }
@@ -135,9 +135,7 @@ impl PyTrial {
                 rustuna_core::ErrorKind::UnsupportedMultiObjective => PyRuntimeError::new_err(
                     "The TPE sampler of rustuna currently only supports single objective study.",
                 ),
-                _ => {
-                    PyRuntimeError::new_err(format!("Failed to suggest categorical: {:?}", e.kind))
-                }
+                _ => PyRuntimeError::new_err(format!("Failed to suggest categorical: {e:?}")),
             })?;
 
         Python::attach(|py| category_label_to_pyobject(py, label).map(|b| b.unbind()))

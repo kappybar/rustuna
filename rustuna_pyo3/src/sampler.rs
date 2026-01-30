@@ -223,11 +223,19 @@ impl Sampler for PyObjectSampler {
                     "sample_independent",
                     (py_ctx, py_storage, name, py_distribution),
                 )
-                .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::SamplerError))?;
+                .map_err(|e| {
+                    rustuna_core::Error::with_reason(
+                        rustuna_core::ErrorKind::SamplerError,
+                        e.to_string(),
+                    )
+                })?;
             let py_result_ref = py_result.bind(py);
-            let ret = py_result_ref
-                .extract::<f64>()
-                .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::SamplerError))?;
+            let ret = py_result_ref.extract::<f64>().map_err(|e| {
+                rustuna_core::Error::with_reason(
+                    rustuna_core::ErrorKind::SamplerError,
+                    e.to_string(),
+                )
+            })?;
             Ok(ret)
         })
     }
@@ -247,9 +255,9 @@ impl Sampler for PyObjectSampler {
         storage: Arc<std::sync::RwLock<dyn Storage>>,
         search_space: &HashMap<String, rustuna_core::distribution::Distribution>,
     ) -> rustuna_core::Result<HashMap<String, f64>> {
-        let mut guard = storage
-            .write()
-            .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
+        let mut guard = storage.write().map_err(|e| {
+            rustuna_core::Error::with_reason(rustuna_core::ErrorKind::StorageError, e.to_string())
+        })?;
         let study = guard.get_study(ctx.study_id)?;
         let study_attrs = study.attrs.clone();
         drop(guard);
@@ -264,18 +272,34 @@ impl Sampler for PyObjectSampler {
             let py_search_space = PyDict::new(py);
             for (k, v) in search_space {
                 let py_distribution = Py::new(py, PyDistribution::new(v.clone(), k, &study_attrs))
-                    .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::SamplerError))?;
-                py_search_space
-                    .set_item(k, py_distribution)
-                    .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::SamplerError))?;
+                    .map_err(|e| {
+                        rustuna_core::Error::with_reason(
+                            rustuna_core::ErrorKind::SamplerError,
+                            e.to_string(),
+                        )
+                    })?;
+                py_search_space.set_item(k, py_distribution).map_err(|e| {
+                    rustuna_core::Error::with_reason(
+                        rustuna_core::ErrorKind::SamplerError,
+                        e.to_string(),
+                    )
+                })?;
             }
             let py_result = self
                 .obj
                 .call_method1(py, "sample_joint", (py_ctx, py_storage, py_search_space))
-                .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::SamplerError))?;
-            let py_result = py_result
-                .extract::<HashMap<String, f64>>(py)
-                .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::SamplerError))?;
+                .map_err(|e| {
+                    rustuna_core::Error::with_reason(
+                        rustuna_core::ErrorKind::SamplerError,
+                        e.to_string(),
+                    )
+                })?;
+            let py_result = py_result.extract::<HashMap<String, f64>>(py).map_err(|e| {
+                rustuna_core::Error::with_reason(
+                    rustuna_core::ErrorKind::SamplerError,
+                    e.to_string(),
+                )
+            })?;
             Ok(py_result)
         })
     }
