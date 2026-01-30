@@ -72,8 +72,7 @@ pub trait Storage: Send + Sync {
     ) -> Result<()>;
     fn set_trial_attrs(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         attrs: Attrs,
         error_on_overwrite: bool,
     ) -> Result<()>;
@@ -339,11 +338,12 @@ impl Storage for InMemoryStorage {
 
     fn set_trial_attrs(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         attrs: Attrs,
         error_on_overwrite: bool,
     ) -> Result<()> {
+        let (study_id, trial_number) =
+            get_study_id_trial_number_by_trial_id(&self.trial_id_to_study_number, trial_id)?;
         let trial = get_mut_trials_by_study_id(&mut self.trials, study_id)?
             .get_mut(trial_number as usize)
             .ok_or(Error::new(ErrorKind::TrialNotFound))?;

@@ -333,12 +333,8 @@ impl PyStorage {
             .storage
             .write()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
-        let (study_id, trial_number) = {
-            let trial = guard.get_trial(trial_id).map_err(err_to_exceptions)?;
-            (trial.study_id, trial.number)
-        };
         guard
-            .set_trial_attrs(study_id, trial_number, system_attrs, false)
+            .set_trial_attrs(trial_id, system_attrs, false)
             .map_err(err_to_exceptions)?;
         Ok(())
     }
@@ -352,12 +348,8 @@ impl PyStorage {
             .storage
             .write()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
-        let (study_id, trial_number) = {
-            let trial = guard.get_trial(trial_id).map_err(err_to_exceptions)?;
-            (trial.study_id, trial.number)
-        };
         guard
-            .set_trial_attrs(study_id, trial_number, user_attrs, false)
+            .set_trial_attrs(trial_id, user_attrs, false)
             .map_err(err_to_exceptions)?;
         Ok(())
     }

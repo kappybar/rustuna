@@ -123,6 +123,7 @@ impl Study {
             let ctx = SamplerContext {
                 study_id: self.id,
                 trial_number,
+                trial_id,
                 directions: self.directions.clone(),
             };
             let params = guard.sample_joint(&ctx, self.storage.clone(), &joint_search_space)?;

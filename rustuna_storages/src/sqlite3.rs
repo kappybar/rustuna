@@ -813,8 +813,7 @@ impl CachedStorageBackend for SQLite3Storage {
 
     fn set_trial_attrs(
         &mut self,
-        study_id: u32,
-        trial_number: u32,
+        trial_id: u32,
         attrs: rustuna_core::attr::Attrs,
         error_on_overwrite: bool,
     ) -> rustuna_core::Result<()> {
@@ -831,20 +830,6 @@ impl CachedStorageBackend for SQLite3Storage {
             .conn
             .lock()
             .map_err(|_| Error::new(ErrorKind::StorageError))?;
-        let trial_id: Option<u32> = guard
-            .query_row(
-                "SELECT trial_id FROM trials WHERE study_id = ? AND number = ?",
-                params![study_id, trial_number],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|e| {
-                Error::with_reason(
-                    ErrorKind::StorageError,
-                    format!("Database query failed: {e}"),
-                )
-            })?;
-        let trial_id = trial_id.ok_or(Error::new(ErrorKind::TrialNotFound))?;
 
         let tx = guard.transaction().map_err(|e| {
             Error::with_reason(
@@ -1820,7 +1805,7 @@ mod tests {
             "trial_system_value".to_string(),
         );
 
-        storage.set_trial_attrs(study_id, trial.number, attrs, false)?;
+        storage.set_trial_attrs(trial.id, attrs, false)?;
 
         let trial = storage.get_trial(trial.id)?;
         assert_eq!(
@@ -1847,7 +1832,7 @@ mod tests {
             AttrKey::User("trial_user_key".into()),
             "trial_user_value".to_string(),
         );
-        storage.set_trial_attrs(study_id, trial.number, attrs, false)?;
+        storage.set_trial_attrs(trial.id, attrs, false)?;
 
         let mut overwrite = Attrs::new();
         overwrite.insert(
@@ -1859,7 +1844,7 @@ mod tests {
             "new_value".to_string(),
         );
         let err = storage
-            .set_trial_attrs(study_id, trial.number, overwrite, true)
+            .set_trial_attrs(trial.id, overwrite, true)
             .expect_err("Expected AttrOverwriteNotAllowed error");
         assert!(matches!(err.kind, ErrorKind::AttrOverwriteNotAllowed));
 

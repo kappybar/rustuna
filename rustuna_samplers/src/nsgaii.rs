@@ -229,7 +229,7 @@ impl Sampler for NSGAIISampler {
             AttrKey::System("generation".into()),
             (child_generation as f64).to_string(),
         );
-        guard.set_trial_attrs(ctx.study_id, ctx.trial_number, attrs, false)?;
+        guard.set_trial_attrs(ctx.trial_id, attrs, false)?;
         drop(guard);
 
         if parent_generation < 0 {

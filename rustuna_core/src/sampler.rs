@@ -13,6 +13,7 @@ pub struct Context {
     pub study_id: u32,
     pub directions: Vec<Direction>,
     pub trial_number: u32,
+    pub trial_id: u32,
 }
 
 pub trait Sampler: Send {
