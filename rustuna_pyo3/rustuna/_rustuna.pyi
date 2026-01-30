@@ -103,7 +103,9 @@ class Trial:
     instantiation of this object.
     """
 
+    id: int
     number: int
+    study_id: int
 
     def suggest_float(
         self,
@@ -669,12 +671,15 @@ class SamplerContext:
 
     study_id: int
     trial_number: int
+    trial_id: int
     directions: list[StudyDirection]
 
     def __init__(
         self,
+        *,
         study_id: int,
         trial_number: int,
+        trial_id: int,
         directions: list[StudyDirection],
     ) -> None: ...
 

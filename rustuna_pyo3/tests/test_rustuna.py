@@ -131,7 +131,10 @@ def test_sample():
         study = rustuna.create_study(sampler=sampler, storage=storage)
         trial = study.ask()
         ctx = rustuna.SamplerContext(
-            study.id, trial.number, directions=study.directions
+            study_id=study.id,
+            trial_number=trial.number,
+            trial_id=trial.id,
+            directions=study.directions,
         )
         value = sampler.sample_independent(
             ctx, storage, "x", rustuna.Distribution.float(0, 1)

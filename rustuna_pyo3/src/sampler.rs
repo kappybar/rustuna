@@ -153,7 +153,7 @@ impl From<SamplerContext> for PySamplerContext {
 #[pymethods]
 impl PySamplerContext {
     #[new]
-    #[pyo3(signature = (study_id, trial_number, trial_id, directions))]
+    #[pyo3(signature = (*, study_id, trial_number, trial_id, directions))]
     pub fn py_new(
         study_id: u32,
         trial_number: u32,
