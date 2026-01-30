@@ -30,6 +30,8 @@ if typing.TYPE_CHECKING:
 
     from optuna._typing import JSONSerializable
 
+    from rustuna import CategoricalChoiceType
+
 
 logger = optuna.logging.get_logger(__name__)
 
@@ -120,6 +122,16 @@ class ToRustunaStorage:
         frozen_trial = self._storage.get_trial(trial_id)
         return to_persisted_trial(frozen_trial, study_id=study_id)
 
+    def delete_study(self, study_id: int) -> None:
+        self._storage.delete_study(study_id)
+
+    def get_trial_id_from_study_id_trial_number(
+        self, study_id: int, trial_number: int
+    ) -> int:
+        return self._storage.get_trial_id_from_study_id_trial_number(
+            study_id, trial_number
+        )
+
     def set_study_system_attrs(self, study_id: int, attrs: dict[str, str]) -> None:
         for key, value in attrs.items():
             self._storage.set_study_system_attr(study_id, key, value)
@@ -135,6 +147,27 @@ class ToRustunaStorage:
     def set_trial_user_attrs(self, trial_id: int, attrs: dict[str, str]) -> None:
         for key, value in attrs.items():
             self._storage.set_trial_user_attr(trial_id, key, value)
+
+    def set_category_labels(
+        self,
+        study_id: int,
+        param_name: str,
+        choices: list[CategoricalChoiceType],
+    ) -> None:
+        key = f"optuna_category_labels:{param_name}"
+        self._storage.set_study_system_attr(study_id, key, choices)
+
+    def get_category_labels(
+        self,
+        study_id: int,
+        param_name: str,
+        cardinality: int,
+    ) -> list[CategoricalChoiceType]:
+        key = f"optuna_category_labels:{param_name}"
+        value = self._storage.get_study_system_attrs(study_id).get(key)
+        assert isinstance(value, list)
+        assert len(value) == cardinality
+        return typing.cast("list[CategoricalChoiceType]", value)
 
 
 class ToOptunaStorage(BaseStorage):

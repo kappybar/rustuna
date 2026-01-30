@@ -90,16 +90,20 @@ class DummyJointSampler:
         search_space: dict[str, rustuna.Distribution],
     ) -> dict[str, float]:
         if ctx.trial_number == 0:
-            # TODO(c-bata): Avoid to call sample_joint when search_space is empty.
+            # Even if search space is empty, rustuna calls sample_joint method.
+            # Since sample_joint() may be used as a replacement of before_trial() method.
             return {}
 
         self.sample_joint_is_called = True
-        assert len(search_space) == 2
         params = {}
         for name, distribution in search_space.items():
             dic = distribution.to_dict()
             if dic["type"] == "FloatDistribution":
                 params[name] = dic["low"]
+            elif dic["type"] == "IntDistribution":
+                params[name] = dic["low"]
+            elif dic["type"] == "CategoricalDistribution":
+                params[name] = 0.0
             else:
                 assert False, "Unreachable code"
         return params
@@ -114,13 +118,18 @@ class DummyJointSampler:
         dic = distribution.to_dict()
         if dic["type"] == "FloatDistribution":
             return dic["low"]
+        if dic["type"] == "IntDistribution":
+            return dic["low"]
+        if dic["type"] == "CategoricalDistribution":
+            return 0.0
         assert False, "Unreachable code"
 
 
 def test_storage_cache_joint_search_space():
-    def objective(trial: rustuna.Trial | optuna.Trial) -> float:
-        x = trial.suggest_float("x", -10, 10)
-        y = trial.suggest_float("y", -10, 10)
+    def objective(trial: rustuna.Trial) -> float:
+        x = trial.suggest_float("x", -10.0, 10.0)
+        y = trial.suggest_int("y", -10, 10)
+        z = trial.suggest_categorical("z", ["A", 1, 0.5, None, False])
         return x**2 + y**2
 
     sampler = DummyJointSampler()
