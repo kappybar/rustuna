@@ -40,9 +40,11 @@ impl PyObjectStorage {
         let cache_study_id = match self.src_study_to_cache_study.get(&src_study.id) {
             Some(cache_study_id) => Ok(*cache_study_id),
             None => {
-                let cache_study = self
-                    .cache
-                    .create_new_study(&src_study.name.clone(), src_study.directions.clone())?;
+                let cache_study = self.cache.insert_study_with_id(
+                    src_study.id,
+                    &src_study.name,
+                    src_study.directions.clone(),
+                )?;
                 self.cache_study_to_src_study
                     .insert(cache_study.id, src_study.id);
                 self.src_study_to_cache_study
@@ -339,7 +341,9 @@ impl Storage for PyObjectStorage {
         let src_study_id = self
             .obj_create_new_study(study_name, &directions)
             .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
-        let cache_study = self.cache.create_new_study(study_name, directions)?;
+        let cache_study = self
+            .cache
+            .insert_study_with_id(src_study_id, study_name, directions)?;
         self.cache_study_to_src_study
             .insert(cache_study.id, src_study_id);
         self.src_study_to_cache_study
