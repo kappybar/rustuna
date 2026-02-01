@@ -1,5 +1,9 @@
-use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use std::collections::HashMap;
+use std::fmt;
+
+use serde::de::{MapAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::value::RawValue;
 
 use rustuna_core::{Error, ErrorKind, Result};
 
@@ -48,10 +52,81 @@ impl JournalOperation {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct JournalLog {
     pub op_code: i32,
     pub worker_id: String,
+    // Design note: keep raw JSON to avoid eager parsing of user_attrs (dict[str, str] in Rustuna)
+    // and preserve Optuna journal schema while letting Python-side conversion handle JSON types.
     #[serde(flatten)]
-    pub fields: Map<String, Value>,
+    pub fields: HashMap<String, Box<RawValue>>,
+}
+
+impl JournalLog {
+    pub fn worker_id(&self) -> &str {
+        self.worker_id.as_str()
+    }
+}
+
+struct JournalLogVisitor;
+
+impl<'de> Visitor<'de> for JournalLogVisitor {
+    type Value = JournalLog;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a journal log object")
+    }
+
+    fn visit_map<M>(self, mut map: M) -> std::result::Result<Self::Value, M::Error>
+    where
+        M: MapAccess<'de>,
+    {
+        let mut op_code: Option<i32> = None;
+        let mut worker_id: Option<String> = None;
+        let mut fields: HashMap<String, Box<RawValue>> = HashMap::new();
+
+        while let Some(key) = map.next_key::<String>()? {
+            match key.as_str() {
+                "op_code" => op_code = Some(map.next_value()?),
+                "worker_id" => worker_id = Some(map.next_value()?),
+                _ => {
+                    let value = map.next_value::<Box<RawValue>>()?;
+                    fields.insert(key, value);
+                }
+            }
+        }
+
+        let op_code =
+            op_code.ok_or_else(|| serde::de::Error::custom("Missing op_code in journal log"))?;
+        let worker_id = worker_id
+            .ok_or_else(|| serde::de::Error::custom("Missing worker_id in journal log"))?;
+
+        Ok(JournalLog {
+            op_code,
+            worker_id,
+            fields,
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for JournalLog {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_map(JournalLogVisitor)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::JournalLog;
+
+    #[test]
+    fn journal_log_typed_preserves_user_attr_string() {
+        let raw = r#"{"op_code":8,"worker_id":"w","trial_id":1,"user_attr":{"k":"{\"a\":1}"}}"#;
+        let log: JournalLog = serde_json::from_str(raw).expect("deserialize log");
+        let user_attr = log.fields.get("user_attr").expect("user_attr");
+        assert_eq!(user_attr.get(), "{\"k\":\"{\\\"a\\\":1}\"}");
+    }
 }
