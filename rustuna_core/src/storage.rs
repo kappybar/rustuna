@@ -100,6 +100,35 @@ impl InMemoryStorage {
         }
     }
 
+    pub fn insert_study_with_id(
+        &mut self,
+        study_id: u32,
+        study_name: &str,
+        directions: Vec<Direction>,
+    ) -> Result<&PersistedStudy> {
+        if let Some(pos) = self.studies.iter().position(|s| s.id == study_id) {
+            if self.studies[pos].name != study_name {
+                return Err(Error::new(ErrorKind::StorageError));
+            }
+            return Ok(&self.studies[pos]);
+        }
+        if self.studies.iter().any(|s| s.name == study_name) {
+            return Err(Error::new(ErrorKind::DuplicatedStudy));
+        }
+        self.studies.push(PersistedStudy::new(
+            study_id,
+            study_name.to_string(),
+            directions,
+        ));
+        self.trials.insert(study_id, vec![]);
+        if study_id >= self.next_study_id {
+            self.next_study_id = study_id + 1;
+        }
+        self.studies
+            .last()
+            .ok_or_else(|| Error::new(ErrorKind::StorageError))
+    }
+
     pub fn insert_trial_with_id(
         &mut self,
         study_id: u32,
