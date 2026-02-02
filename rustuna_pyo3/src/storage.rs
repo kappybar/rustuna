@@ -133,7 +133,7 @@ impl PyStorage {
                     .write()
                     .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
                 guard
-                    .get_trial(trial_id)
+                    .get_trial(trial_id, false)
                     .map_err(err_to_exceptions)?
                     .study_id
             };
@@ -249,12 +249,15 @@ impl PyStorage {
         Ok(study.clone().into())
     }
 
-    fn get_trials(&mut self, study_id: u32) -> PyResult<Vec<PyPersistedTrial>> {
+    #[pyo3(signature = (study_id, *, no_sync = false))]
+    fn get_trials(&mut self, study_id: u32, no_sync: bool) -> PyResult<Vec<PyPersistedTrial>> {
         let mut guard = self
             .storage
             .write()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
-        let trials = guard.get_trials(study_id).map_err(err_to_exceptions)?;
+        let trials = guard
+            .get_trials(study_id, no_sync)
+            .map_err(err_to_exceptions)?;
         let py_trials: Vec<PyPersistedTrial> = trials
             .iter()
             .map(|t| PyPersistedTrial::from_storage(self.storage.clone(), t))
@@ -262,13 +265,18 @@ impl PyStorage {
         Ok(py_trials)
     }
 
-    fn get_trial(&mut self, trial_id: u32) -> PyResult<PyPersistedTrial> {
+    #[pyo3(signature = (trial_id, *, no_sync = false))]
+    fn get_trial(&mut self, trial_id: u32, no_sync: bool) -> PyResult<PyPersistedTrial> {
         let mut guard = self
             .storage
             .write()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+        if no_sync {
+            let trial = guard.get_trial(trial_id, true).map_err(err_to_exceptions)?;
+            return Ok(PyPersistedTrial::from_storage(self.storage.clone(), trial));
+        }
         let trial = guard
-            .get_trial(trial_id)
+            .get_trial(trial_id, false)
             .map_err(err_to_exceptions)?
             .clone();
         let study_attrs = guard

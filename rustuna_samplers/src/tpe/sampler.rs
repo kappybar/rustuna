@@ -84,7 +84,7 @@ impl TpeSampler {
         let mut guard = storage
             .write()
             .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
-        let trials = guard.get_trials(ctx.study_id)?.clone();
+        let trials = guard.get_trials(ctx.study_id, false)?.clone();
         drop(guard);
 
         let complete_trials: Vec<_> = trials.into_iter().filter(|t| t.is_finished()).collect();
@@ -396,7 +396,7 @@ impl Sampler for TpeSampler {
         let mut guard = storage
             .write()
             .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
-        let trials = guard.get_trials(ctx.study_id)?.clone();
+        let trials = guard.get_trials(ctx.study_id, false)?.clone();
         drop(guard);
 
         let complete_trials: Vec<_> = trials.into_iter().filter(|t| t.is_finished()).collect();
@@ -425,7 +425,7 @@ impl Sampler for TpeSampler {
         let mut guard = storage
             .write()
             .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
-        let trials = guard.get_trials(ctx.study_id)?.clone();
+        let trials = guard.get_trials(ctx.study_id, false)?.clone();
         drop(guard);
 
         let complete_trials: Vec<_> = trials.into_iter().filter(|t| t.is_finished()).collect();
