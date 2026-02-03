@@ -45,7 +45,7 @@ impl JsStudy {
                 JsError::new(&format!("Failed to acquire the storage guard: {e:?}"))
             })?;
             let trials = guard
-                .get_trials(self.0.id, false)
+                .get_trials(self.0.id)
                 .map_err(|e| JsError::new(&format!("Failed to get trials: {:?}", e.kind)))?
                 .clone();
             let study_attrs = guard

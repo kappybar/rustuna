@@ -33,12 +33,13 @@ pub trait Storage: Send + Sync {
     // references without relying on unsafe patterns.
     fn get_studies(&mut self) -> Result<&Vec<PersistedStudy>>;
     fn get_study(&mut self, study_id: u32) -> Result<&PersistedStudy>;
+    fn get_trials(&mut self, study_id: u32) -> Result<&Vec<PersistedTrial>>;
+    fn get_trial(&mut self, trial_id: u32) -> Result<&PersistedTrial>;
     // Design Note:
-    // `no_sync` avoids refreshing or syncing from the backend and reads from the
-    // current in-memory cache. Implementations may return TrialNotFound or StudyNotFound
-    // if the requested data is not cached yet.
-    fn get_trials(&mut self, study_id: u32, no_sync: bool) -> Result<&Vec<PersistedTrial>>;
-    fn get_trial(&mut self, trial_id: u32, no_sync: bool) -> Result<&PersistedTrial>;
+    // get_cached_* methods always return references from the in-memory cache without
+    // synchronizing with backends. These methods are separate from get_* to allow
+    // callers to use read locks for cache-only reads.
+    fn get_cached_trial(&self, trial_id: u32) -> Result<&PersistedTrial>;
     // Design Note:
     // Category labels are stored in study system attrs internally, but exposed via dedicated
     // APIs for caching efficiency. Since category labels cannot be overwritten once set for
@@ -304,11 +305,15 @@ impl Storage for InMemoryStorage {
         Ok(study)
     }
 
-    fn get_trials(&mut self, study_id: u32, _no_sync: bool) -> Result<&Vec<PersistedTrial>> {
+    fn get_trials(&mut self, study_id: u32) -> Result<&Vec<PersistedTrial>> {
         get_trials_by_study_id(&self.trials, study_id)
     }
 
-    fn get_trial(&mut self, trial_id: u32, _no_sync: bool) -> Result<&PersistedTrial> {
+    fn get_trial(&mut self, trial_id: u32) -> Result<&PersistedTrial> {
+        self.get_cached_trial(trial_id)
+    }
+
+    fn get_cached_trial(&self, trial_id: u32) -> Result<&PersistedTrial> {
         let (study_id, trial_number) =
             get_study_id_trial_number_by_trial_id(&self.trial_id_to_study_number, trial_id)?;
         let trial = get_trials_by_study_id(&self.trials, study_id)?

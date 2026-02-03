@@ -309,7 +309,7 @@ impl PyStudy {
                 PyRuntimeError::new_err(format!("Failed to get trial id: {:?}", e.kind))
             })?;
         let trial = guard
-            .get_trial(trial_id, false)
+            .get_trial(trial_id)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to get trial: {:?}", e.kind)))?;
         Ok(PyPersistedTrial::from_storage(
             self.study.storage.clone(),
@@ -325,7 +325,7 @@ impl PyStudy {
             .write()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
         let trials_vec = guard
-            .get_trials(self.study.id, false)
+            .get_trials(self.study.id)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to get trials: {:?}", e.kind)))?;
         let trials: Vec<PyPersistedTrial> = trials_vec
             .iter()
@@ -361,7 +361,7 @@ impl PyStudy {
             .write()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
         let trials_vec = guard
-            .get_trials(self.study.id, false)
+            .get_trials(self.study.id)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to get trials: {:?}", e.kind)))?;
         let best_trials = pareto_front_numbers
             .iter()

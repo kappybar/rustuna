@@ -249,7 +249,7 @@ impl PyObjectStorage {
     ) -> rustuna_core::Result<()> {
         let cache_n_trials = match cache_n_trials {
             Some(n) => n,
-            None => self.cache.get_trials(cache_study_id, false)?.len() as u32,
+            None => self.cache.get_trials(cache_study_id)?.len() as u32,
         };
         match src_trial.number.cmp(&cache_n_trials) {
             std::cmp::Ordering::Equal => {
@@ -273,7 +273,7 @@ impl PyObjectStorage {
             }
         }
 
-        let cache_trial = self.cache.get_trial(src_trial.id, false)?.clone();
+        let cache_trial = self.cache.get_trial(src_trial.id)?.clone();
         if cache_trial.is_finished() {
             return Ok(());
         }
@@ -315,10 +315,10 @@ impl PyObjectStorage {
             .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
         src_trials.sort_by_key(|trial| trial.number);
 
-        let mut cache_n_trials = self.cache.get_trials(cache_study_id, false)?.len() as u32;
+        let mut cache_n_trials = self.cache.get_trials(cache_study_id)?.len() as u32;
         for src_trial in src_trials {
             self.sync_trial(cache_study_id, src_trial, Some(cache_n_trials))?;
-            cache_n_trials = self.cache.get_trials(cache_study_id, false)?.len() as u32;
+            cache_n_trials = self.cache.get_trials(cache_study_id)?.len() as u32;
         }
         Ok(())
     }
@@ -385,15 +385,15 @@ impl Storage for PyObjectStorage {
         let src_trial_id = src_trial.id;
         if self.is_distributed {
             self.sync_trials(study_id)?;
-            return self.cache.get_trial(src_trial_id, false);
+            return self.cache.get_trial(src_trial_id);
         }
-        let cached_n_trials = self.cache.get_trials(study_id, false)?.len() as u32;
+        let cached_n_trials = self.cache.get_trials(study_id)?.len() as u32;
         if src_trial.number != cached_n_trials {
             self.sync_trials(study_id)?;
-            return self.cache.get_trial(src_trial_id, false);
+            return self.cache.get_trial(src_trial_id);
         }
         self.sync_trial(study_id, src_trial, Some(cached_n_trials))?;
-        self.cache.get_trial(src_trial_id, false)
+        self.cache.get_trial(src_trial_id)
     }
 
     fn set_trial_param(
@@ -459,17 +459,22 @@ impl Storage for PyObjectStorage {
     fn get_trials(
         &mut self,
         study_id: u32,
-        _no_sync: bool,
     ) -> rustuna_core::Result<&Vec<rustuna_core::trial::PersistedTrial>> {
-        self.cache.get_trials(study_id, false)
+        self.cache.get_trials(study_id)
     }
 
     fn get_trial(
         &mut self,
         trial_id: u32,
-        _no_sync: bool,
     ) -> rustuna_core::Result<&rustuna_core::trial::PersistedTrial> {
-        self.cache.get_trial(trial_id, false)
+        self.cache.get_trial(trial_id)
+    }
+
+    fn get_cached_trial(
+        &self,
+        trial_id: u32,
+    ) -> rustuna_core::Result<&rustuna_core::trial::PersistedTrial> {
+        self.cache.get_cached_trial(trial_id)
     }
 
     fn get_category_labels(

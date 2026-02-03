@@ -11,7 +11,7 @@ pub fn get_param_importance(study: &Study) -> Result<Vec<Vec<f64>>> {
         .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
     // TODO(c-bata): Avoid to clone trials.
     let completed_trials: Vec<PersistedTrial> = guard
-        .get_trials(study.id, false)?
+        .get_trials(study.id)?
         .clone()
         .into_iter()
         .filter(|t| matches!(t.state_values, TrialStateValues::Complete(_)))

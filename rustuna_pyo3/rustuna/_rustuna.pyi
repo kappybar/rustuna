@@ -409,10 +409,9 @@ class StorageProtocol(Protocol):
     ) -> None: ...
     def get_studies(self) -> list[PersistedStudy]: ...
     def get_study(self, study_id: int) -> PersistedStudy: ...
-    def get_trials(
-        self, study_id: int, *, no_sync: bool = ...
-    ) -> list[PersistedTrial]: ...
-    def get_trial(self, trial_id: int, *, no_sync: bool = ...) -> PersistedTrial: ...
+    def get_trials(self, study_id: int) -> list[PersistedTrial]: ...
+    def get_trial(self, trial_id: int) -> PersistedTrial: ...
+    def get_cached_trial(self, trial_id: int) -> PersistedTrial: ...
     def get_trial_id_from_study_id_trial_number(
         self, study_id: int, trial_number: int
     ) -> int: ...
@@ -544,7 +543,7 @@ class Storage:
         Returns:
             The study.
         """
-    def get_trials(self, study_id: int, *, no_sync: bool = ...) -> list[PersistedTrial]:
+    def get_trials(self, study_id: int) -> list[PersistedTrial]:
         """Get all trials in a study.
 
         Args:
@@ -562,8 +561,17 @@ class Storage:
         Returns:
             Number of trials.
         """
-    def get_trial(self, trial_id: int, *, no_sync: bool = ...) -> PersistedTrial:
+    def get_trial(self, trial_id: int) -> PersistedTrial:
         """Get a trial by ID.
+
+        Args:
+            trial_id: ID of the trial.
+
+        Returns:
+            The trial.
+        """
+    def get_cached_trial(self, trial_id: int) -> PersistedTrial:
+        """Get a cached trial by ID without synchronizing with backends.
 
         Args:
             trial_id: ID of the trial.

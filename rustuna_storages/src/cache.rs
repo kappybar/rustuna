@@ -319,10 +319,8 @@ impl rustuna_core::storage::Storage for CachedStorage {
         Ok(study)
     }
 
-    fn get_trials(&mut self, study_id: u32, no_sync: bool) -> Result<&Vec<PersistedTrial>> {
-        if !no_sync {
-            self.refresh_trials(study_id)?;
-        }
+    fn get_trials(&mut self, study_id: u32) -> Result<&Vec<PersistedTrial>> {
+        self.refresh_trials(study_id)?;
         let trials_map = self
             .trials
             .get(&study_id)
@@ -338,23 +336,18 @@ impl rustuna_core::storage::Storage for CachedStorage {
         Ok(&self.trials_sorted_buffer)
     }
 
-    fn get_trial(&mut self, trial_id: u32, no_sync: bool) -> Result<&PersistedTrial> {
-        if no_sync {
-            let (study_id, trial_number) = self
-                .trial_id_to_study_number
-                .get(&trial_id)
-                .copied()
-                .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
-            let trials = self
-                .trials
-                .get(&study_id)
-                .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))?;
-            return trials
-                .get(&trial_number)
-                .ok_or_else(|| Error::new(ErrorKind::TrialNotFound));
-        }
-        let (study_id, trial_number) = self.resolve_trial_location(trial_id)?;
+    fn get_trial(&mut self, trial_id: u32) -> Result<&PersistedTrial> {
+        let (study_id, _number) = self.resolve_trial_location(trial_id)?;
         self.refresh_trials(study_id)?;
+        self.get_cached_trial(trial_id)
+    }
+
+    fn get_cached_trial(&self, trial_id: u32) -> Result<&PersistedTrial> {
+        let (study_id, trial_number) = self
+            .trial_id_to_study_number
+            .get(&trial_id)
+            .copied()
+            .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
         let trials = self
             .trials
             .get(&study_id)
@@ -470,7 +463,7 @@ impl rustuna_core::storage::Storage for CachedStorage {
 
     fn get_joint_search_space(&mut self, study_id: u32) -> Result<HashMap<String, Distribution>> {
         let trials_vec = {
-            let trials = self.get_trials(study_id, false)?;
+            let trials = self.get_trials(study_id)?;
             let mut v = trials.clone();
             v.sort_by_key(|t| t.number);
             v
@@ -568,7 +561,7 @@ mod tests {
             included_numbers: &[u32],
             trial_number_greater_than: i32,
         ) -> Result<Vec<PersistedTrial>> {
-            let all = self.inner.get_trials(study_id, false)?.clone();
+            let all = self.inner.get_trials(study_id)?.clone();
             let mut trials = Vec::new();
             for t in all {
                 if included_numbers.contains(&t.number)
@@ -581,7 +574,7 @@ mod tests {
         }
 
         fn get_trial(&mut self, trial_id: u32) -> Result<PersistedTrial> {
-            Ok(self.inner.get_trial(trial_id, false)?.clone())
+            Ok(self.inner.get_trial(trial_id)?.clone())
         }
 
         fn set_study_attrs(
@@ -665,7 +658,7 @@ mod tests {
     }
 
     #[test]
-    fn get_study_and_get_studies_no_sync() -> Result<()> {
+    fn get_study_and_get_studies_use_cache() -> Result<()> {
         let mut storage = CachedStorage::new(Box::new(DummyBackend::new()));
         storage.create_new_study("s1", vec![Direction::Minimize])?;
         storage.create_new_study("s2", vec![Direction::Maximize])?;
@@ -703,11 +696,11 @@ mod tests {
         let t0_id = storage.create_new_trial(study_id)?.id;
         let t1_id = storage.create_new_trial(study_id)?.id;
 
-        let trials = storage.get_trials(study_id, false)?;
+        let trials = storage.get_trials(study_id)?;
         assert_eq!(trials.len(), 2);
-        let t0 = storage.get_trial(t0_id, false)?;
+        let t0 = storage.get_trial(t0_id)?;
         assert_eq!(t0.number, 0);
-        let t1 = storage.get_trial(t1_id, false)?;
+        let t1 = storage.get_trial(t1_id)?;
         assert_eq!(t1.number, 1);
         Ok(())
     }
@@ -719,7 +712,7 @@ mod tests {
         storage.create_new_trial(study_id)?;
 
         storage.trials.clear();
-        let trials = storage.get_trials(study_id, false)?;
+        let trials = storage.get_trials(study_id)?;
         assert_eq!(trials.len(), 1);
         Ok(())
     }
@@ -750,11 +743,11 @@ mod tests {
         backend.create_new_trial(study_id)?;
 
         let mut storage = CachedStorage::new(Box::new(backend));
-        let trials1 = storage.get_trials(study_id, false)?;
+        let trials1 = storage.get_trials(study_id)?;
         assert_eq!(trials1.len(), 1);
 
         storage.backend.create_new_trial(study_id)?;
-        let trials2 = storage.get_trials(study_id, false)?;
+        let trials2 = storage.get_trials(study_id)?;
         assert_eq!(trials2.len(), 2);
         Ok(())
     }
@@ -767,7 +760,7 @@ mod tests {
 
         let mut storage = CachedStorage::new(Box::new(backend));
         storage.set_trial_state_values(trial_id, TrialStateValues::Complete(vec![1.0]))?;
-        let trial = storage.get_trial(trial_id, false)?;
+        let trial = storage.get_trial(trial_id)?;
         assert!(matches!(trial.state_values, TrialStateValues::Complete(_)));
         Ok(())
     }
@@ -813,7 +806,7 @@ mod tests {
         let mut t_attrs = Attrs::new();
         t_attrs.insert(AttrKey::System("key".into()), "val".to_string());
         storage.set_trial_attrs(trial_id, t_attrs, false)?;
-        let trial = storage.get_trial(trial_id, false)?;
+        let trial = storage.get_trial(trial_id)?;
         assert_eq!(
             trial
                 .attrs
@@ -837,10 +830,10 @@ mod tests {
             step: None,
             log: false,
         };
-        let trial_id = storage.get_trials(study_id, false)?[0].id;
+        let trial_id = storage.get_trials(study_id)?[0].id;
         storage.set_trial_param(trial_id, "x", &dist, 0.5)?;
 
-        let trial = storage.get_trial(trial_id, false)?;
+        let trial = storage.get_trial(trial_id)?;
         assert_eq!(trial.internal_params.get("x"), Some(&0.5));
         assert_eq!(
             trial.distributions.get("x"),
@@ -887,14 +880,14 @@ mod tests {
         // Set new params.
         storage.set_trial_param(trial_1_id, "x", &distribution_x, 0.5)?;
         storage.set_trial_param(trial_1_id, "y", &distribution_y_1, 2.0)?;
-        let trial = storage.get_trial(trial_1_id, false)?;
+        let trial = storage.get_trial(trial_1_id)?;
         assert_eq!(trial.internal_params["x"], 0.5);
         assert_eq!(trial.internal_params["y"], 2.0);
 
         // Set params to another trial
         storage.set_trial_param(trial_2_id, "x", &distribution_x, 0.3)?;
         storage.set_trial_param(trial_2_id, "z", &distribution_z, 0.1)?;
-        let trial = storage.get_trial(trial_2_id, false)?;
+        let trial = storage.get_trial(trial_2_id)?;
         assert_eq!(trial.internal_params["x"], 0.3);
         assert_eq!(trial.internal_params["z"], 0.1);
 
