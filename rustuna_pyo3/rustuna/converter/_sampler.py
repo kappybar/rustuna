@@ -1,0 +1,90 @@
+from __future__ import annotations
+
+from typing import Any, TYPE_CHECKING
+
+from optuna.distributions import BaseDistribution
+from optuna.samplers import BaseSampler
+from optuna.search_space import IntersectionSearchSpace
+from optuna.storages import BaseStorage
+from optuna.study import Study
+from optuna.trial import FrozenTrial
+
+
+import rustuna
+from rustuna.converter._storage import ToRustunaStorage
+from rustuna.converter import to_rustuna_directions
+from rustuna.converter import to_rustuna_distributions
+from rustuna.converter import to_rustuna_distributions
+from rustuna.converter import to_rustuna_distribution
+
+if TYPE_CHECKING:
+    from rustuna import SamplerProtocol
+    from rustuna import StorageProtocol
+
+
+class ToOptunaSampler(BaseSampler):
+    def __init__(self, sampler: SamplerProtocol) -> None:
+        self._sampler = sampler
+        self._inter_section_search_space = IntersectionSearchSpace()
+        self._storage: StorageProtocol | None = None
+
+    def _get_storage(self, storage: BaseStorage) -> StorageProtocol:
+        if self._storage is None:
+            self._storage = ToRustunaStorage(storage)
+        return self._storage
+
+    def sample_relative(
+        self,
+        study: Study,
+        trial: FrozenTrial,
+        search_space: dict[str, BaseDistribution],
+    ) -> dict[str, Any]:
+        if search_space == {}:
+            return {}
+
+        ctx = rustuna.SamplerContext(
+            study_id=study._study_id,
+            trial_number=trial.number,
+            trial_id=trial._trial_id,
+            directions=to_rustuna_directions(study._directions),
+        )
+        storage = self._get_storage(study._storage)
+        rustuna_search_space = to_rustuna_distributions(search_space)
+        return self._sampler.sample_joint(ctx, storage, rustuna_search_space)
+
+    def sample_independent(
+        self,
+        study: Study,
+        trial: FrozenTrial,
+        param_name: str,
+        param_distribution: BaseDistribution,
+    ) -> Any:
+        ctx = rustuna.SamplerContext(
+            study_id=study._study_id,
+            trial_number=trial.number,
+            trial_id=trial._trial_id,
+            directions=to_rustuna_directions(study._directions),
+        )
+        storage = self._get_storage(study._storage)
+        distribution = to_rustuna_distribution(param_distribution)
+        return self._sampler.sample_independent(ctx, storage, param_name, distribution)
+
+    def infer_relative_search_space(
+        self,
+        study: Study,
+        trial: FrozenTrial,
+    ) -> dict[str, BaseDistribution]:
+        if not self._sampler.support_joint_sampling:
+            return {}
+
+        # TODO(y0z): Support study.get_joint_search_space insead of using Optuna Python API
+        # search_space = study.get_joint_search_space(study._study_id)
+        search_space: dict[str, BaseDistribution] = {}
+        for name, distribution in self._inter_section_search_space.calculate(
+            study, use_cache=True
+        ).items():
+            if distribution.single():
+                continue
+            search_space[name] = distribution
+
+        return search_space
