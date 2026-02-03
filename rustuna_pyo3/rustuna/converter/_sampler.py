@@ -49,7 +49,15 @@ class ToOptunaSampler(BaseSampler):
         )
         storage = self._get_storage(study._storage)
         rustuna_search_space = to_rustuna_distributions(search_space)
-        return self._sampler.sample_joint(ctx, storage, rustuna_search_space)
+        internal_params = self._sampler.sample_joint(ctx, storage, rustuna_search_space)
+        external_params: dict[str, Any] = {}
+        for param_name in internal_params:
+            distribution = search_space[param_name]
+            external_param_value = distribution.to_external_repr(
+                internal_params[param_name]
+            )
+            external_params[param_name] = external_param_value
+        return external_params
 
     def sample_independent(
         self,
@@ -66,7 +74,10 @@ class ToOptunaSampler(BaseSampler):
         )
         storage = self._get_storage(study._storage)
         distribution = to_rustuna_distribution(param_distribution)
-        return self._sampler.sample_independent(ctx, storage, param_name, distribution)
+        internal_param = self._sampler.sample_independent(
+            ctx, storage, param_name, distribution
+        )
+        return param_distribution.to_external_repr(internal_param)
 
     def infer_relative_search_space(
         self,

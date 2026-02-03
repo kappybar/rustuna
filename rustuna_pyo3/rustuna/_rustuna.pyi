@@ -785,7 +785,7 @@ class Sampler:
     def sample_joint(
         self,
         ctx: SamplerContext,
-        storage: StorageProtocol,
+        storage: Storage | PyObjectStorage,
         search_space: dict[str, Distribution],
     ) -> dict[str, float]:
         """Sample multiple parameters simultaneously.
@@ -801,7 +801,7 @@ class Sampler:
     def sample_independent(
         self,
         ctx: SamplerContext,
-        storage: StorageProtocol,
+        storage: Storage | PyObjectStorage,
         name: str,
         distribution: Distribution,
     ) -> float:
