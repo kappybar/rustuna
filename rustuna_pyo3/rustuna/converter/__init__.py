@@ -10,6 +10,9 @@ from ._distribution import (
     to_rustuna_distribution,
     to_rustuna_distributions,
 )
+from ._sampler import (
+    ToOptunaSampler,
+)
 from ._storage import (
     ToOptunaStorage,
     ToRustunaStorage,
