@@ -485,18 +485,10 @@ impl PyPersistedTrial {
             let py_params = self.params()?.into_pyobject(py)?;
             Ok(py_params.str()?.to_str()?.to_owned())
         })?;
-        let user_attrs = Python::attach(|py| -> PyResult<String> {
-            let attrs = self.user_attrs()?;
-            let dict = attrs.to_pydict(py)?;
-            Ok(dict.bind(py).str()?.to_str()?.to_owned())
-        })?;
-        let system_attrs = Python::attach(|py| -> PyResult<String> {
-            let attrs = self.system_attrs()?;
-            let dict = attrs.to_pydict(py)?;
-            Ok(dict.bind(py).str()?.to_str()?.to_owned())
-        })?;
+        let user_attrs = self.user_attrs()?.format_as_dict()?;
+        let system_attrs = self.system_attrs()?.format_as_dict()?;
         Ok(format!(
-            "number={} state={:?} values={:?} params={} distributions={:?} user_attrs={:?} system_attrs={:?}",
+            "number={} state={:?} values={:?} params={} distributions={:?} user_attrs={} system_attrs={}",
             self.number()?,
             self.state()?,
             self.values()?,

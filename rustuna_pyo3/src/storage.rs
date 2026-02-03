@@ -15,7 +15,7 @@ use rustuna_storages::journal::storage::JournalStorage;
 use rustuna_storages::optuna::OptunaCompatibleStorage;
 use rustuna_storages::sqlite3::SQLite3Storage;
 
-use crate::attrs::{pyobj_to_system_attrs, pyobj_to_user_attrs};
+use crate::attrs::{pyobj_to_attrs_with_kind, AttrKind};
 use crate::distribution::{category_label_to_pyobject, pyobject_to_category_label, PyDistribution};
 use crate::exception::err_to_exceptions;
 use crate::study::{PyDirection, PyPersistedStudy};
@@ -308,7 +308,7 @@ impl PyStorage {
     fn set_study_system_attrs(&mut self, study_id: u32, attrs: Py<PyAny>) -> PyResult<()> {
         let system_attrs = Python::attach(|py| {
             let attrs = attrs.bind(py);
-            pyobj_to_system_attrs(attrs)
+            pyobj_to_attrs_with_kind(attrs, AttrKind::System)
         })?;
         let mut guard = self
             .storage
@@ -323,7 +323,7 @@ impl PyStorage {
     fn set_study_user_attrs(&mut self, study_id: u32, attrs: Py<PyAny>) -> PyResult<()> {
         let user_attrs = Python::attach(|py| {
             let attrs = attrs.bind(py);
-            pyobj_to_user_attrs(attrs)
+            pyobj_to_attrs_with_kind(attrs, AttrKind::User)
         })?;
         let mut guard = self
             .storage
@@ -338,7 +338,7 @@ impl PyStorage {
     fn set_trial_system_attrs(&mut self, trial_id: u32, attrs: Py<PyAny>) -> PyResult<()> {
         let system_attrs = Python::attach(|py| {
             let attrs = attrs.bind(py);
-            pyobj_to_system_attrs(attrs)
+            pyobj_to_attrs_with_kind(attrs, AttrKind::System)
         })?;
         let mut guard = self
             .storage
@@ -353,7 +353,7 @@ impl PyStorage {
     fn set_trial_user_attrs(&mut self, trial_id: u32, attrs: Py<PyAny>) -> PyResult<()> {
         let user_attrs = Python::attach(|py| {
             let attrs = attrs.bind(py);
-            pyobj_to_user_attrs(attrs)
+            pyobj_to_attrs_with_kind(attrs, AttrKind::User)
         })?;
         let mut guard = self
             .storage

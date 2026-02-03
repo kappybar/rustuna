@@ -3,39 +3,34 @@ use std::sync::{Arc, RwLock};
 use pyo3::class::basic::CompareOp;
 use pyo3::exceptions::{PyKeyError, PyRuntimeError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyIterator, PyList, PyStringMethods};
+use pyo3::types::{PyDict, PyIterator, PyList};
 use rustuna_core::attr::{AttrKey, Attrs};
 use rustuna_core::storage::Storage;
 
 use crate::exception::err_to_exceptions;
 
-pub fn pyobj_to_system_attrs(obj: &Bound<'_, PyAny>) -> PyResult<Attrs> {
+// TODO(c-bata): Consider removing the PyDict branch if there is no significant performance
+// difference. The Mapping protocol branch (else) can handle PyDict as well.
+pub fn pyobj_to_attrs_with_kind(obj: &Bound<'_, PyAny>, kind: AttrKind) -> PyResult<Attrs> {
     if obj.is_instance_of::<PyDict>() {
-        let user_attrs = obj.cast::<PyDict>()?;
-        let mut attrs = Attrs::with_capacity(user_attrs.len());
-        for (key, value) in user_attrs {
+        // Fast path for PyDict: iterate directly without calling .items() method.
+        let dict = obj.cast::<PyDict>()?;
+        let mut attrs = Attrs::with_capacity(dict.len());
+        for (key, value) in dict {
             let key = key.extract::<String>()?;
             let value = value.extract::<String>()?;
-            attrs.insert(AttrKey::System(key.into()), value);
+            attrs.insert(kind.to_key(&key), value);
         }
         Ok(attrs)
     } else {
-        pyobj_to_system_attrs_mapping(obj)
-    }
-}
-
-pub fn pyobj_to_user_attrs(obj: &Bound<'_, PyAny>) -> PyResult<Attrs> {
-    if obj.is_instance_of::<PyDict>() {
-        let system_attrs = obj.cast::<PyDict>()?;
-        let mut attrs = Attrs::with_capacity(system_attrs.len());
-        for (key, value) in system_attrs {
-            let key = key.extract::<String>()?;
-            let value = value.extract::<String>()?;
-            attrs.insert(AttrKey::User(key.into()), value);
+        // TODO(c-bata): Add error handling if obj does not implement Mapping protocol.
+        let items = obj.call_method0("items")?;
+        let items = items.extract::<Vec<(String, String)>>()?;
+        let mut attrs = Attrs::with_capacity(items.len());
+        for (key, value) in items {
+            attrs.insert(kind.to_key(&key), value);
         }
         Ok(attrs)
-    } else {
-        pyobj_to_user_attrs_mapping(obj)
     }
 }
 
@@ -43,8 +38,8 @@ pub fn pyobj_to_attrs(
     user_attrs: &Bound<'_, PyAny>,
     system_attrs: &Bound<'_, PyAny>,
 ) -> PyResult<Attrs> {
-    let user_attrs = pyobj_to_user_attrs(user_attrs)?;
-    let system_attrs = pyobj_to_system_attrs(system_attrs)?;
+    let user_attrs = pyobj_to_attrs_with_kind(user_attrs, AttrKind::User)?;
+    let system_attrs = pyobj_to_attrs_with_kind(system_attrs, AttrKind::System)?;
     let cap = user_attrs.len() + system_attrs.len();
     let mut attrs = Attrs::with_capacity(cap);
     for (key, value) in user_attrs {
@@ -52,26 +47,6 @@ pub fn pyobj_to_attrs(
     }
     for (key, value) in system_attrs {
         attrs.insert(key, value);
-    }
-    Ok(attrs)
-}
-
-fn pyobj_to_user_attrs_mapping(obj: &Bound<'_, PyAny>) -> PyResult<Attrs> {
-    let items = obj.call_method0("items")?;
-    let items = items.extract::<Vec<(String, String)>>()?;
-    let mut attrs = Attrs::with_capacity(items.len());
-    for (key, value) in items {
-        attrs.insert(AttrKey::User(key.into()), value);
-    }
-    Ok(attrs)
-}
-
-fn pyobj_to_system_attrs_mapping(obj: &Bound<'_, PyAny>) -> PyResult<Attrs> {
-    let items = obj.call_method0("items")?;
-    let items = items.extract::<Vec<(String, String)>>()?;
-    let mut attrs = Attrs::with_capacity(items.len());
-    for (key, value) in items {
-        attrs.insert(AttrKey::System(key.into()), value);
     }
     Ok(attrs)
 }
@@ -181,6 +156,15 @@ impl AttrsDictView {
         Ok(dict.unbind())
     }
 
+    pub(crate) fn format_as_dict(&self) -> PyResult<String> {
+        let entries: Vec<String> = self
+            .collect_entries()?
+            .iter()
+            .map(|(k, v)| format!("'{k}': '{v}'"))
+            .collect();
+        Ok(format!("{{{}}}", entries.join(", ")))
+    }
+
     fn len(&self) -> PyResult<usize> {
         self.with_attrs(|attrs| Ok(attrs.iter().filter(|(k, _)| self.kind.matches(k)).count()))
     }
@@ -276,13 +260,11 @@ impl AttrsDictView {
         }
     }
 
-    fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
-        let dict = self.to_pydict(py)?;
-        Ok(dict.bind(py).repr()?.to_str()?.to_string())
+    fn __repr__(&self) -> PyResult<String> {
+        self.format_as_dict()
     }
 
-    fn __str__(&self, py: Python<'_>) -> PyResult<String> {
-        let dict = self.to_pydict(py)?;
-        Ok(dict.bind(py).str()?.to_str()?.to_string())
+    fn __str__(&self) -> PyResult<String> {
+        self.format_as_dict()
     }
 }

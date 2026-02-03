@@ -90,7 +90,7 @@ def to_persisted_trial(
 
 
 class _LazyJSONAttrs(dict[str, typing.Any]):
-    def __init__(self, raw: dict[str, str]) -> None:
+    def __init__(self, raw: typing.Mapping[str, str]) -> None:
         super().__init__(raw)
         self._decoded_keys: set[str] = set()
 
