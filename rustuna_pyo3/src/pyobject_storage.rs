@@ -16,6 +16,14 @@ use crate::exception::err_to_exceptions;
 use crate::study::{pyobject_to_persisted_study, PyDirection};
 use crate::trial::{pyobject_to_persisted_trial, PyTrialState};
 
+// PyObjectStorage wraps an Optuna storage object and maintains an in-memory cache.
+//
+// When using Optuna's API (e.g., `study.optimize()` with `ToOptunaSampler`), write operations
+// (such as `set_trial_state_values`) are performed directly on the Optuna storage, bypassing
+// PyObjectStorage's write methods. Therefore, the cache is not updated during these operations.
+//
+// To ensure consistency, all `get_*` methods must synchronize with the backend storage before
+// returning cached data.
 pub struct PyObjectStorage {
     obj: Py<PyAny>,
     is_distributed: bool,
@@ -448,6 +456,7 @@ impl Storage for PyObjectStorage {
     }
 
     fn get_studies(&mut self) -> rustuna_core::Result<&Vec<rustuna_core::study::PersistedStudy>> {
+        self.sync_studies(true)?;
         self.cache.get_studies()
     }
 
@@ -455,6 +464,7 @@ impl Storage for PyObjectStorage {
         &mut self,
         study_id: u32,
     ) -> rustuna_core::Result<&rustuna_core::study::PersistedStudy> {
+        self.sync_study_from_id(study_id, true)?;
         self.cache.get_study(study_id)
     }
 
@@ -462,6 +472,9 @@ impl Storage for PyObjectStorage {
         &mut self,
         study_id: u32,
     ) -> rustuna_core::Result<&Vec<rustuna_core::trial::PersistedTrial>> {
+        // Ensure study mapping exists before sync_trials, which requires cache_study_to_src_study.
+        self.sync_study_from_id(study_id, false)?;
+        self.sync_trials(study_id)?;
         self.cache.get_trials(study_id)
     }
 
@@ -469,6 +482,7 @@ impl Storage for PyObjectStorage {
         &mut self,
         trial_id: u32,
     ) -> rustuna_core::Result<&rustuna_core::trial::PersistedTrial> {
+        self.sync_all_trials()?;
         self.cache.get_trial(trial_id)
     }
 
@@ -578,7 +592,9 @@ impl Storage for PyObjectStorage {
         &mut self,
         study_id: u32,
     ) -> rustuna_core::Result<HashMap<String, Distribution>> {
+        // Ensure study mapping exists before sync_trials, which requires cache_study_to_src_study.
         self.sync_study_from_id(study_id, false)?;
+        self.sync_trials(study_id)?;
         self.cache.get_joint_search_space(study_id)
     }
 }
