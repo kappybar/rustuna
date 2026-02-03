@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -11,6 +12,7 @@ use rustuna_core::study::{Direction, PersistedStudy};
 use rustuna_core::trial::{PersistedTrial, TrialStateValues};
 
 use crate::distribution::PyDistribution;
+use crate::exception::err_to_exceptions;
 use crate::study::{pyobject_to_persisted_study, PyDirection};
 use crate::trial::{pyobject_to_persisted_trial, PyTrialState};
 
@@ -578,5 +580,31 @@ impl Storage for PyObjectStorage {
     ) -> rustuna_core::Result<HashMap<String, Distribution>> {
         self.sync_study_from_id(study_id, false)?;
         self.cache.get_joint_search_space(study_id)
+    }
+}
+
+// TODO(c-bata): Rename PyStorage, PyObjectStorage, and PyPyObjectStorage to more descriptive names.
+// Current naming is confusing: PyStorage wraps Rust-native storages, PyObjectStorage implements
+// Storage trait from Python StorageProtocol, and PyPyObjectStorage exposes PyObjectStorage to Python.
+#[derive(Clone)]
+#[pyclass(name = "PyObjectStorage")]
+#[pyo3(module = "rustuna")]
+pub struct PyPyObjectStorage {
+    pub storage: Arc<RwLock<PyObjectStorage>>,
+}
+
+#[pymethods]
+impl PyPyObjectStorage {
+    #[new]
+    fn new(storage: Py<PyAny>) -> PyResult<Self> {
+        Python::attach(|py| {
+            let storage_ref = storage.bind(py);
+            let is_distributed = storage_ref.getattr("is_distributed")?.extract::<bool>()?;
+            let mut inner = PyObjectStorage::new(storage, is_distributed);
+            inner.sync_studies(true).map_err(err_to_exceptions)?;
+            Ok(PyPyObjectStorage {
+                storage: Arc::new(RwLock::new(inner)),
+            })
+        })
     }
 }

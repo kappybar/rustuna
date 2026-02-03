@@ -437,6 +437,25 @@ class OptunaStorageProtocol(StorageProtocol, Protocol):
         self, trial_id: int, step: int, intermediate_value: float
     ) -> None: ...
 
+class PyObjectStorage:
+    """Wrapper to convert a StorageProtocol implementation to Rust Storage trait.
+
+    This class wraps a Python object implementing StorageProtocol and makes it
+    usable as a Rust Storage trait implementation.
+
+    Note:
+        This class is not intended for direct use by end users. It is used internally
+        by rustuna converters (e.g., ToOptunaSampler) to bridge Python StorageProtocol
+        implementations with Rust components.
+    """
+
+    def __init__(self, storage: StorageProtocol) -> None:
+        """Create a PyObjectStorage from a StorageProtocol instance.
+
+        Args:
+            storage: A Python object implementing StorageProtocol.
+        """
+
 class Storage:
     """Storage for persisting optimization history."""
 
@@ -704,13 +723,13 @@ class SamplerProtocol(Protocol):
     def sample_joint(
         self,
         ctx: SamplerContext,
-        storage: StorageProtocol,
+        storage: Storage | PyObjectStorage,
         search_space: dict[str, Distribution],
     ) -> dict[str, float]: ...
     def sample_independent(
         self,
         ctx: SamplerContext,
-        storage: StorageProtocol,
+        storage: Storage | PyObjectStorage,
         name: str,
         distribution: Distribution,
     ) -> float: ...

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from optuna.distributions import BaseDistribution
 from optuna.samplers import BaseSampler
@@ -9,28 +9,27 @@ from optuna.storages import BaseStorage
 from optuna.study import Study
 from optuna.trial import FrozenTrial
 
-
 import rustuna
+from rustuna.converter import (
+    to_rustuna_directions,
+    to_rustuna_distribution,
+    to_rustuna_distributions,
+)
 from rustuna.converter._storage import ToRustunaStorage
-from rustuna.converter import to_rustuna_directions
-from rustuna.converter import to_rustuna_distributions
-from rustuna.converter import to_rustuna_distributions
-from rustuna.converter import to_rustuna_distribution
 
 if TYPE_CHECKING:
-    from rustuna import SamplerProtocol
-    from rustuna import StorageProtocol
+    from rustuna import SamplerProtocol, StorageProtocol
 
 
 class ToOptunaSampler(BaseSampler):
     def __init__(self, sampler: SamplerProtocol) -> None:
         self._sampler = sampler
         self._inter_section_search_space = IntersectionSearchSpace()
-        self._storage: StorageProtocol | None = None
+        self._storage: rustuna.PyObjectStorage | None = None
 
-    def _get_storage(self, storage: BaseStorage) -> StorageProtocol:
+    def _get_storage(self, storage: BaseStorage) -> rustuna.PyObjectStorage:
         if self._storage is None:
-            self._storage = ToRustunaStorage(storage)
+            self._storage = rustuna.PyObjectStorage(ToRustunaStorage(storage))
         return self._storage
 
     def sample_relative(

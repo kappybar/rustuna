@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::types::PyDict;
@@ -11,6 +11,7 @@ use rustuna_core::storage::Storage;
 use rustuna_samplers::tpe::{TpeConfig, TpeSampler};
 
 use crate::distribution::PyDistribution;
+use crate::pyobject_storage::PyPyObjectStorage;
 use crate::storage::PyStorage;
 use crate::study::PyDirection;
 
@@ -101,16 +102,17 @@ impl PySampler {
     fn sample_independent(
         &self,
         ctx: &PySamplerContext,
-        storage: &PyStorage,
+        storage: Py<PyAny>,
         name: &str,
         distribution: &PyDistribution,
     ) -> PyResult<f64> {
+        let arc_storage = extract_storage(storage)?;
         self.sampler
             .lock()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire the sampler guard"))?
             .sample_independent(
                 &ctx.context.clone(),
-                storage.storage.clone(),
+                arc_storage,
                 name,
                 &distribution.distribution,
             )
@@ -120,15 +122,16 @@ impl PySampler {
     fn sample_joint(
         &self,
         ctx: &PySamplerContext,
-        storage: &PyStorage,
+        storage: Py<PyAny>,
         search_space: HashMap<String, PyDistribution>,
     ) -> PyResult<HashMap<String, f64>> {
+        let arc_storage = extract_storage(storage)?;
         self.sampler
             .lock()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire the sampler guard"))?
             .sample_joint(
                 &ctx.context.clone(),
-                storage.storage.clone(),
+                arc_storage,
                 &search_space
                     .into_iter()
                     .map(|(k, v)| (k, v.distribution))
@@ -136,6 +139,21 @@ impl PySampler {
             )
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to sample joint: {e:?}")))
     }
+}
+
+fn extract_storage(storage: Py<PyAny>) -> PyResult<Arc<RwLock<dyn Storage>>> {
+    Python::attach(|py| {
+        let storage_ref = storage.bind(py);
+        if let Ok(py_storage) = storage_ref.extract::<PyStorage>() {
+            Ok(py_storage.storage.clone())
+        } else if let Ok(py_obj_storage) = storage_ref.extract::<PyPyObjectStorage>() {
+            Ok(py_obj_storage.storage.clone() as Arc<RwLock<dyn Storage>>)
+        } else {
+            Err(PyRuntimeError::new_err(
+                "Invalid storage type. Use rustuna.Storage for Rust-native storages or rustuna.PyObjectStorage for Python StorageProtocol implementations.",
+            ))
+        }
+    })
 }
 
 #[derive(Clone)]
