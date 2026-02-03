@@ -279,6 +279,17 @@ impl PyStorage {
         Ok(PyPersistedTrial::new(trial, study_attrs))
     }
 
+    fn get_cached_trial(&self, trial_id: u32) -> PyResult<PyPersistedTrial> {
+        let guard = self
+            .storage
+            .read()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+        let trial = guard
+            .get_cached_trial(trial_id)
+            .map_err(err_to_exceptions)?;
+        Ok(PyPersistedTrial::from_storage(self.storage.clone(), trial))
+    }
+
     fn get_trial_id_from_study_id_trial_number(
         &mut self,
         study_id: u32,

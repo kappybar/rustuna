@@ -227,10 +227,12 @@ impl PyPersistedTrial {
             PyPersistedTrialSource::StorageBacked {
                 storage, trial_id, ..
             } => {
-                let mut guard = storage
-                    .write()
+                let guard = storage
+                    .read()
                     .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
-                let trial = guard.get_trial(*trial_id).map_err(err_to_exceptions)?;
+                let trial = guard
+                    .get_cached_trial(*trial_id)
+                    .map_err(err_to_exceptions)?;
                 f(trial)
             }
         }

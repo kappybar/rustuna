@@ -337,8 +337,17 @@ impl rustuna_core::storage::Storage for CachedStorage {
     }
 
     fn get_trial(&mut self, trial_id: u32) -> Result<&PersistedTrial> {
-        let (study_id, trial_number) = self.resolve_trial_location(trial_id)?;
+        let (study_id, _number) = self.resolve_trial_location(trial_id)?;
         self.refresh_trials(study_id)?;
+        self.get_cached_trial(trial_id)
+    }
+
+    fn get_cached_trial(&self, trial_id: u32) -> Result<&PersistedTrial> {
+        let (study_id, trial_number) = self
+            .trial_id_to_study_number
+            .get(&trial_id)
+            .copied()
+            .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
         let trials = self
             .trials
             .get(&study_id)

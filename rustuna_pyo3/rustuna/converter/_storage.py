@@ -122,6 +122,9 @@ class ToRustunaStorage:
         frozen_trial = self._storage.get_trial(trial_id)
         return to_persisted_trial(frozen_trial, study_id=study_id)
 
+    def get_cached_trial(self, trial_id: int) -> rustuna.PersistedTrial:
+        return self.get_trial(trial_id)
+
     def delete_study(self, study_id: int) -> None:
         self._storage.delete_study(study_id)
 

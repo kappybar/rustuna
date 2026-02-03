@@ -36,6 +36,11 @@ pub trait Storage: Send + Sync {
     fn get_trials(&mut self, study_id: u32) -> Result<&Vec<PersistedTrial>>;
     fn get_trial(&mut self, trial_id: u32) -> Result<&PersistedTrial>;
     // Design Note:
+    // get_cached_* methods always return references from the in-memory cache without
+    // synchronizing with backends. These methods are separate from get_* to allow
+    // callers to use read locks for cache-only reads.
+    fn get_cached_trial(&self, trial_id: u32) -> Result<&PersistedTrial>;
+    // Design Note:
     // Category labels are stored in study system attrs internally, but exposed via dedicated
     // APIs for caching efficiency. Since category labels cannot be overwritten once set for
     // a given (study_id, param_name), implementations can safely cache them without
@@ -305,6 +310,10 @@ impl Storage for InMemoryStorage {
     }
 
     fn get_trial(&mut self, trial_id: u32) -> Result<&PersistedTrial> {
+        self.get_cached_trial(trial_id)
+    }
+
+    fn get_cached_trial(&self, trial_id: u32) -> Result<&PersistedTrial> {
         let (study_id, trial_number) =
             get_study_id_trial_number_by_trial_id(&self.trial_id_to_study_number, trial_id)?;
         let trial = get_trials_by_study_id(&self.trials, study_id)?

@@ -293,6 +293,10 @@ impl Storage for JournalStorage {
 
     fn get_trial(&mut self, trial_id: u32) -> Result<&PersistedTrial> {
         self.sync_with_backend()?;
+        self.get_cached_trial(trial_id)
+    }
+
+    fn get_cached_trial(&self, trial_id: u32) -> Result<&PersistedTrial> {
         let (study_id, trial_number) = self
             .replay
             .trial_id_to_study_number

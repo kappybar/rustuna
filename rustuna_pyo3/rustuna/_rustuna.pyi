@@ -411,6 +411,7 @@ class StorageProtocol(Protocol):
     def get_study(self, study_id: int) -> PersistedStudy: ...
     def get_trials(self, study_id: int) -> list[PersistedTrial]: ...
     def get_trial(self, trial_id: int) -> PersistedTrial: ...
+    def get_cached_trial(self, trial_id: int) -> PersistedTrial: ...
     def get_trial_id_from_study_id_trial_number(
         self, study_id: int, trial_number: int
     ) -> int: ...
@@ -562,6 +563,15 @@ class Storage:
         """
     def get_trial(self, trial_id: int) -> PersistedTrial:
         """Get a trial by ID.
+
+        Args:
+            trial_id: ID of the trial.
+
+        Returns:
+            The trial.
+        """
+    def get_cached_trial(self, trial_id: int) -> PersistedTrial:
+        """Get a cached trial by ID without synchronizing with backends.
 
         Args:
             trial_id: ID of the trial.

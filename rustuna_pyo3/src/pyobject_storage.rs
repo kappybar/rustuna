@@ -470,6 +470,13 @@ impl Storage for PyObjectStorage {
         self.cache.get_trial(trial_id)
     }
 
+    fn get_cached_trial(
+        &self,
+        trial_id: u32,
+    ) -> rustuna_core::Result<&rustuna_core::trial::PersistedTrial> {
+        self.cache.get_cached_trial(trial_id)
+    }
+
     fn get_category_labels(
         &mut self,
         study_id: u32,
