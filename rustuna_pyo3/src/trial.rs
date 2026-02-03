@@ -10,7 +10,7 @@ use rustuna_core::distribution::Distribution;
 use rustuna_core::storage::Storage;
 use rustuna_core::trial::{PersistedTrial, Trial, TrialStateValues};
 
-use crate::attrs::{pyobj_to_attrs, AttrKind, AttrsView};
+use crate::attrs::{pyobj_to_attrs, AttrKind, AttrsDictView};
 use crate::distribution::{
     category_label_to_pyobject, py_to_external_repr, pyobject_to_category_label, PyDistribution,
 };
@@ -443,14 +443,14 @@ impl PyPersistedTrial {
     }
 
     #[getter]
-    fn user_attrs(&self) -> PyResult<AttrsView> {
+    fn user_attrs(&self) -> PyResult<AttrsDictView> {
         match &self.source {
             PyPersistedTrialSource::Owned(trial) => {
-                Ok(AttrsView::from_trial(trial.as_ref(), AttrKind::User))
+                Ok(AttrsDictView::from_trial(trial.as_ref(), AttrKind::User))
             }
             PyPersistedTrialSource::StorageBacked {
                 storage, trial_id, ..
-            } => Ok(AttrsView::from_storage(
+            } => Ok(AttrsDictView::from_storage(
                 storage.clone(),
                 *trial_id,
                 AttrKind::User,
@@ -459,14 +459,14 @@ impl PyPersistedTrial {
     }
 
     #[getter]
-    fn system_attrs(&self) -> PyResult<AttrsView> {
+    fn system_attrs(&self) -> PyResult<AttrsDictView> {
         match &self.source {
             PyPersistedTrialSource::Owned(trial) => {
-                Ok(AttrsView::from_trial(trial.as_ref(), AttrKind::System))
+                Ok(AttrsDictView::from_trial(trial.as_ref(), AttrKind::System))
             }
             PyPersistedTrialSource::StorageBacked {
                 storage, trial_id, ..
-            } => Ok(AttrsView::from_storage(
+            } => Ok(AttrsDictView::from_storage(
                 storage.clone(),
                 *trial_id,
                 AttrKind::System,

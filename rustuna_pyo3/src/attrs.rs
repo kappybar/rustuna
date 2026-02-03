@@ -98,7 +98,7 @@ impl AttrKind {
     }
 }
 
-enum AttrsViewSource {
+enum AttrsDictViewSource {
     Owned(Attrs),
     StorageBacked {
         storage: Arc<RwLock<dyn Storage>>,
@@ -106,13 +106,13 @@ enum AttrsViewSource {
     },
 }
 
-#[pyclass(name = "AttrsView", unsendable)]
-pub struct AttrsView {
-    source: AttrsViewSource,
+#[pyclass(name = "AttrsDictView", unsendable)]
+pub struct AttrsDictView {
+    source: AttrsDictViewSource,
     kind: AttrKind,
 }
 
-impl AttrsView {
+impl AttrsDictView {
     pub fn from_trial(trial: &rustuna_core::trial::PersistedTrial, kind: AttrKind) -> Self {
         let mut attrs = Attrs::new();
         for (key, value) in &trial.attrs {
@@ -120,23 +120,23 @@ impl AttrsView {
                 attrs.insert(key.clone(), value.clone());
             }
         }
-        AttrsView {
-            source: AttrsViewSource::Owned(attrs),
+        AttrsDictView {
+            source: AttrsDictViewSource::Owned(attrs),
             kind,
         }
     }
 
     pub fn from_storage(storage: Arc<RwLock<dyn Storage>>, trial_id: u32, kind: AttrKind) -> Self {
-        AttrsView {
-            source: AttrsViewSource::StorageBacked { storage, trial_id },
+        AttrsDictView {
+            source: AttrsDictViewSource::StorageBacked { storage, trial_id },
             kind,
         }
     }
 
     fn with_attrs<R>(&self, f: impl FnOnce(&Attrs) -> PyResult<R>) -> PyResult<R> {
         match &self.source {
-            AttrsViewSource::Owned(attrs) => f(attrs),
-            AttrsViewSource::StorageBacked { storage, trial_id } => {
+            AttrsDictViewSource::Owned(attrs) => f(attrs),
+            AttrsDictViewSource::StorageBacked { storage, trial_id } => {
                 let guard = storage.read().map_err(|e| {
                     PyRuntimeError::new_err(format!(
                         "Failed to acquire the storage guard: {:?}",
@@ -187,7 +187,7 @@ impl AttrsView {
 }
 
 #[pymethods]
-impl AttrsView {
+impl AttrsDictView {
     fn __len__(&self) -> PyResult<usize> {
         self.len()
     }
@@ -264,7 +264,7 @@ impl AttrsView {
         match op {
             CompareOp::Eq | CompareOp::Ne => {
                 let self_dict = self.to_pydict(py)?;
-                if let Ok(other_view) = other.extract::<PyRef<AttrsView>>() {
+                if let Ok(other_view) = other.extract::<PyRef<AttrsDictView>>() {
                     let other_dict = other_view.to_pydict(py)?;
                     let result = self_dict.bind(py).rich_compare(other_dict.bind(py), op)?;
                     return Ok(result.unbind());
