@@ -101,9 +101,7 @@ class ToRustunaStorage:
                 return to_persisted_study(s)
         raise KeyError(f"Study {study_id} not found")
 
-    def get_trials(
-        self, study_id: int, *, no_sync: bool = False
-    ) -> list[rustuna.PersistedTrial]:
+    def get_trials(self, study_id: int) -> list[rustuna.PersistedTrial]:
         frozen_trials = self._storage.get_all_trials(study_id)
 
         persisted_trials: list[rustuna.PersistedTrial] = []
@@ -113,9 +111,7 @@ class ToRustunaStorage:
                 self._trial_id_to_study_id[t._trial_id] = study_id
         return persisted_trials
 
-    def get_trial(
-        self, trial_id: int, *, no_sync: bool = False
-    ) -> rustuna.PersistedTrial:
+    def get_trial(self, trial_id: int) -> rustuna.PersistedTrial:
         with self._lock:
             study_id = self._trial_id_to_study_id.get(trial_id, -1)
         if study_id == -1:

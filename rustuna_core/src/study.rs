@@ -202,7 +202,7 @@ impl Study {
             .storage
             .write()
             .map_err(|_| Error::new(ErrorKind::StorageError))?;
-        let trials = guard.get_trials(self.id, false)?;
+        let trials = guard.get_trials(self.id)?;
         Ok(trials.clone())
     }
 
@@ -278,7 +278,7 @@ pub fn get_best_trial(study: &Study) -> Result<u32> {
         .storage
         .write()
         .map_err(|_| Error::new(ErrorKind::StorageError))?;
-    let trials = guard.get_trials(study.id, false)?;
+    let trials = guard.get_trials(study.id)?;
 
     let best_trial = trials
         .iter()
@@ -313,7 +313,7 @@ pub fn get_pareto_front(study: &Study) -> Result<Vec<u32>> {
         .write()
         .map_err(|_| Error::new(ErrorKind::StorageError))?;
     let trials = guard
-        .get_trials(study.id, false)?
+        .get_trials(study.id)?
         .iter()
         .filter(|t| matches!(t.state_values, TrialStateValues::Complete(ref _v)))
         .collect::<Vec<_>>();

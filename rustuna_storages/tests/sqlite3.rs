@@ -157,12 +157,12 @@ study.optimize(objective, n_trials=10)
         assert_eq!(studies.len(), 1);
         studies[0].id
     };
-    let trials = storage.get_trials(study_id, false)?;
+    let trials = storage.get_trials(study_id)?;
     assert_eq!(trials.len(), 10);
 
     // Evaluate more 10 trials
     run_optuna_script(&python, &db_path, script)?;
-    let trials = storage.get_trials(study_id, false)?;
+    let trials = storage.get_trials(study_id)?;
     assert_eq!(trials.len(), 20);
     assert_eq!(trials[0].distributions.len(), 3);
     assert_eq!(
