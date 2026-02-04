@@ -5,7 +5,7 @@ import json
 import threading
 import typing
 import uuid
-from collections.abc import Container, Sequence
+from collections.abc import Container, Iterable, Sequence
 
 import optuna
 from optuna.distributions import BaseDistribution
@@ -19,6 +19,7 @@ import rustuna
 from ._distribution import to_optuna_distribution, to_rustuna_distribution
 from ._study import to_frozen_study, to_optuna_directions, to_persisted_study
 from ._trial import (
+    FrozenTrialLike,
     to_frozen_trial,
     to_optuna_state,
     to_persisted_trial,
@@ -176,6 +177,7 @@ class ToRustunaStorage:
 class ToOptunaStorage(BaseStorage):
     def __init__(self, storage: rustuna.OptunaStorageProtocol) -> None:
         self._storage = storage
+        self._trial_cache: dict[int, FrozenTrialLike] = {}
 
     def create_new_study(
         self, directions: Sequence[StudyDirection], study_name: str | None = None
@@ -340,9 +342,27 @@ class ToOptunaStorage(BaseStorage):
         states: Container[TrialState] | None = None,
     ) -> list[FrozenTrial]:
         rustuna_trials = self._storage.get_trials(study_id)
-        trials = [to_frozen_trial(t) for t in rustuna_trials]
+        rustuna_states: list[rustuna.TrialState] | None = None
         if states is not None:
-            trials = [t for t in trials if t.state in states]
+            assert isinstance(states, Iterable), (
+                "ToOptunaStorage assumes that states is Iterable to make this faster"
+            )
+            states_list = list(states)
+            if not states_list:
+                return []
+            rustuna_states = [to_rustuna_state(s) for s in states_list]
+        trials: list[FrozenTrial] = []
+        for t in rustuna_trials:
+            if rustuna_states is not None and t.state not in rustuna_states:
+                continue
+            cached = self._trial_cache.get(t.id)
+            if cached is not None:
+                trials.append(cached)
+            else:
+                frozen = FrozenTrialLike(t)
+                if t.state.is_finished():
+                    self._trial_cache[t.id] = frozen
+                trials.append(frozen)
         if deepcopy:
             return copy.deepcopy(trials)
         return trials

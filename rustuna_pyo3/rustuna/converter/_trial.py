@@ -280,7 +280,8 @@ class FrozenTrialLike(FrozenTrial):
             return self.__user_attrs
 
         user_attrs = self._persisted_trial.user_attrs
-        return _LazyJSONAttrs(user_attrs)
+        self.__user_attrs = _LazyJSONAttrs(user_attrs)
+        return self.__user_attrs
 
     @user_attrs.setter
     def user_attrs(self, value: dict[str, Any]) -> None:
