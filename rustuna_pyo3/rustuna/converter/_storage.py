@@ -5,7 +5,7 @@ import json
 import threading
 import typing
 import uuid
-from collections.abc import Container, Sequence
+from collections.abc import Container, Iterable, Sequence
 
 import optuna
 from optuna.distributions import BaseDistribution
@@ -342,22 +342,18 @@ class ToOptunaStorage(BaseStorage):
         states: Container[TrialState] | None = None,
     ) -> list[FrozenTrial]:
         rustuna_trials = self._storage.get_trials(study_id)
-        rustuna_states: list[rustuna.TrialState] = []
+        rustuna_states: list[rustuna.TrialState] | None = None
         if states is not None:
-            for s in [
-                TrialState.RUNNING,
-                TrialState.COMPLETE,
-                TrialState.PRUNED,
-                TrialState.FAIL,
-                TrialState.WAITING,
-            ]:
-                if s not in states:
-                    continue
-                rustuna_states.append(to_rustuna_state(s))
-
+            assert isinstance(states, Iterable), (
+                "ToOptunaStorage assumes that states is Iterable to make this faster"
+            )
+            states_list = list(states)
+            if not states_list:
+                return []
+            rustuna_states = [to_rustuna_state(s) for s in states_list]
         trials: list[FrozenTrial] = []
         for t in rustuna_trials:
-            if len(rustuna_states) > 0 and t.state not in rustuna_states:
+            if rustuna_states is not None and t.state not in rustuna_states:
                 continue
             cached = self._trial_cache.get(t.id)
             if cached is not None:
