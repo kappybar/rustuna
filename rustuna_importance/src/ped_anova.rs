@@ -98,6 +98,7 @@ impl ImportanceEvaluator for PedAnovaImportanceEvaluator {
     fn evaluate_with(&self, study: &Study, opts: ImportanceOptions) -> Result<HashMap<String, f64>> {
         let target = common::resolve_target(opts.target);
         let trials = common::get_filtered_trials(study, target)?;
+        common::ensure_target_for_multi_objective(&trials, opts.target)?;
         let dists = common::get_intersection_search_space(&trials);
 
         if trials.len() < self.min_n_top_trials {
