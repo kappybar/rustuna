@@ -65,8 +65,26 @@ fn normalize_importances(importances: HashMap<String, f64>) -> HashMap<String, f
 fn default_target(t: &PersistedTrial) -> f64 {
     match &t.state_values {
         TrialStateValues::Complete(values) => {
-            assert_eq!(values.len(), 1, "Specify the `target` function for multi-objective studies.");
             values[0]
+        }
+        _ => unreachable!("Only completed trials should be evaluated."),
+    }
+}
+
+pub(crate) fn ensure_target_for_multi_objective(trials: &[PersistedTrial], target: Option<&dyn Fn(&PersistedTrial) -> f64>) -> Result<()> {
+    let Some(first) = trials.first() else {
+        return Ok(());
+    };
+    match &first.state_values {
+        TrialStateValues::Complete(values) => {
+            if target.is_some() || values.len() == 1 {
+                Ok(())
+            } else {
+                Err(Error::with_reason(
+                    ErrorKind::ImportanceEvaluatorError,
+                    "Specify the `target` function for multi-objective studies.",
+                ))
+            }
         }
         _ => unreachable!("Only completed trials should be evaluated."),
     }
