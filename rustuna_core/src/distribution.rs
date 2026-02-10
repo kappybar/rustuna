@@ -62,7 +62,7 @@ impl Distribution {
         match self {
             Distribution::Float { low, high, step, ..} => {
                 if let Some(step) = step {
-                    low == high || high - low - step < 1e-12_f64
+                    low == high || high - low - step < 1e-12
                 } else {
                     low == high
                 }
