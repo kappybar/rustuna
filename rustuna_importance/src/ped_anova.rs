@@ -156,3 +156,33 @@ fn count_categorical_param_in_grid(
     }
     counts
 }
+
+fn build_parzen_estimator(
+    param_name: &str,
+    dist: &Distribution,
+    trials: &[PersistedTrial],
+    n_steps: usize,
+    prior_weight: f64,
+) -> ParzenEstimator {
+    let (counts, rounded_dist) = match dist {
+        Distribution::Int {..} | Distribution::Float {..} => {
+            let counts = count_numerical_param_in_grid(param_name, dist, trials, n_steps);
+            let rounded_dist = Distribution::Int {
+                low: 0, high: (counts.len() - 1) as i64, step: 1, log: false
+            };
+            (counts, rounded_dist)
+        }
+        Distribution::Categorical {..} => {
+            let counts = count_categorical_param_in_grid(param_name, dist, trials);
+            (counts, dist.clone())
+        }
+    };
+    let observation = counts.iter().enumerate().filter(|(_, &c)| c > 0).map(|(i, _)| i as f64).collect();
+    let weights = counts.iter().filter(|&&c| c > 0).map(|&c| c as f64).collect::<Vec<_>>();
+    ParzenEstimator::with_scott(
+        &HashMap::from([(param_name.to_string(), observation)]),
+        &HashMap::from([(param_name.to_string(), rounded_dist)]),
+        &weights,
+        prior_weight,
+    )
+}
