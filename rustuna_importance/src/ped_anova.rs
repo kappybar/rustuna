@@ -51,6 +51,32 @@ impl PedAnovaImportanceEvaluator {
     }
 }
 
+impl ImportanceEvaluator for PedAnovaImportanceEvaluator {
+    fn evaluate_with_target(&self, study: &Study, target: &dyn Fn(&PersistedTrial) -> f64) -> Result<HashMap<String, f64>> {
+        let trials = common::get_filtered_trials(study, target)?;
+        let dists = common::get_intersection_search_space(&trials);
+
+        if trials.len() < self.min_n_top_trials {
+            return Ok(dists.into_iter().map(|(name, _)| (name, 0.0)).collect());
+        }
+
+        let target_trials = self.get_top_quantile_trials(study, &trials, self.target_quantile, target);
+        let region_trials = self.get_top_quantile_trials(study, &trials, self.region_quantile, target);
+
+        let quantile = target_trials.len() as f64 / region_trials.len() as f64;
+
+        let mut importances = dists.into_iter().map(|(name, dist)| {
+            let importance = if dist.is_single() {
+                0.0
+            } else {
+                quantile.powi(2) * self.compute_pearson_divergence(name, &dist, &target_trials, &region_trials)
+            };
+            (name, importance)
+        }).collect::<HashMap<_, _>>();
+        Ok(importances)
+    }
+}
+
 
 fn count_numerical_param_in_grid(
     param_name: &str,
