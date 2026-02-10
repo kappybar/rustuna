@@ -45,18 +45,33 @@ pub fn get_param_importances_with(study: &Study, evaluator: &impl ImportanceEval
     if normalize { Ok(normalize_importances(importances)) } else { Ok(importances) }
 }
     fn evaluate(&self, study: &Study) -> Result<HashMap<String, f64>> {
-        self.evaluate_with_target(study, &|t| {
-            match &t.state_values {
-                TrialStateValues::Complete(values) => {
-                    assert_eq!(values.len(), 1, "Specify the `target` function for multi-objective studies.");
-                    values[0]
-                },
-                _ => unreachable!("Only completed trials should be evaluated."),
-            }
-        })
+
+fn normalize_importances(importances: HashMap<String, f64>) -> HashMap<String, f64> {
+    let total = importances.values().sum::<f64>();
+    if total == 0.0 {
+        let n_params = importances.len() as f64;
+        importances.into_keys().map(|k| (k, 1.0 / n_params)).collect()
+    } else {
+        importances.into_iter().map(|(k, v)| (k, v / total)).collect()
     }
-    fn evaluate_with_target(&self, study: &Study, target: &dyn Fn(&PersistedTrial) -> f64) -> Result<HashMap<String, f64>>;
 }
+
+fn default_target(t: &PersistedTrial) -> f64 {
+    match &t.state_values {
+        TrialStateValues::Complete(values) => {
+            assert_eq!(values.len(), 1, "Specify the `target` function for multi-objective studies.");
+            values[0]
+        }
+        _ => unreachable!("Only completed trials should be evaluated."),
+    }
+}
+
+pub(crate) fn resolve_target(target: Option<&dyn Fn(&PersistedTrial) -> f64>)
+    -> &dyn Fn(&PersistedTrial) -> f64
+{
+    target.unwrap_or(&default_target)
+}
+
 
 pub(crate) fn get_filtered_trials(study: &Study, target: &dyn Fn(&PersistedTrial) -> f64) -> Result<Vec<PersistedTrial>> {
     let mut guard = study
