@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use rustuna_core::trial::PersistedTrial;
 use rustuna_core::distribution::Distribution;
 use rustuna_core::study::{Study, Direction};
+use rustuna_core::parzen_estimator::ParzenEstimator;
+use rustuna_core::Result;
 use crate::common::{self, ImportanceEvaluator};
 
 
