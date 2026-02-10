@@ -4,7 +4,7 @@ use rustuna_core::distribution::Distribution;
 use rustuna_core::study::{Study, Direction};
 use rustuna_core::parzen_estimator::ParzenEstimator;
 use rustuna_core::Result;
-use crate::common::{self, ImportanceEvaluator};
+use crate::common::{self, ImportanceEvaluator, ImportanceOptions};
 
 
 pub struct PedAnovaImportanceEvaluator {
@@ -95,7 +95,8 @@ impl PedAnovaImportanceEvaluator {
 }
 
 impl ImportanceEvaluator for PedAnovaImportanceEvaluator {
-    fn evaluate_with_target(&self, study: &Study, target: &dyn Fn(&PersistedTrial) -> f64) -> Result<HashMap<String, f64>> {
+    fn evaluate_with(&self, study: &Study, opts: ImportanceOptions) -> Result<HashMap<String, f64>> {
+        let target = common::resolve_target(opts.target);
         let trials = common::get_filtered_trials(study, target)?;
         let dists = common::get_intersection_search_space(&trials);
 
