@@ -9,6 +9,47 @@ pub struct PedAnovaImportanceEvaluator {
     min_n_top_trials: usize,
 }
 
+impl PedAnovaImportanceEvaluator {
+    pub fn new(target_quantile: f64, region_quantile: f64, evaluate_on_local: bool) -> Self {
+        Self {
+            target_quantile,
+            region_quantile,
+            evaluate_on_local,
+            n_steps: 50,
+            prior_weight: 1.0,
+            min_n_top_trials: 2
+        }
+    }
+
+    fn get_top_quantile_trials<'a>(
+        &self,
+        study: &Study,
+        trials: &'a [PersistedTrial],
+        quantile: f64,
+        target: &dyn Fn(&PersistedTrial) -> f64,
+    ) -> Vec<&'a PersistedTrial> {
+        if quantile == 1.0 {
+            return trials.iter().collect();
+        }
+        let is_lower_better = study.directions[0] == Direction::Minimize;
+        let objective_values = trials.iter().map(|t| {
+            let v = target(t);
+            if is_lower_better { v } else { -v }
+        }).collect::<Vec<_>>();
+        let num_trials = trials.len();
+        let num_top_trials = ((quantile * (num_trials as f64 - 1.0)).floor() as usize).min(num_trials - 1);
+
+        let (_, &mut threshold, _) = objective_values.clone().select_nth_unstable_by(
+            num_top_trials,
+            |a, b| a.total_cmp(b),
+        );
+        let top_trials = trials.iter().zip(objective_values.iter())
+            .filter(|(_, &v)| v <= threshold)
+            .map(|(t, _)| t)
+            .collect();
+        top_trials
+    }
+}
 
 
 fn count_numerical_param_in_grid(
