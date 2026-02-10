@@ -54,6 +54,42 @@ impl PedAnovaImportanceEvaluator {
             .collect();
         top_trials
     }
+
+    fn compute_pearson_divergence(
+        &self,
+        param_name: &str,
+        dist: &Distribution,
+        target_trials: &[&PersistedTrial],
+        region_trials: &[&PersistedTrial],
+    ) -> f64 {
+        let (pe_top, grid_size) = build_parzen_estimator_on_grid(
+            param_name,
+            dist,
+            target_trials,
+            self.n_steps,
+            self.prior_weight,
+        );
+        let pdf_top = (0..grid_size)
+            .map(|i| pe_top.log_pdf(&[(param_name.to_string(), i as f64)].into()))
+            .map(|p| p.exp() + 1e-12);
+        let pdf_local: Vec<_> = if self.evaluate_on_local { // The importance of param during the study.
+            let (pe_local, _) = build_parzen_estimator_on_grid(
+                param_name,
+                dist,
+                region_trials,
+                self.n_steps,
+                self.prior_weight,
+            );
+            (0..grid_size)
+                .map(|i| pe_local.log_pdf(&[(param_name.to_string(), i as f64)].into()))
+                .map(|p| p.exp() + 1e-12).collect()
+        } else { // The importance of param in the search space.
+            std::iter::repeat_n(1.0 / (grid_size as f64), grid_size).collect()
+        };
+        pdf_top.zip(pdf_local)
+            .map(|(p_top, p_local)| p_local * (p_top / p_local - 1.0).powi(2))
+            .sum()
+    }
 }
 
 impl ImportanceEvaluator for PedAnovaImportanceEvaluator {
