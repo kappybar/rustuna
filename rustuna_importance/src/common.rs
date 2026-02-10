@@ -4,10 +4,37 @@ use rustuna_core::trial::{PersistedTrial, TrialStateValues};
 use rustuna_core::{Error, ErrorKind, Result};
 use rustuna_core::distribution::Distribution;
 
-pub trait ImportanceEvaluator {
+pub struct ImportanceOptions<'a> {
     // NOTE(kAIto47802): Currently, the `param` argument is not implemented.
     // We plan to implement it when we support condPED-ANOVA:
     // - https://arxiv.org/abs/2601.20800
+    pub target: Option<&'a dyn Fn(&PersistedTrial) -> f64>,
+    pub normalize: bool,
+}
+
+impl<'a> Default for ImportanceOptions<'a> {
+    fn default() -> Self {
+        Self { target: None, normalize: true }
+    }
+}
+
+
+impl<'a> ImportanceOptions<'a> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_target(mut self, target: &'a dyn Fn(&PersistedTrial) -> f64) -> Self {
+        self.target = Some(target);
+        self
+    }
+
+    pub fn normalize(mut self, normalize: bool) -> Self {
+        self.normalize = normalize;
+        self
+    }
+}
+
     fn evaluate(&self, study: &Study) -> Result<HashMap<String, f64>> {
         self.evaluate_with_target(study, &|t| {
             match &t.state_values {
