@@ -98,7 +98,7 @@ impl ImportanceEvaluator for PedAnovaImportanceEvaluator {
         let dists = common::get_intersection_search_space(&trials);
 
         if trials.len() < self.min_n_top_trials {
-            return Ok(dists.into_iter().map(|(name, _)| (name, 0.0)).collect());
+            return Ok(dists.into_keys().map(|name| (name, 0.0)).collect());
         }
 
         let target_trials = self.get_top_quantile_trials(study, &trials, self.target_quantile, target);
@@ -106,14 +106,14 @@ impl ImportanceEvaluator for PedAnovaImportanceEvaluator {
 
         let quantile = target_trials.len() as f64 / region_trials.len() as f64;
 
-        let mut importances = dists.into_iter().map(|(name, dist)| {
+        let importances = dists.into_iter().map(|(name, dist)| {
             let importance = if dist.is_single() {
                 0.0
             } else {
-                quantile.powi(2) * self.compute_pearson_divergence(name, &dist, &target_trials, &region_trials)
+                quantile.powi(2) * self.compute_pearson_divergence(&name, &dist, &target_trials, &region_trials)
             };
             (name, importance)
-        }).collect::<HashMap<_, _>>();
+        }).collect();
         Ok(importances)
     }
 }
@@ -122,7 +122,7 @@ impl ImportanceEvaluator for PedAnovaImportanceEvaluator {
 fn count_numerical_param_in_grid(
     param_name: &str,
     dist: &Distribution,
-    trials: &[PersistedTrial],
+    trials: &[&PersistedTrial],
     n_steps: usize,
 ) -> Vec<u32> {
     let (low, high, log, n_steps) = match dist {
@@ -179,7 +179,7 @@ fn count_numerical_param_in_grid(
 fn count_categorical_param_in_grid(
     param_name: &str,
     dist: &Distribution,
-    trials: &[PersistedTrial],
+    trials: &[&PersistedTrial],
 ) -> Vec<u32> {
     let cardinality = match dist {
         Distribution::Categorical { cardinality } => *cardinality,
@@ -193,13 +193,13 @@ fn count_categorical_param_in_grid(
     counts
 }
 
-fn build_parzen_estimator(
+fn build_parzen_estimator_on_grid(
     param_name: &str,
     dist: &Distribution,
-    trials: &[PersistedTrial],
+    trials: &[&PersistedTrial],
     n_steps: usize,
     prior_weight: f64,
-) -> ParzenEstimator {
+) -> (ParzenEstimator, usize) {
     let (counts, rounded_dist) = match dist {
         Distribution::Int {..} | Distribution::Float {..} => {
             let counts = count_numerical_param_in_grid(param_name, dist, trials, n_steps);
@@ -215,10 +215,11 @@ fn build_parzen_estimator(
     };
     let observation = counts.iter().enumerate().filter(|(_, &c)| c > 0).map(|(i, _)| i as f64).collect();
     let weights = counts.iter().filter(|&&c| c > 0).map(|&c| c as f64).collect::<Vec<_>>();
-    ParzenEstimator::with_scott(
-        &HashMap::from([(param_name.to_string(), observation)]),
-        &HashMap::from([(param_name.to_string(), rounded_dist)]),
+    let pe = ParzenEstimator::with_scott(
+        &[(param_name.to_string(), observation)].into(),
+        &[(param_name.to_string(), rounded_dist)].into(),
         &weights,
         prior_weight,
-    )
+    );
+    (pe, counts.len())
 }
