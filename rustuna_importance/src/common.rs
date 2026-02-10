@@ -22,7 +22,7 @@ pub trait ImportanceEvaluator {
     fn evaluate_with_target(&self, study: &Study, target: &dyn Fn(&PersistedTrial) -> f64) -> Result<HashMap<String, f64>>;
 }
 
-fn get_filtered_trials(study: &Study, target: &dyn Fn(&PersistedTrial) -> f64) -> Result<Vec<PersistedTrial>> {
+pub(crate) fn get_filtered_trials(study: &Study, target: &dyn Fn(&PersistedTrial) -> f64) -> Result<Vec<PersistedTrial>> {
     let mut guard = study
         .storage
         .write()
@@ -30,10 +30,10 @@ fn get_filtered_trials(study: &Study, target: &dyn Fn(&PersistedTrial) -> f64) -
     // TODO(c-bata): Avoid to clone trials.
     let completed_trials = guard
         .get_trials(study.id)?
-        .clone()
-        .into_iter()
+        .iter()
         .filter(|t| matches!(t.state_values, TrialStateValues::Complete(_)))
         .filter(|t| target(t).is_finite())
+        .cloned()
         .collect::<Vec<_>>();
     if completed_trials.is_empty() {
         Err(Error::new(ErrorKind::NoCompletedTrial))
@@ -42,7 +42,7 @@ fn get_filtered_trials(study: &Study, target: &dyn Fn(&PersistedTrial) -> f64) -
     }
 }
 
-fn get_intersection_search_space(trials: &[PersistedTrial]) -> HashMap<String, Distribution> {
+pub(crate) fn get_intersection_search_space(trials: &[PersistedTrial]) -> HashMap<String, Distribution> {
     let mut intersection_search_space = trials[0].distributions.clone();
     for trial in &trials[1..] {
         intersection_search_space.retain(|k, v| {
