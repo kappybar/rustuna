@@ -44,7 +44,13 @@ pub fn get_param_importances_with(study: &Study, evaluator: &impl ImportanceEval
     let importances = evaluator.evaluate_with(study, opts)?;
     if normalize { Ok(normalize_importances(importances)) } else { Ok(importances) }
 }
+
+pub trait ImportanceEvaluator {
     fn evaluate(&self, study: &Study) -> Result<HashMap<String, f64>> {
+        self.evaluate_with(study, ImportanceOptions::default())
+    }
+    fn evaluate_with(&self, study: &Study, opts: ImportanceOptions<'_>) -> Result<HashMap<String, f64>>;
+}
 
 fn normalize_importances(importances: HashMap<String, f64>) -> HashMap<String, f64> {
     let total = importances.values().sum::<f64>();
