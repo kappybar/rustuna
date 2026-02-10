@@ -5,8 +5,21 @@ use rustuna_core::{Error, ErrorKind, Result};
 use rustuna_core::distribution::Distribution;
 
 pub trait ImportanceEvaluator {
-    fn evaluate(&self, study: &Study) -> HashMap<String, f64>;
-    fn evaluate_with_target(&self, study: &Study, target: &dyn Fn(&PersistedTrial) -> f64) -> HashMap<String, f64>;
+    // NOTE(kAIto47802): Currently, the `param` argument is not implemented.
+    // We plan to implement it when we support condPED-ANOVA:
+    // - https://arxiv.org/abs/2601.20800
+    fn evaluate(&self, study: &Study) -> Result<HashMap<String, f64>> {
+        self.evaluate_with_target(study, &|t| {
+            match &t.state_values {
+                TrialStateValues::Complete(values) => {
+                    assert_eq!(values.len(), 1, "Specify the `target` function for multi-objective studies.");
+                    values[0]
+                },
+                _ => unreachable!("Only completed trials should be evaluated."),
+            }
+        })
+    }
+    fn evaluate_with_target(&self, study: &Study, target: &dyn Fn(&PersistedTrial) -> f64) -> Result<HashMap<String, f64>>;
 }
 
 fn get_filtered_trials(study: &Study, target: &dyn Fn(&PersistedTrial) -> f64) -> Result<Vec<PersistedTrial>> {
