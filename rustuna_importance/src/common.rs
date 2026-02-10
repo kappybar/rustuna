@@ -35,6 +35,15 @@ impl<'a> ImportanceOptions<'a> {
     }
 }
 
+pub fn get_param_importances(study: &Study, evaluator: &impl ImportanceEvaluator) -> Result<HashMap<String, f64>> {
+    get_param_importances_with(study, evaluator, ImportanceOptions::default())
+}
+
+pub fn get_param_importances_with(study: &Study, evaluator: &impl ImportanceEvaluator, opts: ImportanceOptions<'_>) -> Result<HashMap<String, f64>> {
+    let normalize = opts.normalize;
+    let importances = evaluator.evaluate_with(study, opts)?;
+    if normalize { Ok(normalize_importances(importances)) } else { Ok(importances) }
+}
     fn evaluate(&self, study: &Study) -> Result<HashMap<String, f64>> {
         self.evaluate_with_target(study, &|t| {
             match &t.state_values {
