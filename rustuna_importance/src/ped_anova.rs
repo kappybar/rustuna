@@ -1,5 +1,13 @@
 use rustuna_core::trial::PersistedTrial;
 use rustuna_core::distribution::Distribution;
+pub struct PedAnovaImportanceEvaluator {
+    target_quantile: f64,
+    region_quantile: f64,
+    evaluate_on_local: bool,
+    n_steps: usize,
+    prior_weight: f64,
+    min_n_top_trials: usize,
+}
 
 
 
