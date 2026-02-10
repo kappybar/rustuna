@@ -1,8 +1,8 @@
+use rustuna_core::distribution::Distribution;
 use rustuna_core::study::Study;
-use std::collections::HashMap;
 use rustuna_core::trial::{PersistedTrial, TrialStateValues};
 use rustuna_core::{Error, ErrorKind, Result};
-use rustuna_core::distribution::Distribution;
+use std::collections::HashMap;
 
 pub struct ImportanceOptions<'a> {
     // NOTE(kAIto47802): Currently, the `param` argument is not implemented.
@@ -14,10 +14,12 @@ pub struct ImportanceOptions<'a> {
 
 impl<'a> Default for ImportanceOptions<'a> {
     fn default() -> Self {
-        Self { target: None, normalize: true }
+        Self {
+            target: None,
+            normalize: true,
+        }
     }
 }
-
 
 impl<'a> ImportanceOptions<'a> {
     pub fn new() -> Self {
@@ -35,43 +37,65 @@ impl<'a> ImportanceOptions<'a> {
     }
 }
 
-pub fn get_param_importances(study: &Study, evaluator: &impl ImportanceEvaluator) -> Result<HashMap<String, f64>> {
+pub fn get_param_importances(
+    study: &Study,
+    evaluator: &impl ImportanceEvaluator,
+) -> Result<HashMap<String, f64>> {
     get_param_importances_with(study, evaluator, ImportanceOptions::default())
 }
 
-pub fn get_param_importances_with(study: &Study, evaluator: &impl ImportanceEvaluator, opts: ImportanceOptions<'_>) -> Result<HashMap<String, f64>> {
+pub fn get_param_importances_with(
+    study: &Study,
+    evaluator: &impl ImportanceEvaluator,
+    opts: ImportanceOptions<'_>,
+) -> Result<HashMap<String, f64>> {
     let normalize = opts.normalize;
     let importances = evaluator.evaluate_with(study, opts)?;
-    if normalize { Ok(normalize_importances(importances)) } else { Ok(importances) }
+    if normalize {
+        Ok(normalize_importances(importances))
+    } else {
+        Ok(importances)
+    }
 }
 
 pub trait ImportanceEvaluator {
     fn evaluate(&self, study: &Study) -> Result<HashMap<String, f64>> {
         self.evaluate_with(study, ImportanceOptions::default())
     }
-    fn evaluate_with(&self, study: &Study, opts: ImportanceOptions<'_>) -> Result<HashMap<String, f64>>;
+    fn evaluate_with(
+        &self,
+        study: &Study,
+        opts: ImportanceOptions<'_>,
+    ) -> Result<HashMap<String, f64>>;
 }
 
 fn normalize_importances(importances: HashMap<String, f64>) -> HashMap<String, f64> {
     let total = importances.values().sum::<f64>();
     if total == 0.0 {
         let n_params = importances.len() as f64;
-        importances.into_keys().map(|k| (k, 1.0 / n_params)).collect()
+        importances
+            .into_keys()
+            .map(|k| (k, 1.0 / n_params))
+            .collect()
     } else {
-        importances.into_iter().map(|(k, v)| (k, v / total)).collect()
+        importances
+            .into_iter()
+            .map(|(k, v)| (k, v / total))
+            .collect()
     }
 }
 
 fn default_target(t: &PersistedTrial) -> f64 {
     match &t.state_values {
-        TrialStateValues::Complete(values) => {
-            values[0]
-        }
+        TrialStateValues::Complete(values) => values[0],
         _ => unreachable!("Only completed trials should be evaluated."),
     }
 }
 
-pub(crate) fn ensure_target_for_multi_objective(trials: &[PersistedTrial], target: Option<&dyn Fn(&PersistedTrial) -> f64>) -> Result<()> {
+pub(crate) fn ensure_target_for_multi_objective(
+    trials: &[PersistedTrial],
+    target: Option<&dyn Fn(&PersistedTrial) -> f64>,
+) -> Result<()> {
     let Some(first) = trials.first() else {
         return Ok(());
     };
@@ -90,14 +114,16 @@ pub(crate) fn ensure_target_for_multi_objective(trials: &[PersistedTrial], targe
     }
 }
 
-pub(crate) fn resolve_target(target: Option<&dyn Fn(&PersistedTrial) -> f64>)
-    -> &dyn Fn(&PersistedTrial) -> f64
-{
+pub(crate) fn resolve_target(
+    target: Option<&dyn Fn(&PersistedTrial) -> f64>,
+) -> &dyn Fn(&PersistedTrial) -> f64 {
     target.unwrap_or(&default_target)
 }
 
-
-pub(crate) fn get_filtered_trials(study: &Study, target: &dyn Fn(&PersistedTrial) -> f64) -> Result<Vec<PersistedTrial>> {
+pub(crate) fn get_filtered_trials(
+    study: &Study,
+    target: &dyn Fn(&PersistedTrial) -> f64,
+) -> Result<Vec<PersistedTrial>> {
     let mut guard = study
         .storage
         .write()
@@ -117,12 +143,13 @@ pub(crate) fn get_filtered_trials(study: &Study, target: &dyn Fn(&PersistedTrial
     }
 }
 
-pub(crate) fn get_intersection_search_space(trials: &[PersistedTrial]) -> HashMap<String, Distribution> {
+pub(crate) fn get_intersection_search_space(
+    trials: &[PersistedTrial],
+) -> HashMap<String, Distribution> {
     let mut intersection_search_space = trials[0].distributions.clone();
     for trial in &trials[1..] {
-        intersection_search_space.retain(|k, v| {
-            trial.distributions.get(k).is_some_and(|v2| v2 == v)
-        });
+        intersection_search_space
+            .retain(|k, v| trial.distributions.get(k).is_some_and(|v2| v2 == v));
     }
     intersection_search_space
 }
