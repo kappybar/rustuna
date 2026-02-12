@@ -54,7 +54,6 @@ pub enum ErrorKind {
     AttrOverwriteNotAllowed,
     InvalidObjectiveValues,
     TrialAlreadyFinished,
-    StorageInternalError,
     UnsupportedSearchSpace,
     UnsupportedMultiObjective,
     NoCompletedTrial,
