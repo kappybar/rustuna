@@ -9,15 +9,21 @@ use rustuna_core::storage::InMemoryStorage;
 fn single_objective(mut trial: Trial) -> Result<Vec<f64>> {
     let x1 = trial.suggest_float("x1", 0.1, 3.0)?;
     let x2 = trial.suggest("x2", &Distribution::Float {low: 0.1, high: 0.3, step: None, log: true})?;
-    let x3 = trial.suggest("x3", &Distribution::Float {low: 2.0, high:4.0, step: None, log: true})?;
-    Ok(vec![x1 + x2 * x3])
+    let x3 = trial.suggest("x3", &Distribution::Float {low: 0.0, high: 3.0, step: Some(1.0), log: true})?;
+    let x4 = trial.suggest_int("x4", -3, 3)?;
+    let x5 = trial.suggest("x5", &Distribution::Int {low: -3, high: 3, step: 1, log: true})?;
+    let x6 = trial.suggest_categorical("x6", &[1.0, 1.1, 1.2])?;
+    Ok(vec![x1.powi(4) + x2 + x3 - x4.pow(2) as f64 - x5 + x6])
 }
 
 fn multi_objective(mut trial: Trial) -> Result<Vec<f64>> {
     let x1 = trial.suggest_float("x1", 0.1, 3.0)?;
     let x2 = trial.suggest("x2", &Distribution::Float {low: 0.1, high: 0.3, step: None, log: true})?;
-    let x3 = trial.suggest("x3", &Distribution::Float {low: 2.0, high:4.0, step: None, log: true})?;
-    Ok(vec![x1, x2 * x3])
+    let x3 = trial.suggest("x3", &Distribution::Float {low: 0.0, high: 3.0, step: Some(1.0), log: true})?;
+    let x4 = trial.suggest_int("x4", -3, 3)?;
+    let x5 = trial.suggest("x5", &Distribution::Int {low: -3, high: 3, step: 1, log: true})?;
+    let x6 = trial.suggest_categorical("x6", &[1.0, 1.1, 1.2])?;
+    Ok(vec![x1.powi(4) + x2 + x3, x4.pow(2) as f64 - x5 + x6])
 }
 
 pub(crate) fn get_study(seed: u64, n_trials: usize, is_multi_objective: bool, direction: Direction) -> Result<Study> {
