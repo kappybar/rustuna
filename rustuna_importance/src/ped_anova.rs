@@ -15,6 +15,19 @@ pub struct PedAnovaImportanceEvaluator {
     min_n_top_trials: usize,
 }
 
+impl Default for PedAnovaImportanceEvaluator {
+    fn default() -> Self {
+        Self {
+            target_quantile: 0.1,
+            region_quantile: 1.0,
+            evaluate_on_local: true,
+            n_steps: 50,
+            prior_weight: 1.0,
+            min_n_top_trials: 2,
+        }
+    }
+}
+
 impl PedAnovaImportanceEvaluator {
     pub fn new(target_quantile: f64, region_quantile: f64, evaluate_on_local: bool) -> Self {
         Self {
