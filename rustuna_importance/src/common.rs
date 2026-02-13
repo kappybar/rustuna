@@ -202,10 +202,16 @@ mod tests {
                 )?;
                 assert_eq!(importances.len(), 6, "{importances:?}");
                 if normalize {
-                    assert!(importances
-                        .values()
-                        .all(|v| (-1e-12..=1.0 + 1e-12).contains(v)), "{importances:?}");
-                    assert!((importances.values().sum::<f64>() - 1.0).abs() < 1e-12, "{importances:?}");
+                    assert!(
+                        importances
+                            .values()
+                            .all(|v| (-1e-12..=1.0 + 1e-12).contains(v)),
+                        "{importances:?}"
+                    );
+                    assert!(
+                        (importances.values().sum::<f64>() - 1.0).abs() < 1e-12,
+                        "{importances:?}"
+                    );
                 }
             }
         }
@@ -229,10 +235,16 @@ mod tests {
                 )?;
                 assert_eq!(importances.len(), 6, "{importances:?}");
                 if normalize {
-                    assert!(importances
-                        .values()
-                        .all(|v| (-1e-12..=1.0 + 1e-12).contains(v)), "{importances:?}");
-                    assert!((importances.values().sum::<f64>() - 1.0).abs() < 1e-12, "{importances:?}");
+                    assert!(
+                        importances
+                            .values()
+                            .all(|v| (-1e-12..=1.0 + 1e-12).contains(v)),
+                        "{importances:?}"
+                    );
+                    assert!(
+                        (importances.values().sum::<f64>() - 1.0).abs() < 1e-12,
+                        "{importances:?}"
+                    );
                 }
 
                 let importances_wo_target = get_param_importances_with(
@@ -240,7 +252,10 @@ mod tests {
                     &evaluator,
                     ImportanceOptions::new().normalize(normalize),
                 )?;
-                assert_ne!(importances, importances_wo_target, "{importances:?}, {importances_wo_target:?}");
+                assert_ne!(
+                    importances, importances_wo_target,
+                    "{importances:?}, {importances_wo_target:?}"
+                );
             }
         }
         Ok(())
@@ -253,15 +268,15 @@ mod tests {
         let target =
             |t: &PersistedTrial| -> f64 { t.internal_params["x1"] + t.internal_params["x2"] };
         for evaluator in evaluators {
-                let importances = evaluator.evaluate_with(
-                    &study,
-                    ImportanceOptions::new()
-                        .with_target(&target)
-                )?;
-                assert_eq!(importances.len(), 6, "{importances:?}");
-                let importances_wo_target = evaluator
-                    .evaluate_with(&study, ImportanceOptions::new())?;
-                assert_ne!(importances, importances_wo_target, "{importances:?}, {importances_wo_target:?}");
+            let importances =
+                evaluator.evaluate_with(&study, ImportanceOptions::new().with_target(&target))?;
+            assert_eq!(importances.len(), 6, "{importances:?}");
+            let importances_wo_target =
+                evaluator.evaluate_with(&study, ImportanceOptions::new())?;
+            assert_ne!(
+                importances, importances_wo_target,
+                "{importances:?}, {importances_wo_target:?}"
+            );
         }
         Ok(())
     }
@@ -291,12 +306,15 @@ mod tests {
         study.optimize(
             |mut t| {
                 let x1 = t.suggest_float("x1", 0.0, 5.0)?;
-                let x2 = t.suggest("x2", &Distribution::Float {
-                    low: 0.0,
-                    high: 1.0,
-                    step: Some(1.0),
-                    log: false,
-                })?;
+                let x2 = t.suggest(
+                    "x2",
+                    &Distribution::Float {
+                        low: 0.0,
+                        high: 1.0,
+                        step: Some(1.0),
+                        log: false,
+                    },
+                )?;
                 Ok(vec![x1 + x2])
             },
             Arc::new(Mutex::new(RandomSampler::new())),

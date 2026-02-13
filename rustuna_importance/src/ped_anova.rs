@@ -296,7 +296,10 @@ mod tests {
         let study =
             test_utils::get_study(42, evaluator.min_n_top_trials, false, Direction::Minimize)?;
         let importances = evaluator.evaluate(&study)?;
-        assert!(importances.values().all(|v| v.abs() <= 1e-12), "{importances:?}");
+        assert!(
+            importances.values().all(|v| v.abs() <= 1e-12),
+            "{importances:?}"
+        );
         Ok(())
     }
 
