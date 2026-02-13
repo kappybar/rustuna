@@ -154,26 +154,22 @@ pub(crate) fn get_intersection_search_space(
     intersection_search_space
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex};
-    use std::collections::HashSet;
-    use rustuna_core::sampler::RandomSampler;
-    use rustuna_core::{ErrorKind, Result};
-    use crate::test_utils;
     use crate::ped_anova::PedAnovaImportanceEvaluator;
+    use crate::test_utils;
+    use rustuna_core::sampler::RandomSampler;
+    use rustuna_core::storage::InMemoryStorage;
     use rustuna_core::study::{self, Direction};
     use rustuna_core::trial::PersistedTrial;
-    use rustuna_core::storage::InMemoryStorage;
-
+    use rustuna_core::{ErrorKind, Result};
+    use std::collections::HashSet;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn test_error_multi_objective_wo_target() -> Result<()> {
-        let evaluators = vec![
-            PedAnovaImportanceEvaluator::default(),
-        ];
+        let evaluators = vec![PedAnovaImportanceEvaluator::default()];
         let study = test_utils::get_study(42, 5, true, Direction::Minimize)?;
         for evaluator in evaluators {
             let err = get_param_importances(&study, &evaluator).unwrap_err();
@@ -184,9 +180,7 @@ mod tests {
 
     #[test]
     fn test_evaluator_error_multi_objective_wo_target() -> Result<()> {
-        let evaluators = vec![
-            PedAnovaImportanceEvaluator::default(),
-        ];
+        let evaluators = vec![PedAnovaImportanceEvaluator::default()];
         let study = test_utils::get_study(42, 5, true, Direction::Minimize)?;
         for evaluator in evaluators {
             let err = evaluator.evaluate(&study).unwrap_err();
@@ -197,9 +191,7 @@ mod tests {
 
     #[test]
     fn test_get_param_importances() -> Result<()> {
-        let evaluators = vec![
-            PedAnovaImportanceEvaluator::default(),
-        ];
+        let evaluators = vec![PedAnovaImportanceEvaluator::default()];
         let study = test_utils::get_study(42, 20, false, Direction::Minimize)?;
         for evaluator in evaluators {
             for normalize in [true, false] {
@@ -210,7 +202,9 @@ mod tests {
                 )?;
                 assert_eq!(!importances.len(), 6);
                 if normalize {
-                    assert!(importances.values().all(|v| (-1e-12..=1.0 + 1e-12).contains(v)));
+                    assert!(importances
+                        .values()
+                        .all(|v| (-1e-12..=1.0 + 1e-12).contains(v)));
                     assert!((importances.values().sum::<f64>() - 1.0).abs() < 1e-12);
                 }
             }
@@ -220,13 +214,10 @@ mod tests {
 
     #[test]
     fn test_get_param_importances_with_target() -> Result<()> {
-        let evaluators = vec![
-            PedAnovaImportanceEvaluator::default(),
-        ];
+        let evaluators = vec![PedAnovaImportanceEvaluator::default()];
         let study = test_utils::get_study(42, 20, false, Direction::Minimize)?;
-        let target = |t: &PersistedTrial| -> f64 {
-            t.internal_params["x1"] + t.internal_params["x2"]
-        };
+        let target =
+            |t: &PersistedTrial| -> f64 { t.internal_params["x1"] + t.internal_params["x2"] };
         for evaluator in evaluators {
             for normalize in [true, false] {
                 let importances = get_param_importances_with(
@@ -238,7 +229,9 @@ mod tests {
                 )?;
                 assert_eq!(!importances.len(), 6);
                 if normalize {
-                    assert!(importances.values().all(|v| (-1e-12..=1.0 + 1e-12).contains(v)));
+                    assert!(importances
+                        .values()
+                        .all(|v| (-1e-12..=1.0 + 1e-12).contains(v)));
                     assert!((importances.values().sum::<f64>() - 1.0).abs() < 1e-12);
                 }
 
@@ -255,13 +248,10 @@ mod tests {
 
     #[test]
     fn test_evaluator_evaluate_with_target() -> Result<()> {
-        let evaluators = vec![
-            PedAnovaImportanceEvaluator::default(),
-        ];
+        let evaluators = vec![PedAnovaImportanceEvaluator::default()];
         let study = test_utils::get_study(42, 20, false, Direction::Minimize)?;
-        let target = |t: &PersistedTrial| -> f64 {
-            t.internal_params["x1"] + t.internal_params["x2"]
-        };
+        let target =
+            |t: &PersistedTrial| -> f64 { t.internal_params["x1"] + t.internal_params["x2"] };
         for evaluator in evaluators {
             for normalize in [true, false] {
                 let importances = evaluator.evaluate_with(
@@ -272,13 +262,13 @@ mod tests {
                 )?;
                 assert_eq!(!importances.len(), 6);
                 if normalize {
-                    assert!(importances.values().all(|v| (-1e-12..=1.0 + 1e-12).contains(v)));
+                    assert!(importances
+                        .values()
+                        .all(|v| (-1e-12..=1.0 + 1e-12).contains(v)));
                     assert!((importances.values().sum::<f64>() - 1.0).abs() < 1e-12);
                 }
-                let importances_wo_target = evaluator.evaluate_with(
-                    &study,
-                    ImportanceOptions::new().normalize(normalize),
-                )?;
+                let importances_wo_target = evaluator
+                    .evaluate_with(&study, ImportanceOptions::new().normalize(normalize))?;
                 assert_ne!(importances, importances_wo_target);
             }
         }
@@ -287,9 +277,7 @@ mod tests {
 
     #[test]
     fn test_get_param_importances_empty_study() -> Result<()> {
-        let evaluators = vec![
-            PedAnovaImportanceEvaluator::default(),
-        ];
+        let evaluators = vec![PedAnovaImportanceEvaluator::default()];
         let study = study::create_study(
             "empty-study",
             InMemoryStorage::new(),
@@ -318,12 +306,13 @@ mod tests {
             Arc::new(Mutex::new(RandomSampler::new())),
             5,
         )?;
-        let evaluators = vec![
-            PedAnovaImportanceEvaluator::default(),
-        ];
+        let evaluators = vec![PedAnovaImportanceEvaluator::default()];
         for evaluator in evaluators {
             let importances = get_param_importances(&study, &evaluator)?;
-            let keys = importances.keys().map(String::as_str).collect::<HashSet<_>>();
+            let keys = importances
+                .keys()
+                .map(String::as_str)
+                .collect::<HashSet<_>>();
             let expected = HashSet::from(["x1", "x2"]);
             assert_eq!(keys, expected);
             assert!(importances["x1"] > 0.0);

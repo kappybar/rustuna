@@ -286,15 +286,15 @@ fn build_parzen_estimator_on_grid(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustuna_core::Result;
     use crate::test_utils;
     use rustuna_core::study::Direction;
-
+    use rustuna_core::Result;
 
     #[test]
     fn test_n_trials_equal_to_min_n_top_trials() -> Result<()> {
         let evaluator = PedAnovaImportanceEvaluator::default();
-        let study = test_utils::get_study(42, evaluator.min_n_top_trials, false, Direction::Minimize)?;
+        let study =
+            test_utils::get_study(42, evaluator.min_n_top_trials, false, Direction::Minimize)?;
         let importances = evaluator.evaluate(&study)?;
         assert!(importances.values().all(|v| v.abs() <= 1e-12));
         Ok(())
