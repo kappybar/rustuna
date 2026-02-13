@@ -59,4 +59,5 @@ pub enum ErrorKind {
     NoCompletedTrial,
     IncompatibleDistribution,
     Unexpected,
+    ImportanceEvaluatorError,
 }

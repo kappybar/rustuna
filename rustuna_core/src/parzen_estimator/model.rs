@@ -30,7 +30,7 @@ impl ParzenEstimator {
         )
     }
 
-    pub fn new_with_scott(
+    pub fn with_scott(
         observations: &HashMap<String, Vec<f64>>,
         search_space: &HashMap<String, Distribution>,
         weights: &[f64],

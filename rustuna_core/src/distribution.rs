@@ -57,6 +57,33 @@ impl Distribution {
             _ => Err(Error::new(ErrorKind::IncompatibleDistribution)),
         }
     }
+
+    pub fn is_single(&self) -> bool {
+        match self {
+            Distribution::Float {
+                low, high, step, ..
+            } => {
+                if let Some(step) = step {
+                    low == high || high - low - step < 1e-12
+                } else {
+                    low == high
+                }
+            }
+            Distribution::Int {
+                low,
+                high,
+                step,
+                log,
+            } => {
+                if *log {
+                    low == high
+                } else {
+                    low == high || high - low < *step
+                }
+            }
+            Distribution::Categorical { cardinality } => *cardinality == 1,
+        }
+    }
 }
 
 #[cfg(test)]
