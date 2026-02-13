@@ -130,7 +130,7 @@ impl ImportanceEvaluator for PedAnovaImportanceEvaluator {
         common::ensure_target_for_multi_objective(&trials, opts.target)?;
         let dists = common::get_intersection_search_space(&trials);
 
-        if trials.len() < self.min_n_top_trials {
+        if trials.len() <= self.min_n_top_trials {
             return Ok(dists.into_keys().map(|name| (name, 0.0)).collect());
         }
 
@@ -296,7 +296,7 @@ mod tests {
         let study =
             test_utils::get_study(42, evaluator.min_n_top_trials, false, Direction::Minimize)?;
         let importances = evaluator.evaluate(&study)?;
-        assert!(importances.values().all(|v| v.abs() <= 1e-12));
+        assert!(importances.values().all(|v| v.abs() <= 1e-12), "{importances:?}");
         Ok(())
     }
 
