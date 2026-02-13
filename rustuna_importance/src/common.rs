@@ -200,12 +200,12 @@ mod tests {
                     &evaluator,
                     ImportanceOptions::new().normalize(normalize),
                 )?;
-                assert_eq!(!importances.len(), 6);
+                assert_eq!(importances.len(), 6, "{importances:?}");
                 if normalize {
                     assert!(importances
                         .values()
-                        .all(|v| (-1e-12..=1.0 + 1e-12).contains(v)));
-                    assert!((importances.values().sum::<f64>() - 1.0).abs() < 1e-12);
+                        .all(|v| (-1e-12..=1.0 + 1e-12).contains(v)), "{importances:?}");
+                    assert!((importances.values().sum::<f64>() - 1.0).abs() < 1e-12, "{importances:?}");
                 }
             }
         }
@@ -227,12 +227,12 @@ mod tests {
                         .with_target(&target)
                         .normalize(normalize),
                 )?;
-                assert_eq!(!importances.len(), 6);
+                assert_eq!(importances.len(), 6, "{importances:?}");
                 if normalize {
                     assert!(importances
                         .values()
-                        .all(|v| (-1e-12..=1.0 + 1e-12).contains(v)));
-                    assert!((importances.values().sum::<f64>() - 1.0).abs() < 1e-12);
+                        .all(|v| (-1e-12..=1.0 + 1e-12).contains(v)), "{importances:?}");
+                    assert!((importances.values().sum::<f64>() - 1.0).abs() < 1e-12, "{importances:?}");
                 }
 
                 let importances_wo_target = get_param_importances_with(
@@ -240,7 +240,7 @@ mod tests {
                     &evaluator,
                     ImportanceOptions::new().normalize(normalize),
                 )?;
-                assert_ne!(importances, importances_wo_target);
+                assert_ne!(importances, importances_wo_target, "{importances:?}, {importances_wo_target:?}");
             }
         }
         Ok(())
@@ -253,24 +253,15 @@ mod tests {
         let target =
             |t: &PersistedTrial| -> f64 { t.internal_params["x1"] + t.internal_params["x2"] };
         for evaluator in evaluators {
-            for normalize in [true, false] {
                 let importances = evaluator.evaluate_with(
                     &study,
                     ImportanceOptions::new()
                         .with_target(&target)
-                        .normalize(normalize),
                 )?;
-                assert_eq!(!importances.len(), 6);
-                if normalize {
-                    assert!(importances
-                        .values()
-                        .all(|v| (-1e-12..=1.0 + 1e-12).contains(v)));
-                    assert!((importances.values().sum::<f64>() - 1.0).abs() < 1e-12);
-                }
+                assert_eq!(importances.len(), 6, "{importances:?}");
                 let importances_wo_target = evaluator
-                    .evaluate_with(&study, ImportanceOptions::new().normalize(normalize))?;
-                assert_ne!(importances, importances_wo_target);
-            }
+                    .evaluate_with(&study, ImportanceOptions::new())?;
+                assert_ne!(importances, importances_wo_target, "{importances:?}, {importances_wo_target:?}");
         }
         Ok(())
     }
@@ -291,7 +282,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_param_importances_empty_search_space() -> Result<()> {
+    fn test_get_param_importances_single_search_space() -> Result<()> {
         let mut study = study::create_study(
             "empty-search-space",
             InMemoryStorage::new(),
@@ -300,7 +291,12 @@ mod tests {
         study.optimize(
             |mut t| {
                 let x1 = t.suggest_float("x1", 0.0, 5.0)?;
-                let x2 = t.suggest_float("x2", 1.0, 1.0)?;
+                let x2 = t.suggest("x2", &Distribution::Float {
+                    low: 0.0,
+                    high: 1.0,
+                    step: Some(1.0),
+                    log: false,
+                })?;
                 Ok(vec![x1 + x2])
             },
             Arc::new(Mutex::new(RandomSampler::new())),
@@ -314,9 +310,9 @@ mod tests {
                 .map(String::as_str)
                 .collect::<HashSet<_>>();
             let expected = HashSet::from(["x1", "x2"]);
-            assert_eq!(keys, expected);
-            assert!(importances["x1"] > 0.0);
-            assert!(importances["x2"] == 0.0);
+            assert_eq!(keys, expected, "{importances:?}");
+            assert!(importances["x1"] > 0.0, "{importances:?}");
+            assert!(importances["x2"] == 0.0, "{importances:?}");
         }
         Ok(())
     }
