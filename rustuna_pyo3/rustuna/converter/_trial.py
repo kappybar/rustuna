@@ -92,24 +92,23 @@ def to_persisted_trial(
 class _LazyJSONAttrs(dict[str, typing.Any]):
     def __init__(self, raw: typing.Mapping[str, str]) -> None:
         super().__init__(raw)
-        self._decoded_keys: set[str] = set()
+        self._cache: dict[str, typing.Any] = {}
 
     def __getitem__(self, key: str) -> typing.Any:
-        if key in self._decoded_keys:
-            return super().__getitem__(key)
+        if key in self._cache:
+            return self._cache[key]
         raw = super().__getitem__(key)
         decoded = json.loads(raw)
-        super().__setitem__(key, decoded)
-        self._decoded_keys.add(key)
+        self._cache[key] = decoded
         return decoded
 
     def __setitem__(self, key: str, value: typing.Any) -> None:
         super().__setitem__(key, value)
-        self._decoded_keys.add(key)
+        self._cache[key] = value
 
     def __delitem__(self, key: str) -> None:
         super().__delitem__(key)
-        self._decoded_keys.discard(key)
+        self._cache.pop(key, None)
 
     def get(self, key: str, default: typing.Any = None) -> typing.Any:
         try:
