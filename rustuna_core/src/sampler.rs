@@ -54,6 +54,61 @@ impl RandomSampler {
         }
     }
 }
+
+fn round_to_step(value: f64, low: f64, high: f64, step: f64) -> f64 {
+    let mut stepped = low + ((value - low) / step).round() * step;
+    if stepped < low {
+        stepped = low;
+    }
+    if stepped > high {
+        stepped = high;
+    }
+    stepped
+}
+
+fn sample_float_with_step(
+    rng: &mut StdRng,
+    low: f64,
+    high: f64,
+    step: Option<f64>,
+    log: bool,
+) -> f64 {
+    match (step, log) {
+        (None, false) => rng.gen_range(low..high),
+        (None, true) => rng.gen_range(low.ln()..high.ln()).exp(),
+        (Some(step), false) => {
+            let max_index = ((high - low) / step).floor().max(0.0) as i64;
+            let index = rng.gen_range(0..=max_index);
+            low + (index as f64) * step
+        }
+        (Some(step), true) => {
+            let value = rng.gen_range(low.ln()..high.ln()).exp();
+            round_to_step(value, low, high, step)
+        }
+    }
+}
+
+fn sample_int_with_step(rng: &mut StdRng, low: i64, high: i64, step: i64, log: bool) -> f64 {
+    let low_f = low as f64;
+    let high_f = high as f64;
+    let step_f = step as f64;
+    if log {
+        let value = rng.gen_range(low_f.ln()..high_f.ln()).exp();
+        let max_index = ((high_f - low_f) / step_f).floor().max(0.0) as i64;
+        let mut index = ((value - low_f) / step_f).round() as i64;
+        if index < 0 {
+            index = 0;
+        }
+        if index > max_index {
+            index = max_index;
+        }
+        low_f + (index as f64) * step_f
+    } else {
+        let max_index = ((high - low) / step).max(0) as i64;
+        let index = rng.gen_range(0..=max_index);
+        (low + index * step) as f64
+    }
+}
 impl Sampler for RandomSampler {
     fn sample_independent(
         &mut self,
@@ -63,24 +118,23 @@ impl Sampler for RandomSampler {
         distribution: &Distribution,
     ) -> Result<f64> {
         match distribution {
-            // TODO(c-bata): Support step and log
             Distribution::Float {
                 low,
                 high,
-                step: _,
-                log: _,
+                step,
+                log,
             } => {
-                let param_value = self.rng.gen_range(*low..*high);
-                Ok(param_value)
+                let value = sample_float_with_step(&mut self.rng, *low, *high, *step, *log);
+                Ok(value)
             }
             Distribution::Int {
                 low,
                 high,
-                step: _,
-                log: _,
+                step,
+                log,
             } => {
-                let param_value = self.rng.gen_range(*low..*high);
-                Ok(param_value as f64)
+                let value = sample_int_with_step(&mut self.rng, *low, *high, *step, *log);
+                Ok(value)
             }
             Distribution::Categorical { cardinality } => {
                 let param_value = self.rng.gen_range(0..*cardinality);
