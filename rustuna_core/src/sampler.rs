@@ -104,7 +104,7 @@ fn sample_int_with_step(rng: &mut StdRng, low: i64, high: i64, step: i64, log: b
         }
         low_f + (index as f64) * step_f
     } else {
-        let max_index = ((high - low) / step).max(0) as i64;
+        let max_index = ((high - low) / step).max(0);
         let index = rng.gen_range(0..=max_index);
         (low + index * step) as f64
     }
