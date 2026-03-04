@@ -755,11 +755,18 @@ class Sampler:
     """Factory class for creating sampler instances."""
 
     @classmethod
-    def tpe(cls, seed: int | None = None, multivariate: bool = True) -> Sampler:
+    def tpe(
+        cls,
+        seed: int | None = None,
+        n_startup_trials: int = 10,
+        multivariate: bool = True,
+    ) -> Sampler:
         """Create a Tree-structured Parzen Estimator sampler.
 
         Args:
             seed: Random seed. If None, a random seed is used.
+            n_startup_trials: Number of startup trials before using TPE.
+            multivariate: Whether to use multivariate TPE.
 
         Returns:
             A TPE sampler instance.

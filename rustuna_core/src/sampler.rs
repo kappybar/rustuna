@@ -109,6 +109,7 @@ fn sample_int_with_step(rng: &mut StdRng, low: i64, high: i64, step: i64, log: b
         (low + index * step) as f64
     }
 }
+
 impl Sampler for RandomSampler {
     fn sample_independent(
         &mut self,

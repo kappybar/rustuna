@@ -32,14 +32,11 @@ impl PySampler {
         n_startup_trials: usize,
         multivariate: bool,
     ) -> PyResult<Self> {
-        let rs_sampler = match seed {
-            Some(seed) => TpeSampler::from_config(TpeConfig {
-                seed: Some(seed),
-                n_startup_trials,
-                multivariate,
-            }),
-            None => TpeSampler::new(),
-        };
+        let rs_sampler = TpeSampler::from_config(TpeConfig {
+            seed,
+            n_startup_trials,
+            multivariate,
+        });
         Ok(PySampler {
             sampler: Arc::new(Mutex::new(rs_sampler)),
             kind: "tpe",
