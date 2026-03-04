@@ -20,7 +20,7 @@ fn single_objective(mut trial: Trial) -> Result<Vec<f64>> {
     let x3 = trial.suggest(
         "x3",
         &Distribution::Float {
-            low: 0.0,
+            low: 1.0,
             high: 3.0,
             step: Some(1.0),
             log: true,
@@ -30,7 +30,7 @@ fn single_objective(mut trial: Trial) -> Result<Vec<f64>> {
     let x5 = trial.suggest(
         "x5",
         &Distribution::Int {
-            low: -3,
+            low: 1,
             high: 3,
             step: 1,
             log: true,
@@ -54,7 +54,7 @@ fn multi_objective(mut trial: Trial) -> Result<Vec<f64>> {
     let x3 = trial.suggest(
         "x3",
         &Distribution::Float {
-            low: 0.0,
+            low: 0.1,
             high: 3.0,
             step: Some(1.0),
             log: true,
@@ -64,7 +64,7 @@ fn multi_objective(mut trial: Trial) -> Result<Vec<f64>> {
     let x5 = trial.suggest(
         "x5",
         &Distribution::Int {
-            low: -3,
+            low: 1,
             high: 3,
             step: 1,
             log: true,

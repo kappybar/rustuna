@@ -87,7 +87,10 @@ impl TpeSampler {
         let trials = guard.get_trials(ctx.study_id)?.clone();
         drop(guard);
 
-        let complete_trials: Vec<_> = trials.into_iter().filter(|t| t.is_finished()).collect();
+        let complete_trials: Vec<_> = trials
+            .into_iter()
+            .filter(|t| matches!(t.state_values, TrialStateValues::Complete(_)))
+            .collect();
         let is_multi_objective = ctx.directions.len() > 1;
 
         let (pe_good, pe_poor) = if !is_multi_objective {
@@ -399,7 +402,10 @@ impl Sampler for TpeSampler {
         let trials = guard.get_trials(ctx.study_id)?.clone();
         drop(guard);
 
-        let complete_trials: Vec<_> = trials.into_iter().filter(|t| t.is_finished()).collect();
+        let complete_trials: Vec<_> = trials
+            .into_iter()
+            .filter(|t| matches!(t.state_values, TrialStateValues::Complete(_)))
+            .collect();
         if complete_trials.len() < self.n_startup_trials {
             let params =
                 self.random_sampler
@@ -428,7 +434,10 @@ impl Sampler for TpeSampler {
         let trials = guard.get_trials(ctx.study_id)?.clone();
         drop(guard);
 
-        let complete_trials: Vec<_> = trials.into_iter().filter(|t| t.is_finished()).collect();
+        let complete_trials: Vec<_> = trials
+            .into_iter()
+            .filter(|t| matches!(t.state_values, TrialStateValues::Complete(_)))
+            .collect();
         if complete_trials.len() < self.n_startup_trials {
             let params = HashMap::new();
             return Ok(params);
