@@ -36,32 +36,42 @@ pub fn py_create_study(
         Some(s) => s,
         None => "default".to_string(), // TODO(c-bata): Generate random name with uuid.
     };
-    let storage: PyResult<Arc<RwLock<dyn Storage>>> = match storage {
+    let (storage_arc, storage_pyobj): (Arc<RwLock<dyn Storage>>, Py<PyAny>) = match storage {
         Some(storage_obj) => Python::attach(|py| {
+            let storage_pyobj = storage_obj.clone_ref(py);
             let storage_ref = storage_obj.bind(py);
             if storage_ref.is_instance_of::<PyStorage>() {
                 let storage = storage_ref.extract::<PyStorage>().map_err(|e| {
                     PyValueError::new_err(format!("Failed to extract PyStorage: {e:?}"))
                 })?;
-                Ok(storage.storage)
+                Ok::<_, PyErr>((storage.storage, storage_pyobj))
             } else {
-                let is_distributed = Python::attach(|py| {
-                    storage_obj
-                        .getattr(py, "is_distributed")?
-                        .extract::<bool>(py)
-                })?;
+                let is_distributed = storage_obj
+                    .getattr(py, "is_distributed")?
+                    .extract::<bool>(py)?;
                 let mut storage = PyObjectStorage::new(storage_obj, is_distributed);
                 storage.sync_studies(true).map_err(err_to_exceptions)?;
                 let storage: Arc<RwLock<dyn Storage>> = Arc::new(RwLock::new(storage));
-                Ok(storage)
+                Ok((storage, storage_pyobj))
             }
-        }),
-        None => Ok(Arc::new(RwLock::new(InMemoryStorage::new()))),
+        })?,
+        None => {
+            let arc: Arc<RwLock<dyn Storage>> = Arc::new(RwLock::new(InMemoryStorage::new()));
+            let py_storage = PyStorage {
+                storage: arc.clone(),
+                optuna_compatible: None,
+                kind: "in_memory",
+            };
+            let storage_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
+                Ok(Py::new(py, py_storage)?.into_any())
+            })?;
+            (arc, storage_pyobj)
+        }
     };
     let directions = convert_directions(direction, directions)?;
     let is_multi_objective = directions.len() > 1;
-    let study =
-        create_study_with_arc(&study_name, storage?, directions).map_err(err_to_exceptions)?;
+    let study = create_study_with_arc(&study_name, storage_arc, directions)
+        .map_err(err_to_exceptions)?;
     let sampler: PyResult<Arc<Mutex<dyn Sampler>>> = match sampler {
         Some(sampler_obj) => Python::attach(|py| {
             let sampler_ref = sampler_obj.bind(py);
@@ -88,6 +98,7 @@ pub fn py_create_study(
     Ok(PyStudy {
         study,
         sampler: sampler?,
+        storage_pyobj,
     })
 }
 
@@ -98,6 +109,7 @@ pub fn py_load_study(
     storage: Py<PyAny>,
     sampler: Option<Py<PyAny>>,
 ) -> PyResult<PyStudy> {
+    let storage_pyobj = Python::attach(|py| storage.clone_ref(py));
     let storage: PyResult<Arc<RwLock<dyn Storage>>> = Python::attach(|py| {
         let storage_ref = storage.bind(py);
         if storage_ref.is_instance_of::<PyStorage>() {
@@ -155,6 +167,7 @@ pub fn py_load_study(
     Ok(PyStudy {
         study,
         sampler: sampler?,
+        storage_pyobj,
     })
 }
 
@@ -163,6 +176,7 @@ pub fn py_load_study(
 pub struct PyStudy {
     pub study: Study,
     sampler: Arc<Mutex<dyn Sampler>>,
+    storage_pyobj: Py<PyAny>,
 }
 #[allow(non_local_definitions)]
 #[pymethods]
@@ -175,13 +189,17 @@ impl PyStudy {
         directions: Vec<PyDirection>,
         storage: PyStorage,
         sampler: PySampler,
-    ) -> Self {
+    ) -> PyResult<Self> {
         let directions: Vec<Direction> = directions.into_iter().map(|d| d.into()).collect();
+        let storage_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
+            Ok(Py::new(py, storage.clone())?.into_any())
+        })?;
         let study = Study::new(study_id, name, directions, storage.storage);
-        PyStudy {
+        Ok(PyStudy {
             study,
             sampler: sampler.sampler,
-        }
+            storage_pyobj,
+        })
     }
 
     #[pyo3(signature = (objective, n_trials))]
@@ -373,6 +391,11 @@ impl PyStudy {
     #[getter]
     pub fn id(&self) -> u32 {
         self.study.id
+    }
+
+    #[getter]
+    pub fn storage<'py>(&self, py: Python<'py>) -> Py<PyAny> {
+        self.storage_pyobj.clone_ref(py)
     }
 
     #[getter]

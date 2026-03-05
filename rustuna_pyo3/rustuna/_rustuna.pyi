@@ -377,6 +377,9 @@ class Study:
     @property
     def best_trials(self) -> list[PersistedTrial]:
         """Return the Pareto front trials in the multi-objective study."""
+    @property
+    def storage(self) -> StorageProtocol:
+        """Return the storage object."""
 
 class StudyDirection(enum.IntEnum):
     """Direction of optimization."""

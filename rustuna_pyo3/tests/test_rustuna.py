@@ -25,6 +25,8 @@ def test_optimize():
     assert len(study.best_trial.distributions) == 3
     assert len(study.best_trial.params) == 3
 
+    assert len(study.storage.get_studies()) == 1
+
 
 def test_optimize_multi_objective():
     study = rustuna.create_study(directions=["minimize", "minimize"])
