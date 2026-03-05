@@ -362,6 +362,9 @@ class Study:
     def id(self) -> int:
         """Return the study ID."""
     @property
+    def name(self) -> str:
+        """Return the study name."""
+    @property
     def directions(self) -> list[StudyDirection]:
         """Return the optimization directions."""
     @property

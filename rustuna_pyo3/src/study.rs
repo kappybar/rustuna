@@ -394,6 +394,11 @@ impl PyStudy {
     }
 
     #[getter]
+    pub fn name(&self) -> &str {
+        &self.study.name
+    }
+
+    #[getter]
     pub fn storage<'py>(&self, py: Python<'py>) -> Py<PyAny> {
         self.storage_pyobj.clone_ref(py)
     }

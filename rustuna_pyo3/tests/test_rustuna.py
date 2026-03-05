@@ -6,10 +6,7 @@ import rustuna
 def test_optimize():
     study = rustuna.create_study()
 
-    study.set_user_attr("key", "value")
-    assert study.user_attrs == {"key": "value"}
-
-    def objective(trial):
+    def objective(trial: rustuna.Trial):
         x = trial.suggest_float("x", -5.0, 5)
         y = trial.suggest_int("y", 0, 10)
         z = trial.suggest_categorical("z", ["foo", "bar"])
@@ -24,8 +21,6 @@ def test_optimize():
     assert len(study.best_trial.internal_params) == 3
     assert len(study.best_trial.distributions) == 3
     assert len(study.best_trial.params) == 3
-
-    assert len(study.storage.get_studies()) == 1
 
 
 def test_optimize_multi_objective():
@@ -51,6 +46,17 @@ def test_optimize_multi_objective():
     assert len(trial.distributions) == 3
     assert len(trial.params) == 3
     assert len(trial.values) == 2
+
+
+def test_study():
+    study = rustuna.create_study(study_name="example")
+
+    assert study.name == "example"
+
+    study.set_user_attr("key", "value")
+    assert study.user_attrs == {"key": "value"}
+
+    assert len(study.storage.get_studies()) == 1
 
 
 def test_suggest_categorical():
