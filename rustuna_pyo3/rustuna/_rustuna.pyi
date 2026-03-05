@@ -383,6 +383,9 @@ class Study:
     @property
     def storage(self) -> StorageProtocol:
         """Return the storage object."""
+    @property
+    def sampler(self) -> SamplerProtocol:
+        """Return the storage object."""
 
 class StudyDirection(enum.IntEnum):
     """Direction of optimization."""

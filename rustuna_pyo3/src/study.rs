@@ -72,33 +72,42 @@ pub fn py_create_study(
     let is_multi_objective = directions.len() > 1;
     let study = create_study_with_arc(&study_name, storage_arc, directions)
         .map_err(err_to_exceptions)?;
-    let sampler: PyResult<Arc<Mutex<dyn Sampler>>> = match sampler {
+    let (sampler_arc, sampler_pyobj): (Arc<Mutex<dyn Sampler>>, Py<PyAny>) = match sampler {
         Some(sampler_obj) => Python::attach(|py| {
+            let sampler_pyobj = sampler_obj.clone_ref(py);
             let sampler_ref = sampler_obj.bind(py);
             if sampler_ref.is_instance_of::<PySampler>() {
                 let sampler = sampler_ref.extract::<PySampler>().map_err(|e| {
                     PyValueError::new_err(format!("Failed to extract PySampler: {e:?}"))
                 })?;
-                Ok(sampler.sampler)
+                Ok::<_, PyErr>((sampler.sampler, sampler_pyobj))
             } else {
                 let sampler: Arc<Mutex<dyn Sampler>> =
                     Arc::new(Mutex::new(PyObjectSampler::new(sampler_obj)));
-                Ok(sampler)
+                Ok((sampler, sampler_pyobj))
             }
-        }),
+        })?,
         None => {
-            let sampler: Arc<Mutex<dyn Sampler>> = if is_multi_objective {
+            let arc: Arc<Mutex<dyn Sampler>> = if is_multi_objective {
                 Arc::new(Mutex::new(RandomSampler::new()))
             } else {
                 Arc::new(Mutex::new(TpeSampler::new()))
             };
-            Ok(sampler)
+            let py_sampler = PySampler {
+                sampler: arc.clone(),
+                kind: "tpe",
+            };
+            let sampler_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
+                Ok(Py::new(py, py_sampler)?.into_any())
+            })?;
+            (arc, sampler_pyobj)
         }
     };
     Ok(PyStudy {
         study,
-        sampler: sampler?,
+        sampler: sampler_arc,
         storage_pyobj,
+        sampler_pyobj,
     })
 }
 
@@ -141,33 +150,42 @@ pub fn py_load_study(
     drop(guard);
     let is_multi_objective = directions.len() > 1;
     let study = Study::new(study_id, study_name, directions, storage);
-    let sampler: PyResult<Arc<Mutex<dyn Sampler>>> = match sampler {
+    let (sampler_arc, sampler_pyobj): (Arc<Mutex<dyn Sampler>>, Py<PyAny>) = match sampler {
         Some(sampler_obj) => Python::attach(|py| {
+            let sampler_pyobj = sampler_obj.clone_ref(py);
             let sampler_ref = sampler_obj.bind(py);
             if sampler_ref.is_instance_of::<PySampler>() {
                 let sampler = sampler_ref.extract::<PySampler>().map_err(|e| {
                     PyValueError::new_err(format!("Failed to extract PySampler: {e:?}"))
                 })?;
-                Ok(sampler.sampler)
+                Ok::<_, PyErr>((sampler.sampler, sampler_pyobj))
             } else {
                 let sampler: Arc<Mutex<dyn Sampler>> =
                     Arc::new(Mutex::new(PyObjectSampler::new(sampler_obj)));
-                Ok(sampler)
+                Ok((sampler, sampler_pyobj))
             }
-        }),
+        })?,
         None => {
-            let sampler: Arc<Mutex<dyn Sampler>> = if is_multi_objective {
+            let arc: Arc<Mutex<dyn Sampler>> = if is_multi_objective {
                 Arc::new(Mutex::new(RandomSampler::new()))
             } else {
                 Arc::new(Mutex::new(TpeSampler::new()))
             };
-            Ok(sampler)
+            let py_sampler = PySampler {
+                sampler: arc.clone(),
+                kind: "tpe",
+            };
+            let sampler_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
+                Ok(Py::new(py, py_sampler)?.into_any())
+            })?;
+            (arc, sampler_pyobj)
         }
     };
     Ok(PyStudy {
         study,
-        sampler: sampler?,
+        sampler: sampler_arc,
         storage_pyobj,
+        sampler_pyobj,
     })
 }
 
@@ -177,6 +195,7 @@ pub struct PyStudy {
     pub study: Study,
     sampler: Arc<Mutex<dyn Sampler>>,
     storage_pyobj: Py<PyAny>,
+    sampler_pyobj: Py<PyAny>,
 }
 #[allow(non_local_definitions)]
 #[pymethods]
@@ -194,11 +213,15 @@ impl PyStudy {
         let storage_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
             Ok(Py::new(py, storage.clone())?.into_any())
         })?;
+        let sampler_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
+            Ok(Py::new(py, sampler.clone())?.into_any())
+        })?;
         let study = Study::new(study_id, name, directions, storage.storage);
         Ok(PyStudy {
             study,
             sampler: sampler.sampler,
             storage_pyobj,
+            sampler_pyobj,
         })
     }
 
@@ -401,6 +424,11 @@ impl PyStudy {
     #[getter]
     pub fn storage<'py>(&self, py: Python<'py>) -> Py<PyAny> {
         self.storage_pyobj.clone_ref(py)
+    }
+
+    #[getter]
+    pub fn sampler<'py>(&self, py: Python<'py>) -> Py<PyAny> {
+        self.sampler_pyobj.clone_ref(py)
     }
 
     #[getter]
