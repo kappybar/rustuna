@@ -219,7 +219,7 @@ impl PyPersistedTrial {
         }
     }
 
-    fn with_trial<R>(&self, f: impl FnOnce(&PersistedTrial) -> PyResult<R>) -> PyResult<R> {
+    pub fn with_trial<R>(&self, f: impl FnOnce(&PersistedTrial) -> PyResult<R>) -> PyResult<R> {
         match &self.source {
             PyPersistedTrialSource::Owned(trial) => f(trial.as_ref()),
             PyPersistedTrialSource::StorageBacked {

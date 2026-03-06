@@ -345,6 +345,12 @@ class Study:
             objective: A callable that takes a Trial object and returns a float value or a sequence of float values.
             n_trials: The number of trials to run.
         """
+    def add_trial(self, trial: PersistedTrial) -> None:
+        """Add trial to study.
+
+        Args:
+            trial: Trial to add.
+        """
     def set_user_attr(
         self,
         key: str,

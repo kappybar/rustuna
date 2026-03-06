@@ -232,6 +232,45 @@ impl Study {
         guard.set_study_attrs(self.id, a, false)?;
         Ok(())
     }
+
+    pub fn add_trial(&mut self, trial: PersistedTrial) -> Result<()> {
+        if let TrialStateValues::Complete(ref values) = trial.state_values {
+            if values.len() != self.directions.len() {
+                return Err(Error::with_reason(
+                    ErrorKind::InvalidObjectiveValues,
+                    format!(
+                        "The added trial has {} values, which is different from the number of objectives {} in the study.",
+                        values.len(),
+                        self.directions.len()
+                    ),
+                ));
+            }
+        }
+
+        let mut guard = self.storage.write().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::Unexpected,
+                format!("Failed to acquire a storage guard: {e}"),
+            )
+        })?;
+
+        let new_trial = guard.create_new_trial(self.id)?;
+        let trial_id = new_trial.id;
+
+        for (param_name, distribution) in &trial.distributions {
+            if let Some(internal_value) = trial.internal_params.get(param_name) {
+                guard.set_trial_param(trial_id, param_name, distribution, *internal_value)?;
+            }
+        }
+
+        if !trial.attrs.is_empty() {
+            guard.set_trial_attrs(trial_id, trial.attrs.clone(), false)?;
+        }
+
+        guard.set_trial_state_values(trial_id, trial.state_values)?;
+
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

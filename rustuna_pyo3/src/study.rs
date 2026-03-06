@@ -335,6 +335,13 @@ impl PyStudy {
         Ok(())
     }
 
+    pub fn add_trial(&mut self, trial: &Bound<'_, PyPersistedTrial>) -> PyResult<()> {
+        let persisted_trial = trial.borrow().with_trial(|t| Ok(t.clone()))?;
+        self.study
+            .add_trial(persisted_trial)
+            .map_err(err_to_exceptions)?;
+        Ok(())
+    }
     #[pyo3(signature = (key, value))]
     pub fn set_user_attr(&mut self, key: String, value: String) -> PyResult<()> {
         let mut attrs = rustuna_core::attr::Attrs::new();
