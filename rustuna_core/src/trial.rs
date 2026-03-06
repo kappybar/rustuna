@@ -19,6 +19,7 @@ pub struct Trial {
     storage: Arc<RwLock<dyn Storage>>,
     sampler: Arc<Mutex<dyn Sampler>>,
     joint_params: HashMap<String, (Distribution, f64)>,
+    fixed_params: HashMap<String, CategoryLabel>,
     cached_trial: PersistedTrial,
 }
 impl Trial {
@@ -33,6 +34,7 @@ impl Trial {
         storage: Arc<RwLock<dyn Storage>>,
         sampler: Arc<Mutex<dyn Sampler>>,
         joint_params: HashMap<String, (Distribution, f64)>,
+        fixed_params: HashMap<String, CategoryLabel>,
     ) -> Self {
         let mut cached_trial = PersistedTrial::new(trial_id, study_id, number);
         cached_trial.datetime_start = datetime_start.clone();
@@ -47,11 +49,51 @@ impl Trial {
             storage,
             sampler,
             joint_params,
+            fixed_params,
             cached_trial,
         }
     }
 
     pub fn suggest(&mut self, name: &str, distribution: &Distribution) -> Result<f64> {
+        if let Some(fixed_value) = self.fixed_params.get(name) {
+            let result = if let Distribution::Categorical { cardinality } = distribution {
+                let mut storage_guard = self
+                    .storage
+                    .write()
+                    .map_err(|_| Error::new(ErrorKind::StorageError))?;
+                let labels =
+                    storage_guard.get_category_labels(self.study_id, name, *cardinality)?;
+                drop(storage_guard);
+
+                labels.and_then(|labels| {
+                    labels
+                        .iter()
+                        .position(|l| l == fixed_value)
+                        .map(|index| index as f64)
+                })
+            } else {
+                validate_and_convert(fixed_value, distribution).ok()
+            };
+
+            if let Some(internal_value) = result {
+                let mut storage_guard = self
+                    .storage
+                    .write()
+                    .map_err(|_| Error::new(ErrorKind::StorageError))?;
+                storage_guard.set_trial_param(self.id, name, distribution, internal_value)?;
+                drop(storage_guard);
+
+                self.cached_trial
+                    .internal_params
+                    .insert(name.to_string(), internal_value);
+                self.cached_trial
+                    .distributions
+                    .insert(name.to_string(), distribution.clone());
+
+                return Ok(internal_value);
+            }
+        }
+
         if let Some((d, val)) = self.joint_params.get(name) {
             if *d == *distribution {
                 let param_value = *val;
@@ -128,15 +170,17 @@ impl Trial {
     ) -> Result<&'a CategoryLabel> {
         let study_id = self.study_id;
         let storage = self.storage.clone();
-        let c = self.suggest_categorical(name, choices)?;
 
-        // TODO(c-bata): Avoid to overwrite the labels multiple times.
-        // Save labels in the study system attr.
+        // Save labels in the study system attr before calling suggest(),
+        // so that fixed_params can look up category labels during suggest().
         let category_labels = category_labels_to_attrs(name, choices);
         let mut guard = storage
             .write()
             .map_err(|_| Error::new(ErrorKind::Unexpected))?;
         guard.set_study_attrs(study_id, category_labels, false)?;
+        drop(guard);
+
+        let c = self.suggest_categorical(name, choices)?;
         Ok(c)
     }
 
@@ -281,6 +325,57 @@ pub enum TrialStateValues {
     Waiting,
 }
 
+// Validate a fixed parameter value against its distribution and convert it
+// to its internal representation.
+// Note: step and log validation are intentionally omitted, matching Optuna's behavior
+// (Optuna's _is_valid_distribution_value only checks range).
+fn validate_and_convert(value: &CategoryLabel, distribution: &Distribution) -> Result<f64> {
+    match (value, distribution) {
+        (CategoryLabel::Float(f), Distribution::Float { low, high, .. }) => {
+            if *f < *low || *f > *high {
+                return Err(Error::with_reason(
+                    ErrorKind::InvalidFixedParam,
+                    format!("Fixed param {f} is out of range [{low}, {high}]"),
+                ));
+            }
+            Ok(*f)
+        }
+        (CategoryLabel::Int(i), Distribution::Float { low, high, .. }) => {
+            let f = *i as f64;
+            if f < *low || f > *high {
+                return Err(Error::with_reason(
+                    ErrorKind::InvalidFixedParam,
+                    format!("Fixed param {i} is out of range [{low}, {high}]"),
+                ));
+            }
+            Ok(f)
+        }
+        (CategoryLabel::Int(i), Distribution::Int { low, high, .. }) => {
+            if *i < *low || *i > *high {
+                return Err(Error::with_reason(
+                    ErrorKind::InvalidFixedParam,
+                    format!("Fixed param {i} is out of range [{low}, {high}]"),
+                ));
+            }
+            Ok(*i as f64)
+        }
+        (CategoryLabel::Float(f), Distribution::Int { low, high, .. }) => {
+            let i = *f as i64;
+            if i < *low || i > *high {
+                return Err(Error::with_reason(
+                    ErrorKind::InvalidFixedParam,
+                    format!("Fixed param {f} is out of range [{low}, {high}]"),
+                ));
+            }
+            Ok(i as f64)
+        }
+        _ => Err(Error::with_reason(
+            ErrorKind::InvalidFixedParam,
+            "Incompatible type for distribution".to_string(),
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -288,6 +383,211 @@ mod tests {
     use crate::sampler::RandomSampler;
     use crate::storage::InMemoryStorage;
     use crate::study::create_study_with_arc;
+
+    #[test]
+    fn test_validate_and_convert_float_in_range() {
+        let val = CategoryLabel::Float(5.0);
+        let dist = Distribution::Float {
+            low: 0.0,
+            high: 10.0,
+            step: None,
+            log: false,
+        };
+        assert_eq!(validate_and_convert(&val, &dist).unwrap(), 5.0);
+    }
+
+    #[test]
+    fn test_validate_and_convert_float_at_boundary() {
+        let dist = Distribution::Float {
+            low: 0.0,
+            high: 10.0,
+            step: None,
+            log: false,
+        };
+        assert_eq!(
+            validate_and_convert(&CategoryLabel::Float(0.0), &dist).unwrap(),
+            0.0
+        );
+        assert_eq!(
+            validate_and_convert(&CategoryLabel::Float(10.0), &dist).unwrap(),
+            10.0
+        );
+    }
+
+    #[test]
+    fn test_validate_and_convert_float_out_of_range() {
+        let dist = Distribution::Float {
+            low: 0.0,
+            high: 10.0,
+            step: None,
+            log: false,
+        };
+        assert!(validate_and_convert(&CategoryLabel::Float(-1.0), &dist).is_err());
+        assert!(validate_and_convert(&CategoryLabel::Float(11.0), &dist).is_err());
+    }
+
+    #[test]
+    fn test_validate_and_convert_int_to_float() {
+        let val = CategoryLabel::Int(5);
+        let dist = Distribution::Float {
+            low: 0.0,
+            high: 10.0,
+            step: None,
+            log: false,
+        };
+        assert_eq!(validate_and_convert(&val, &dist).unwrap(), 5.0);
+    }
+
+    #[test]
+    fn test_validate_and_convert_int_in_range() {
+        let val = CategoryLabel::Int(5);
+        let dist = Distribution::Int {
+            low: 0,
+            high: 10,
+            step: 1,
+            log: false,
+        };
+        assert_eq!(validate_and_convert(&val, &dist).unwrap(), 5.0);
+    }
+
+    #[test]
+    fn test_validate_and_convert_int_out_of_range() {
+        let dist = Distribution::Int {
+            low: 0,
+            high: 10,
+            step: 1,
+            log: false,
+        };
+        assert!(validate_and_convert(&CategoryLabel::Int(-1), &dist).is_err());
+        assert!(validate_and_convert(&CategoryLabel::Int(11), &dist).is_err());
+    }
+
+    #[test]
+    fn test_validate_and_convert_float_to_int() {
+        let val = CategoryLabel::Float(5.0);
+        let dist = Distribution::Int {
+            low: 0,
+            high: 10,
+            step: 1,
+            log: false,
+        };
+        let result = validate_and_convert(&val, &dist).unwrap();
+        assert_eq!(result, 5.0);
+    }
+
+    #[test]
+    fn test_validate_and_convert_incompatible_type() {
+        let dist = Distribution::Float {
+            low: 0.0,
+            high: 10.0,
+            step: None,
+            log: false,
+        };
+        assert!(validate_and_convert(&CategoryLabel::String("a".to_string()), &dist).is_err());
+        assert!(validate_and_convert(&CategoryLabel::Bool(true), &dist).is_err());
+        assert!(validate_and_convert(&CategoryLabel::None, &dist).is_err());
+    }
+
+    #[test]
+    fn test_validate_and_convert_categorical_not_supported() {
+        let val = CategoryLabel::Int(1);
+        let dist = Distribution::Categorical { cardinality: 3 };
+        assert!(validate_and_convert(&val, &dist).is_err());
+    }
+
+    #[test]
+    fn test_enqueue_and_suggest_float() -> Result<()> {
+        let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
+        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
+        let directions = vec![Direction::Minimize];
+        let mut study = create_study_with_arc("dummy", storage.clone(), directions)?;
+
+        let mut params = HashMap::new();
+        params.insert("x".to_string(), CategoryLabel::Float(5.0));
+        study.enqueue_trial(params, None)?;
+
+        let mut trial = study.ask(sampler.clone())?;
+        let value = trial.suggest_float("x", 0.0, 10.0)?;
+        assert_eq!(value, 5.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_enqueue_and_suggest_int() -> Result<()> {
+        let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
+        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
+        let directions = vec![Direction::Minimize];
+        let mut study = create_study_with_arc("dummy", storage.clone(), directions)?;
+
+        let mut params = HashMap::new();
+        params.insert("x".to_string(), CategoryLabel::Int(7));
+        study.enqueue_trial(params, None)?;
+
+        let mut trial = study.ask(sampler.clone())?;
+        let value = trial.suggest_int("x", 0, 10)?;
+        assert_eq!(value, 7);
+        Ok(())
+    }
+
+    #[test]
+    fn test_enqueue_fallback_on_out_of_range() -> Result<()> {
+        let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
+        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
+        let directions = vec![Direction::Minimize];
+        let mut study = create_study_with_arc("dummy", storage.clone(), directions)?;
+
+        let mut params = HashMap::new();
+        params.insert("x".to_string(), CategoryLabel::Float(100.0));
+        study.enqueue_trial(params, None)?;
+
+        let mut trial = study.ask(sampler.clone())?;
+        let value = trial.suggest_float("x", 0.0, 10.0)?;
+        assert!(value >= 0.0 && value <= 10.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_enqueue_mixed_with_normal_ask() -> Result<()> {
+        let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
+        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
+        let directions = vec![Direction::Minimize];
+        let mut study = create_study_with_arc("dummy", storage.clone(), directions)?;
+
+        let mut params = HashMap::new();
+        params.insert("x".to_string(), CategoryLabel::Float(5.0));
+        study.enqueue_trial(params, None)?;
+
+        // First ask should use enqueued trial
+        let mut trial1 = study.ask(sampler.clone())?;
+        assert_eq!(trial1.suggest_float("x", 0.0, 10.0)?, 5.0);
+
+        // Second ask should create a new trial (sampled)
+        let mut trial2 = study.ask(sampler.clone())?;
+        let value = trial2.suggest_float("x", 0.0, 10.0)?;
+        assert!(value >= 0.0 && value <= 10.0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_enqueue_unspecified_param_sampled() -> Result<()> {
+        let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
+        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
+        let directions = vec![Direction::Minimize];
+        let mut study = create_study_with_arc("dummy", storage.clone(), directions)?;
+
+        let mut params = HashMap::new();
+        params.insert("x".to_string(), CategoryLabel::Float(5.0));
+        study.enqueue_trial(params, None)?;
+
+        let mut trial = study.ask(sampler.clone())?;
+        assert_eq!(trial.suggest_float("x", 0.0, 10.0)?, 5.0);
+        // "y" is not in fixed_params, so it should be sampled
+        let y = trial.suggest_float("y", 0.0, 10.0)?;
+        assert!(y >= 0.0 && y <= 10.0);
+
+        Ok(())
+    }
 
     #[test]
     fn test_trial_user_attr() -> Result<()> {

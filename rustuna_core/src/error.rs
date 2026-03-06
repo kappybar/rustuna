@@ -51,6 +51,7 @@ pub enum ErrorKind {
     DuplicatedStudy,
     StudyNotFound,
     TrialNotFound,
+    TrialQueueEmpty,
     AttrOverwriteNotAllowed,
     InvalidObjectiveValues,
     TrialAlreadyFinished,
@@ -58,6 +59,7 @@ pub enum ErrorKind {
     UnsupportedMultiObjective,
     NoCompletedTrial,
     IncompatibleDistribution,
+    InvalidFixedParam,
     Unexpected,
     ImportanceEvaluatorError,
 }
