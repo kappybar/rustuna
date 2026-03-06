@@ -1,10 +1,11 @@
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use pyo3::class::basic::CompareOp;
-use pyo3::exceptions::{PyKeyError, PyRuntimeError};
+use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator, PyList};
-use rustuna_core::attr::{AttrKey, Attrs};
+use rustuna_core::attr::{AttrKey, Attrs, CategoryLabel};
 use rustuna_core::storage::Storage;
 
 use crate::exception::err_to_exceptions;
@@ -267,4 +268,38 @@ impl AttrsDictView {
     fn __str__(&self) -> PyResult<String> {
         self.format_as_dict()
     }
+}
+
+pub fn pyobject_to_category_label(obj: &Bound<'_, PyAny>) -> PyResult<CategoryLabel> {
+    if obj.is_none() {
+        return Ok(CategoryLabel::None);
+    }
+    if let Ok(b) = obj.extract::<bool>() {
+        return Ok(CategoryLabel::Bool(b));
+    }
+    if let Ok(i) = obj.extract::<i64>() {
+        return Ok(CategoryLabel::Int(i));
+    }
+    if let Ok(f) = obj.extract::<f64>() {
+        return Ok(CategoryLabel::Float(f));
+    }
+    if let Ok(s) = obj.extract::<String>() {
+        return Ok(CategoryLabel::String(s));
+    }
+    Err(PyTypeError::new_err(format!(
+        "Unsupported type for CategoryLabel: {}",
+        obj.get_type().name()?
+    )))
+}
+
+pub fn convert_pydict_to_fixed_params(
+    params: &Bound<'_, PyDict>,
+) -> PyResult<HashMap<String, CategoryLabel>> {
+    let mut result = HashMap::with_capacity(params.len());
+    for (key, value) in params {
+        let param_name = key.extract::<String>()?;
+        let label = pyobject_to_category_label(&value)?;
+        result.insert(param_name, label);
+    }
+    Ok(result)
 }

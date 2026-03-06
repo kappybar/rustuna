@@ -18,11 +18,13 @@ use rustuna_core::trial::TrialStateValues;
 use rustuna_samplers::tpe::TpeSampler;
 
 use crate::attrs::pyobj_to_attrs;
+use crate::attrs::{convert_pydict_to_fixed_params, pyobj_to_attrs_with_kind, AttrKind};
 use crate::exception::err_to_exceptions;
 use crate::pyobject_storage::PyObjectStorage;
 use crate::sampler::{PyObjectSampler, PySampler};
 use crate::storage::PyStorage;
 use crate::trial::{PyPersistedTrial, PyTrial, PyTrialState};
+use crate::trial_queue::PyTrialQueue;
 
 type SharedStorage = Arc<RwLock<dyn Storage>>;
 
@@ -86,7 +88,7 @@ fn matches_any_exception(py: Python<'_>, err: &PyErr, catch: &[Py<PyAny>]) -> Py
 }
 
 #[pyfunction]
-#[pyo3(name = "create_study", signature = (*, study_name = None, storage = None, sampler = None, direction = None, directions = None, load_if_exists = false))]
+#[pyo3(name = "create_study", signature = (*, study_name = None, storage = None, sampler = None, direction = None, directions = None, load_if_exists = false, trial_queue = None))]
 pub fn py_create_study(
     study_name: Option<String>,
     storage: Option<Py<PyAny>>,
@@ -94,6 +96,7 @@ pub fn py_create_study(
     direction: Option<String>,
     directions: Option<Vec<String>>,
     load_if_exists: bool,
+    trial_queue: Option<PyTrialQueue>,
 ) -> PyResult<PyStudy> {
     let study_name = match study_name {
         Some(s) => s,
@@ -155,6 +158,17 @@ pub fn py_create_study(
                 storage_arc.clone(),
             )
         }
+    };
+    let study = if let Some(trial_queue) = trial_queue {
+        Study::with_queue(
+            study.id,
+            study.name,
+            study.directions,
+            study.storage,
+            trial_queue.queue,
+        )
+    } else {
+        study
     };
     let is_multi_objective = study.directions.len() > 1;
     let (sampler_arc, sampler_pyobj): (Arc<Mutex<dyn Sampler>>, Py<PyAny>) = match sampler {
@@ -459,6 +473,22 @@ impl PyStudy {
             .map_err(|e| {
                 PyRuntimeError::new_err(format!("Failed to set user attrs: {:?}", e.kind))
             })?;
+        Ok(())
+    }
+
+    #[pyo3(signature = (params, user_attrs = None))]
+    pub fn enqueue_trial(
+        &mut self,
+        params: &Bound<'_, PyDict>,
+        user_attrs: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<()> {
+        let fixed_params = convert_pydict_to_fixed_params(params)?;
+        let user_attrs_opt = user_attrs
+            .map(|d| pyobj_to_attrs_with_kind(d.as_any(), AttrKind::User))
+            .transpose()?;
+        self.study
+            .enqueue_trial(fixed_params, user_attrs_opt)
+            .map_err(err_to_exceptions)?;
         Ok(())
     }
 

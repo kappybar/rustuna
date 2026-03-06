@@ -287,6 +287,7 @@ def create_study(
     direction: Literal["minimize"] | Literal["maximize"] | None = None,
     directions: list[Literal["minimize"] | Literal["maximize"]] | None = None,
     load_if_exists: bool = False,
+    trial_queue: TrialQueue | None = None,
 ) -> Study:
     """Create a new study.
 
@@ -299,6 +300,9 @@ def create_study(
         directions: Directions of optimization for multi-objective optimization.
             Cannot be specified together with ``direction``.
         load_if_exists: If True, return an existing study when ``study_name`` already exists.
+        trial_queue: TrialQueue object for managing trial execution order. If None, InMemoryTrialQueue is used.
+        load_if_exists: If True, return an existing study when ``study_name`` already exists.
+        trial_queue: TrialQueue object for managing trial execution order. If None, InMemoryTrialQueue is used.
 
     Returns:
         A Study object.
@@ -380,6 +384,21 @@ class Study:
             objective: A callable that takes a Trial object and returns a float value or a sequence of float values.
             n_trials: The number of trials to run.
             catch: Exception class or tuple of exception classes that should fail the trial and allow optimization to continue.
+        """
+    def enqueue_trial(
+        self,
+        params: dict[str, Any],
+        user_attrs: dict[str, str] | None = None,
+        # TODO(c-bata): Add support for skip_if_exists option
+        # skip_if_exists: bool = False,
+    ) -> None:
+        """Enqueue a trial with given parameter values.
+
+        You can fix the next sampling parameters will be evaluated in your objective function.
+
+        Args:
+            params: Parameter values to pass your objective function.
+            user_attrs: A dictionary of user attributes other than params.
         """
     def add_trial(self, trial: PersistedTrial) -> None:
         """Add trial to study.
@@ -915,6 +934,74 @@ class Sampler:
 
         Returns:
             Suggested parameter value (Optuna's internal representation).
+        """
+
+# Trial Queue
+class TrialQueue:
+    """Factory class for creating trial queue instances.
+    
+    Trial queues are used to manage a FIFO queue of trial IDs for parallel optimization.
+    They provide persistence and multi-process safety for managing trial execution order.
+    """
+
+    @classmethod
+    def in_memory(cls) -> TrialQueue:
+        """Create an in-memory trial queue.
+        
+        This queue stores trial IDs in memory and does not persist across process restarts.
+        Suitable for single-process optimization or when persistence is not required.
+        
+        Returns:
+            An in-memory trial queue instance.
+        """
+
+    @classmethod
+    def directory(cls, base_dir: str) -> TrialQueue:
+        """Create a directory-based trial queue.
+        
+        This queue uses the filesystem to persist trial IDs and provides multi-process
+        safety through atomic file operations. The queue is stored in two subdirectories
+        under the base directory: 'pending/' for queued trials and 'processing/' for
+        trials being processed.
+        
+        Args:
+            base_dir: Base directory path for the queue. Should be study-specific
+                (e.g., '{storage_dir}/queue/{study_id}/') to ensure isolation between studies.
+        
+        Returns:
+            A directory-based trial queue instance.
+        """
+    
+    @classmethod
+    def sqlite3(cls, db_path: str, study_id: int) -> TrialQueue:
+        """Create a SQLite3-based trial queue.
+        
+        This queue uses SQLite to persist trial IDs with ACID guarantees. Multiple studies
+        can share the same database file, with study_id used for isolation.
+        
+        Args:
+            db_path: Path to the SQLite database file.
+            study_id: Study ID to isolate trials for this queue.
+        
+        Returns:
+            A SQLite3-based trial queue instance.
+        """
+    
+    def push(self, trial_id: int) -> None:
+        """Add a trial ID to the queue.
+        
+        Args:
+            trial_id: The trial ID to enqueue.
+        """
+    
+    def pop(self) -> int:
+        """Remove and return the next trial ID from the queue.
+        
+        Returns:
+            The next trial ID in FIFO order.
+        
+        Raises:
+            Exception: If the queue is empty.
         """
 
 # Private APIs for rustuna.optuna package.
