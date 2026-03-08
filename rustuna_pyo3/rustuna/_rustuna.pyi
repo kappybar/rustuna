@@ -286,6 +286,7 @@ def create_study(
     sampler: Sampler | SamplerProtocol | None = None,
     direction: Literal["minimize"] | Literal["maximize"] | None = None,
     directions: list[Literal["minimize"] | Literal["maximize"]] | None = None,
+    load_if_exists: bool = False,
 ) -> Study:
     """Create a new study.
 
@@ -297,6 +298,7 @@ def create_study(
             Cannot be specified together with ``directions``.
         directions: Directions of optimization for multi-objective optimization.
             Cannot be specified together with ``direction``.
+        load_if_exists: If True, return an existing study when ``study_name`` already exists.
 
     Returns:
         A Study object.

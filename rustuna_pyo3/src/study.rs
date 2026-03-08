@@ -4,6 +4,7 @@ use pyo3::Python;
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use rustuna_core::sampler::RandomSampler;
+use rustuna_core::ErrorKind;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -24,13 +25,14 @@ use crate::storage::PyStorage;
 use crate::trial::{PyPersistedTrial, PyTrial, PyTrialState};
 
 #[pyfunction]
-#[pyo3(name = "create_study", signature = (*, study_name = None, storage = None, sampler = None, direction = None, directions = None))]
+#[pyo3(name = "create_study", signature = (*, study_name = None, storage = None, sampler = None, direction = None, directions = None, load_if_exists = false))]
 pub fn py_create_study(
     study_name: Option<String>,
     storage: Option<Py<PyAny>>,
     sampler: Option<Py<PyAny>>,
     direction: Option<String>,
     directions: Option<Vec<String>>,
+    load_if_exists: bool,
 ) -> PyResult<PyStudy> {
     let study_name = match study_name {
         Some(s) => s,
@@ -69,9 +71,34 @@ pub fn py_create_study(
         }
     };
     let directions = convert_directions(direction, directions)?;
-    let is_multi_objective = directions.len() > 1;
-    let study =
-        create_study_with_arc(&study_name, storage_arc, directions).map_err(err_to_exceptions)?;
+    let study = match create_study_with_arc(&study_name, storage_arc.clone(), directions) {
+        Ok(study) => study,
+        Err(err) => {
+            if !load_if_exists || !matches!(err.kind, ErrorKind::DuplicatedStudy) {
+                return Err(err_to_exceptions(err));
+            }
+            let mut guard = storage_arc
+                .write()
+                .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+            let (study_id, directions) = guard
+                .get_studies()
+                .map_err(err_to_exceptions)?
+                .iter()
+                .find(|s| s.name == study_name)
+                .map(|s| (s.id, s.directions.clone()))
+                .ok_or(PyRuntimeError::new_err(format!(
+                    "Study {study_name} not found"
+                )))?;
+            drop(guard);
+            Study::new(
+                study_id,
+                study_name.clone(),
+                directions,
+                storage_arc.clone(),
+            )
+        }
+    };
+    let is_multi_objective = study.directions.len() > 1;
     let (sampler_arc, sampler_pyobj): (Arc<Mutex<dyn Sampler>>, Py<PyAny>) = match sampler {
         Some(sampler_obj) => Python::attach(|py| {
             let sampler_pyobj = sampler_obj.clone_ref(py);
