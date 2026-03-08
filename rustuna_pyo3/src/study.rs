@@ -24,6 +24,8 @@ use crate::sampler::{PyObjectSampler, PySampler};
 use crate::storage::PyStorage;
 use crate::trial::{PyPersistedTrial, PyTrial, PyTrialState};
 
+type SharedStorage = Arc<RwLock<dyn Storage>>;
+
 #[pyfunction]
 #[pyo3(name = "create_study", signature = (*, study_name = None, storage = None, sampler = None, direction = None, directions = None, load_if_exists = false))]
 pub fn py_create_study(
@@ -613,6 +615,80 @@ fn convert_directions(
         None => Ok(vec![direction]),
     }?;
     Ok(directions)
+}
+
+fn resolve_storage(storage: Py<PyAny>) -> PyResult<(SharedStorage, Py<PyAny>)> {
+    Python::attach(|py| {
+        let storage_pyobj = storage.clone_ref(py);
+        let storage_ref = storage.bind(py);
+        if storage_ref.is_instance_of::<PyStorage>() {
+            let storage = storage_ref.extract::<PyStorage>().map_err(|e| {
+                PyValueError::new_err(format!("Failed to extract PyStorage: {e:?}"))
+            })?;
+            Ok::<_, PyErr>((storage.storage, storage_pyobj))
+        } else {
+            let is_distributed = storage.getattr(py, "is_distributed")?.extract::<bool>(py)?;
+            let mut wrapped = PyObjectStorage::new(storage, is_distributed);
+            wrapped.sync_studies(true).map_err(err_to_exceptions)?;
+            let wrapped: SharedStorage = Arc::new(RwLock::new(wrapped));
+            Ok((wrapped, storage_pyobj))
+        }
+    })
+}
+
+#[pyfunction]
+#[pyo3(name = "copy_study", signature = (*, from_study_name, from_storage, to_storage, to_study_name = None))]
+pub fn py_copy_study(
+    from_study_name: String,
+    from_storage: Py<PyAny>,
+    to_storage: Py<PyAny>,
+    to_study_name: Option<String>,
+) -> PyResult<()> {
+    let (from_storage_arc, _) = resolve_storage(from_storage)?;
+    let (from_directions, from_attrs, trials) = {
+        let mut guard = from_storage_arc
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+        let from_study_id = guard
+            .get_studies()
+            .map_err(err_to_exceptions)?
+            .iter()
+            .find(|s| s.name == from_study_name)
+            .map(|s| s.id)
+            .ok_or(PyRuntimeError::new_err(format!(
+                "Study {from_study_name} not found"
+            )))?;
+        let study = guard
+            .get_study(from_study_id)
+            .map_err(err_to_exceptions)?
+            .clone();
+        let trials = guard
+            .get_trials(from_study_id)
+            .map_err(err_to_exceptions)?
+            .clone();
+        (study.directions, study.attrs, trials)
+    };
+
+    let copied_study_name = to_study_name.unwrap_or(from_study_name);
+    let (to_storage_arc, _) = resolve_storage(to_storage)?;
+    let mut guard = to_storage_arc
+        .write()
+        .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+    let to_study_id = guard
+        .create_new_study(&copied_study_name, from_directions)
+        .map_err(err_to_exceptions)?
+        .id;
+    if !from_attrs.is_empty() {
+        guard
+            .set_study_attrs(to_study_id, from_attrs, false)
+            .map_err(err_to_exceptions)?;
+    }
+    for trial in trials {
+        guard
+            .create_new_trial_from_template(to_study_id, &trial)
+            .map_err(err_to_exceptions)?;
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone)]

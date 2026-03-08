@@ -318,6 +318,15 @@ def load_study(
         sampler: Sampler object for parameter suggestion. If None, TPESampler is used.
     """
 
+def copy_study(
+    *,
+    from_study_name: str,
+    from_storage: Storage | StorageProtocol,
+    to_storage: Storage | StorageProtocol,
+    to_study_name: str | None = None,
+) -> None:
+    """Copy a study to another storage."""
+
 def get_param_importance(study: Study) -> list[list[float]]: ...
 
 class Study:
