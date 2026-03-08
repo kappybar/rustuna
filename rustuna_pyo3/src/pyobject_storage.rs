@@ -10,6 +10,7 @@ use rustuna_core::distribution::Distribution;
 use rustuna_core::storage::{InMemoryStorage, Storage};
 use rustuna_core::study::{Direction, PersistedStudy};
 use rustuna_core::trial::{PersistedTrial, TrialStateValues};
+use rustuna_core::{Error, ErrorKind};
 
 use crate::distribution::PyDistribution;
 use crate::exception::err_to_exceptions;
@@ -341,6 +342,24 @@ impl PyObjectStorage {
         }
         Ok(())
     }
+
+    fn map_pyerr(err: PyErr) -> Error {
+        let reason = err.to_string();
+        let kind = Python::attach(|py| {
+            let class_name = err
+                .get_type(py)
+                .name()
+                .ok()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if class_name == "DuplicatedStudyError" {
+                ErrorKind::DuplicatedStudy
+            } else {
+                ErrorKind::StorageError
+            }
+        });
+        Error::with_reason(kind, reason)
+    }
 }
 impl Storage for PyObjectStorage {
     fn create_new_study(
@@ -350,7 +369,7 @@ impl Storage for PyObjectStorage {
     ) -> rustuna_core::Result<&PersistedStudy> {
         let src_study_id = self
             .obj_create_new_study(study_name, &directions)
-            .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
+            .map_err(Self::map_pyerr)?;
         let cache_study = self
             .cache
             .insert_study_with_id(src_study_id, study_name, directions)?;
