@@ -1,8 +1,8 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyFloat};
-use pyo3::Python;
+use pyo3::types::{PyDict, PyFloat, PyIterator, PyType};
+use pyo3::{PyTypeInfo, Python};
 
-use pyo3::exceptions::{PyRuntimeError, PyValueError};
+use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
 use rustuna_core::sampler::RandomSampler;
 use rustuna_core::ErrorKind;
 use std::collections::HashMap;
@@ -25,6 +25,65 @@ use crate::storage::PyStorage;
 use crate::trial::{PyPersistedTrial, PyTrial, PyTrialState};
 
 type SharedStorage = Arc<RwLock<dyn Storage>>;
+
+mod py_exceptions {
+    pyo3::import_exception!(rustuna.exceptions, TrialPruned);
+}
+
+fn normalize_catch(py: Python<'_>, catch: Option<&Bound<'_, PyAny>>) -> PyResult<Vec<Py<PyAny>>> {
+    let Some(catch) = catch else {
+        return Ok(Vec::new());
+    };
+    let base_exception = py.import("builtins")?.getattr("BaseException")?;
+
+    if let Ok(catch_type) = catch.cast::<PyType>() {
+        if catch_type.is_subclass(&base_exception)? {
+            return Ok(vec![catch.clone().unbind()]);
+        }
+    }
+
+    let iter = PyIterator::from_object(catch)?;
+    let mut normalized = Vec::new();
+    for item in iter {
+        let item = item?;
+        let item_type = item.cast::<PyType>().map_err(|_| {
+            PyTypeError::new_err(
+                "The catch argument must be an exception class or an iterable of exception classes.",
+            )
+        })?;
+        if !item_type.is_subclass(&base_exception)? {
+            return Err(PyTypeError::new_err(
+                "The catch argument must be an exception class or an iterable of exception classes.",
+            ));
+        }
+        normalized.push(item.unbind());
+    }
+    Ok(normalized)
+}
+
+fn objective_result_to_values(val: Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
+    if val.is_instance_of::<PyFloat>() {
+        let val = val
+            .extract::<f64>()
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to extract f64: {e:?}")))?;
+        Ok(vec![val])
+    } else {
+        val.extract::<Vec<f64>>().map_err(|e| {
+            PyRuntimeError::new_err(format!(
+                "Objective function must return either float or tuple[float]. error={e:?}"
+            ))
+        })
+    }
+}
+
+fn matches_any_exception(py: Python<'_>, err: &PyErr, catch: &[Py<PyAny>]) -> PyResult<bool> {
+    for exc_type in catch {
+        if err.matches(py, exc_type.bind(py))? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
 
 #[pyfunction]
 #[pyo3(name = "create_study", signature = (*, study_name = None, storage = None, sampler = None, direction = None, directions = None, load_if_exists = false))]
@@ -251,10 +310,15 @@ impl PyStudy {
         })
     }
 
-    #[pyo3(signature = (objective, n_trials))]
-    pub fn optimize(&mut self, objective: Py<PyAny>, n_trials: usize) -> PyResult<()> {
+    #[pyo3(signature = (objective, n_trials, catch = None))]
+    pub fn optimize(
+        &mut self,
+        objective: Py<PyAny>,
+        n_trials: usize,
+        catch: Option<Py<PyAny>>,
+    ) -> PyResult<()> {
+        let catch = Python::attach(|py| normalize_catch(py, catch.as_ref().map(|c| c.bind(py))))?;
         for _ in 0..n_trials {
-            // Ask a trial
             let sampler = self.sampler.clone();
             let rs_trial = self
                 .study
@@ -262,24 +326,12 @@ impl PyStudy {
                 .map_err(|e| PyRuntimeError::new_err(format!("Failed to ask a trial {e:?}.")))?;
             let trial_number = rs_trial.number;
 
-            // Call an objective function
             let result: PyResult<Vec<f64>> = Python::attach(|py| {
                 let trial = PyTrial::new(rs_trial, self.storage_pyobj.clone_ref(py));
                 let val = objective.call1(py, (trial,))?;
-                let val_ref = val.bind(py);
-                if val_ref.is_instance_of::<PyFloat>() {
-                    let val = val_ref.extract::<f64>().map_err(|e| {
-                        PyRuntimeError::new_err(format!("Failed to extract f64: {e:?}"))
-                    })?;
-                    Ok(vec![val])
-                } else {
-                    val_ref.extract::<Vec<f64>>().map_err(|e| {
-                        PyRuntimeError::new_err(format!("Objective function must return either float or tuple[float]. error={e:?}"))
-                    })
-                }
+                objective_result_to_values(val.bind(py).clone())
             });
 
-            // Tell
             match result {
                 Ok(val) => {
                     self.study
@@ -287,10 +339,20 @@ impl PyStudy {
                         .map_err(|e| PyRuntimeError::new_err(format!("Failed to tell: {e:?}")))?;
                 }
                 Err(e) => {
-                    self.study
-                        .tell(trial_number, TrialStateValues::Fail)
-                        .map_err(|e| PyRuntimeError::new_err(format!("Failed to tell: {e:?}")))?;
-                    return Err(e);
+                    let (state, should_reraise) = Python::attach(|py| -> PyResult<_> {
+                        if e.matches(py, py_exceptions::TrialPruned::type_object(py))? {
+                            Ok((TrialStateValues::Pruned, false))
+                        } else {
+                            let should_reraise = !matches_any_exception(py, &e, &catch)?;
+                            Ok((TrialStateValues::Fail, should_reraise))
+                        }
+                    })?;
+                    self.study.tell(trial_number, state).map_err(|err| {
+                        PyRuntimeError::new_err(format!("Failed to tell: {err:?}"))
+                    })?;
+                    if should_reraise {
+                        return Err(e);
+                    }
                 }
             }
         }

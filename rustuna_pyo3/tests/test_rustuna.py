@@ -25,7 +25,6 @@ def test_optimize():
     assert len(study.best_trial.params) == 3
     assert study.best_trial.value is not None
 
-
 def test_trial_storage_inside_objective():
     storage = rustuna.Storage.in_memory()
     study = rustuna.create_study(storage=storage)
@@ -54,6 +53,44 @@ def test_study_get_trials_filters_by_states():
         rustuna.TrialState.FAIL,
         rustuna.TrialState.COMPLETE,
     ]
+
+
+def test_optimize_catch_exception():
+    study = rustuna.create_study()
+
+    def objective(trial: rustuna.Trial):
+        if trial.number == 0:
+            raise ValueError("expected failure")
+        return 1.0
+
+    study.optimize(objective, n_trials=2, catch=ValueError)
+
+    assert len(study.trials) == 2
+    assert study.trials[0].state == rustuna.TrialState.FAIL
+    assert study.trials[1].state == rustuna.TrialState.COMPLETE
+
+
+def test_optimize_reraises_uncaught_exception():
+    study = rustuna.create_study()
+
+    def objective(_trial: rustuna.Trial):
+        raise ValueError("expected failure")
+
+    with pytest.raises(ValueError):
+        study.optimize(objective, n_trials=1)
+
+    assert study.trials[0].state == rustuna.TrialState.FAIL
+
+
+def test_optimize_trial_pruned():
+    study = rustuna.create_study()
+
+    def objective(_trial: rustuna.Trial):
+        raise rustuna.exceptions.TrialPruned()
+
+    study.optimize(objective, n_trials=1)
+
+    assert study.trials[0].state == rustuna.TrialState.PRUNED
 
 
 def test_optimize_multi_objective():

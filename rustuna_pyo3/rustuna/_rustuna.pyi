@@ -368,12 +368,18 @@ class Study:
         Returns:
             A Trial object.
         """
-    def optimize(self, objective: ObjectiveFuncType, n_trials: int) -> None:
+    def optimize(
+        self,
+        objective: ObjectiveFuncType,
+        n_trials: int,
+        catch: type[Exception] | tuple[type[Exception], ...] | None = None,
+    ) -> None:
         """Optimize an objective function.
 
         Args:
             objective: A callable that takes a Trial object and returns a float value or a sequence of float values.
             n_trials: The number of trials to run.
+            catch: Exception class or tuple of exception classes that should fail the trial and allow optimization to continue.
         """
     def add_trial(self, trial: PersistedTrial) -> None:
         """Add trial to study.
