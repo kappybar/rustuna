@@ -27,16 +27,14 @@ use crate::trial::{pyobject_to_persisted_trial, PyPersistedTrial, PyTrialState};
 // returning cached data.
 pub struct PyObjectStorage {
     obj: Py<PyAny>,
-    is_distributed: bool,
     cache: InMemoryStorage,
     cache_study_to_src_study: HashMap<u32, u32>,
     src_study_to_cache_study: HashMap<u32, u32>,
 }
 impl PyObjectStorage {
-    pub fn new(obj: Py<PyAny>, is_distributed: bool) -> Self {
+    pub fn new(obj: Py<PyAny>) -> Self {
         PyObjectStorage {
             obj,
-            is_distributed,
             cache: InMemoryStorage::new(),
             cache_study_to_src_study: HashMap::new(),
             src_study_to_cache_study: HashMap::new(),
@@ -427,10 +425,6 @@ impl Storage for PyObjectStorage {
             .obj_create_new_trial(*src_study_id)
             .map_err(Self::map_pyerr)?;
         let src_trial_id = src_trial.id;
-        if self.is_distributed {
-            self.sync_trials(study_id)?;
-            return self.cache.get_trial(src_trial_id);
-        }
         let cached_n_trials = self.cache.get_trials(study_id)?.len() as u32;
         if src_trial.number != cached_n_trials {
             self.sync_trials(study_id)?;
@@ -457,10 +451,6 @@ impl Storage for PyObjectStorage {
             .obj_create_new_trial_from_template(src_study_id, template)
             .map_err(Self::map_pyerr)?;
         let src_trial_id = src_trial.id;
-        if self.is_distributed {
-            self.sync_trials(study_id)?;
-            return self.cache.get_trial(src_trial_id);
-        }
         let cached_n_trials = self.cache.get_trials(study_id)?.len() as u32;
         if src_trial.number != cached_n_trials {
             self.sync_trials(study_id)?;
@@ -677,10 +667,8 @@ pub struct PyPyObjectStorage {
 impl PyPyObjectStorage {
     #[new]
     fn new(storage: Py<PyAny>) -> PyResult<Self> {
-        Python::attach(|py| {
-            let storage_ref = storage.bind(py);
-            let is_distributed = storage_ref.getattr("is_distributed")?.extract::<bool>()?;
-            let mut inner = PyObjectStorage::new(storage, is_distributed);
+        Python::attach(|_py| {
+            let mut inner = PyObjectStorage::new(storage);
             inner.sync_studies(true).map_err(err_to_exceptions)?;
             Ok(PyPyObjectStorage {
                 storage: Arc::new(RwLock::new(inner)),

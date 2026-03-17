@@ -57,7 +57,7 @@ def test_resume_optimization():
 
 def _run_optimize(sqlite3_filepath: str) -> None:
     optuna_storage = optuna.storages.RDBStorage(f"sqlite:///{sqlite3_filepath}")
-    storage = ToRustunaStorage(optuna_storage, is_distributed=True)
+    storage = ToRustunaStorage(optuna_storage)
     study = rustuna.load_study(storage=storage, study_name="test_study")
     study.optimize(lambda t: t.suggest_float("x", -10, 10) ** 2, n_trials=10)
 

@@ -50,10 +50,7 @@ pub fn py_create_study(
                 })?;
                 Ok::<_, PyErr>((storage.storage, storage_pyobj))
             } else {
-                let is_distributed = storage_obj
-                    .getattr(py, "is_distributed")?
-                    .extract::<bool>(py)?;
-                let mut storage = PyObjectStorage::new(storage_obj, is_distributed);
+                let mut storage = PyObjectStorage::new(storage_obj);
                 storage.sync_studies(true).map_err(err_to_exceptions)?;
                 let storage: Arc<RwLock<dyn Storage>> = Arc::new(RwLock::new(storage));
                 Ok((storage, storage_pyobj))
@@ -157,7 +154,7 @@ pub fn py_load_study(
             let storage: Arc<RwLock<dyn Storage>> = storage.storage;
             Ok(storage)
         } else {
-            let mut storage = PyObjectStorage::new(storage, true);
+            let mut storage = PyObjectStorage::new(storage);
             storage.sync_studies(true).map_err(err_to_exceptions)?;
             let storage: Arc<RwLock<dyn Storage>> = Arc::new(RwLock::new(storage));
             Ok(storage)
@@ -627,8 +624,7 @@ fn resolve_storage(storage: Py<PyAny>) -> PyResult<(SharedStorage, Py<PyAny>)> {
             })?;
             Ok::<_, PyErr>((storage.storage, storage_pyobj))
         } else {
-            let is_distributed = storage.getattr(py, "is_distributed")?.extract::<bool>(py)?;
-            let mut wrapped = PyObjectStorage::new(storage, is_distributed);
+            let mut wrapped = PyObjectStorage::new(storage);
             wrapped.sync_studies(true).map_err(err_to_exceptions)?;
             let wrapped: SharedStorage = Arc::new(RwLock::new(wrapped));
             Ok((wrapped, storage_pyobj))
