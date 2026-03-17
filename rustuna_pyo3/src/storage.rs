@@ -42,7 +42,7 @@ impl PyStorage {
     }
 
     #[classmethod]
-    #[pyo3(name = "sqlite3", signature = (file_path, *, create_database = false))]
+    #[pyo3(name = "sqlite3", signature = (file_path, *, create_database = true))]
     fn sqlite3(_cls: &Bound<'_, PyType>, file_path: &str, create_database: bool) -> PyResult<Self> {
         let backend = SQLite3Storage::new(file_path).map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to open the SQLite3 file: {e:?}"))

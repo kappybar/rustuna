@@ -1,17 +1,17 @@
-CREATE TABLE studies (
+CREATE TABLE IF NOT EXISTS studies (
 	study_id INTEGER NOT NULL,
 	study_name VARCHAR(512) NOT NULL,
 	PRIMARY KEY (study_id)
 );
-CREATE UNIQUE INDEX ix_studies_study_name ON studies (study_name);
-CREATE TABLE version_info (
+CREATE UNIQUE INDEX IF NOT EXISTS ix_studies_study_name ON studies (study_name);
+CREATE TABLE IF NOT EXISTS version_info (
 	version_info_id INTEGER NOT NULL,
 	schema_version INTEGER,
 	library_version VARCHAR(256),
 	PRIMARY KEY (version_info_id),
 	CHECK (version_info_id=1)
 );
-CREATE TABLE study_directions (
+CREATE TABLE IF NOT EXISTS study_directions (
 	study_direction_id INTEGER NOT NULL,
 	direction VARCHAR(8) NOT NULL,
 	study_id INTEGER NOT NULL,
@@ -20,7 +20,7 @@ CREATE TABLE study_directions (
 	UNIQUE (study_id, objective),
 	FOREIGN KEY(study_id) REFERENCES studies (study_id)
 );
-CREATE TABLE trials (
+CREATE TABLE IF NOT EXISTS trials (
 	trial_id INTEGER NOT NULL,
 	number INTEGER,
 	study_id INTEGER,
@@ -30,11 +30,11 @@ CREATE TABLE trials (
 	PRIMARY KEY (trial_id),
 	FOREIGN KEY(study_id) REFERENCES studies (study_id)
 );
-CREATE TABLE alembic_version (
+CREATE TABLE IF NOT EXISTS alembic_version (
 	version_num VARCHAR(32) NOT NULL,
 	CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
 );
-CREATE TABLE trial_heartbeats (
+CREATE TABLE IF NOT EXISTS trial_heartbeats (
 	trial_heartbeat_id INTEGER NOT NULL,
 	trial_id INTEGER NOT NULL,
 	heartbeat DATETIME NOT NULL,
@@ -108,5 +108,5 @@ CREATE TABLE IF NOT EXISTS "trial_values" (
 	FOREIGN KEY(trial_id) REFERENCES trials (trial_id),
 	UNIQUE (trial_id, objective)
 );
-CREATE INDEX trials_study_id_key ON trials (study_id);
-INSERT INTO version_info (version_info_id, schema_version, library_version) VALUES (1, 12, '4.6.0.dev')
+CREATE INDEX IF NOT EXISTS trials_study_id_key ON trials (study_id);
+INSERT OR IGNORE INTO version_info (version_info_id, schema_version, library_version) VALUES (1, 12, '4.6.0.dev')

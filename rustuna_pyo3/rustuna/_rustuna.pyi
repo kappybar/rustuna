@@ -548,13 +548,13 @@ class Storage:
         """
     @classmethod
     def sqlite3(
-        cls, file_path: str, *, create_database: bool = False
+        cls, file_path: str, *, create_database: bool = True
     ) -> OptunaStorageProtocol:
         """Create a SQLite3 storage.
 
         Args:
             file_path: Path to the SQLite3 database file.
-            create_database: If True, create the database file if it does not exist.
+            create_database: If True, initialize the database when it is missing.
 
         Returns:
             A SQLite3 storage instance.

@@ -35,13 +35,58 @@ impl SQLite3Storage {
             .conn
             .lock()
             .map_err(|_| Error::new(ErrorKind::StorageError))?;
-        conn.execute_batch(SCHEMA_SQL).map_err(|e| {
+        conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| {
             Error::with_reason(
                 ErrorKind::StorageError,
-                format!("Failed to create database: {e}"),
+                format!("Failed to start database initialization: {e}"),
             )
         })?;
+
+        let result = (|| -> Result<()> {
+            if Self::is_initialized(&conn)? {
+                return Ok(());
+            }
+
+            conn.execute_batch(SCHEMA_SQL).map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Failed to create database: {e}"),
+                )
+            })?;
+            Ok(())
+        })();
+
+        match result {
+            Ok(()) => conn.execute_batch("COMMIT").map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Failed to commit database initialization: {e}"),
+                )
+            })?,
+            Err(err) => {
+                let _ = conn.execute_batch("ROLLBACK");
+                return Err(err);
+            }
+        }
+
         Ok(())
+    }
+
+    fn is_initialized(conn: &Connection) -> Result<bool> {
+        let exists: Option<String> = conn
+            .query_row(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'version_info'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Failed to inspect database schema: {e}"),
+                )
+            })?;
+        Ok(exists.is_some())
     }
 
     fn validate_study_id(&self, study_id: u32) -> Result<()> {
@@ -1679,6 +1724,7 @@ mod tests {
     use rustuna_core::sampler::RandomSampler;
     use rustuna_core::study::{create_study, Direction};
     use std::sync::Arc;
+    use tempfile::tempdir;
 
     fn init_storage() -> Result<SQLite3Storage> {
         let storage = SQLite3Storage::new(":memory:")?;
@@ -1698,6 +1744,22 @@ mod tests {
             study.directions,
             vec![Direction::Minimize, Direction::Maximize]
         );
+        assert_eq!(storage.get_studies()?.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn create_database_is_idempotent() -> Result<()> {
+        let dir = tempdir().map_err(|_| Error::new(ErrorKind::Unexpected))?;
+        let path = dir.path().join("storage.sqlite3");
+        let storage = SQLite3Storage::new(path.to_string_lossy().as_ref())?;
+
+        storage.create_database()?;
+        storage.create_database()?;
+
+        let mut storage = storage;
+        let study = storage.create_new_study("example", vec![Direction::Minimize])?;
+        assert_eq!(study.name, "example");
         assert_eq!(storage.get_studies()?.len(), 1);
         Ok(())
     }
