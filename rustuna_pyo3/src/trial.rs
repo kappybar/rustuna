@@ -63,12 +63,14 @@ impl PyTrialState {
 #[pyo3(module = "rustuna")]
 pub struct PyTrial {
     trial: Trial,
+    storage_pyobj: Py<PyAny>,
     cached_user_attrs: RwLock<HashMap<String, String>>,
 }
-impl From<Trial> for PyTrial {
-    fn from(item: Trial) -> Self {
+impl PyTrial {
+    pub fn new(trial: Trial, storage_pyobj: Py<PyAny>) -> Self {
         PyTrial {
-            trial: item,
+            trial,
+            storage_pyobj,
             cached_user_attrs: RwLock::new(HashMap::new()),
         }
     }
@@ -86,6 +88,10 @@ impl PyTrial {
     #[getter]
     pub fn number(&self) -> PyResult<u32> {
         Ok(self.trial.number)
+    }
+    #[getter]
+    pub fn storage<'py>(&self, py: Python<'py>) -> Py<PyAny> {
+        self.storage_pyobj.clone_ref(py)
     }
     #[pyo3(signature = (name, low, high, step=None, log=false))]
     pub fn suggest_float(

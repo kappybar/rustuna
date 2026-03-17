@@ -235,10 +235,10 @@ impl PyStudy {
                 .ask(sampler)
                 .map_err(|e| PyRuntimeError::new_err(format!("Failed to ask a trial {e:?}.")))?;
             let trial_number = rs_trial.number;
-            let trial: PyTrial = rs_trial.into();
 
             // Call an objective function
             let result: PyResult<Vec<f64>> = Python::attach(|py| {
+                let trial = PyTrial::new(rs_trial, self.storage_pyobj.clone_ref(py));
                 let val = objective.call1(py, (trial,))?;
                 let val_ref = val.bind(py);
                 if val_ref.is_instance_of::<PyFloat>() {
@@ -272,11 +272,11 @@ impl PyStudy {
     }
 
     pub fn ask(&mut self) -> PyResult<PyTrial> {
-        let trial: PyTrial = self
+        let trial = self
             .study
             .ask(self.sampler.clone())
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to ask a trial: {:?}", e.kind)))?
-            .into();
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to ask a trial: {:?}", e.kind)))?;
+        let trial = Python::attach(|py| PyTrial::new(trial, self.storage_pyobj.clone_ref(py)));
         Ok(trial)
     }
 

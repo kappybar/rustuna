@@ -118,6 +118,10 @@ class Trial:
     study_id: int
 
     @property
+    def storage(self) -> StorageProtocol:
+        """Return the storage associated with this trial."""
+
+    @property
     def user_attrs(self) -> dict[str, str]:
         """Return the user attributes."""
 
