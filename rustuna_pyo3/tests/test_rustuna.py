@@ -25,7 +25,7 @@ def test_optimize():
     assert len(study.best_trial.params) == 3
     assert study.best_trial.value is not None
 
-def test_study_get_trials_filters_by_states():
+
 def test_trial_storage_inside_objective():
     storage = rustuna.Storage.in_memory()
     study = rustuna.create_study(storage=storage)

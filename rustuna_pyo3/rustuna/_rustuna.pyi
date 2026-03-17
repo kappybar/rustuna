@@ -511,7 +511,7 @@ class OptunaStorageProtocol(StorageProtocol, Protocol):
         self, trial_id: int, step: int, intermediate_value: float
     ) -> None: ...
 
-class PyObjectStorage:
+class PyObjectStorage(StorageProtocol):
     """Wrapper to convert a StorageProtocol implementation to Rust Storage trait.
 
     This class wraps a Python object implementing StorageProtocol and makes it
@@ -797,13 +797,13 @@ class SamplerProtocol(Protocol):
     def sample_joint(
         self,
         ctx: SamplerContext,
-        storage: Storage | PyObjectStorage,
+        storage: StorageProtocol,
         search_space: dict[str, Distribution],
     ) -> dict[str, float]: ...
     def sample_independent(
         self,
         ctx: SamplerContext,
-        storage: Storage | PyObjectStorage,
+        storage: StorageProtocol,
         name: str,
         distribution: Distribution,
     ) -> float: ...
@@ -866,7 +866,7 @@ class Sampler:
     def sample_joint(
         self,
         ctx: SamplerContext,
-        storage: Storage | PyObjectStorage,
+        storage: StorageProtocol,
         search_space: dict[str, Distribution],
     ) -> dict[str, float]:
         """Sample multiple parameters simultaneously.
@@ -882,7 +882,7 @@ class Sampler:
     def sample_independent(
         self,
         ctx: SamplerContext,
-        storage: Storage | PyObjectStorage,
+        storage: StorageProtocol,
         name: str,
         distribution: Distribution,
     ) -> float:
