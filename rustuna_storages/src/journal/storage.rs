@@ -61,11 +61,27 @@ impl JournalStorage {
 
     fn sync_with_backend(&mut self) -> Result<()> {
         let worker_id = self.worker_id();
+        let mut first_error: Option<Error> = None;
         self.backend
             .read_logs(self.replay.log_number_read, &mut |log| {
-                self.replay
-                    .apply_logs(std::slice::from_ref(&log), &worker_id)
-            })
+                if first_error.is_none() {
+                    if let Err(err) = self
+                        .replay
+                        .apply_logs(std::slice::from_ref(&log), &worker_id)
+                    {
+                        first_error = Some(err);
+                    }
+                } else {
+                    let _ = self
+                        .replay
+                        .apply_logs(std::slice::from_ref(&log), &worker_id);
+                }
+                Ok(())
+            })?;
+        if let Some(err) = first_error {
+            return Err(err);
+        }
+        Ok(())
     }
 }
 
@@ -2112,6 +2128,31 @@ mod tests {
                 .expect("System attr 'key' should exist"),
             "\"val\""
         );
+        Ok(())
+    }
+
+    #[test]
+    fn late_multi_attr_write_does_not_break_future_replay() -> Result<()> {
+        let (mut storage, _logs) = new_storage()?;
+        let study_id = storage
+            .create_new_study("study", vec![Direction::Minimize])?
+            .id;
+        let trial_id = storage.create_new_trial(study_id)?.id;
+
+        let mut attrs = Attrs::new();
+        attrs.insert(AttrKey::User("x".into()), "1".to_string());
+        attrs.insert(AttrKey::User("y".into()), "2".to_string());
+        storage.set_trial_attrs(trial_id, attrs.clone(), false)?;
+        storage.set_trial_state_values(trial_id, TrialStateValues::Complete(vec![1.0]))?;
+
+        let err = storage
+            .set_trial_attrs(trial_id, attrs, false)
+            .expect_err("late write should fail");
+        assert!(matches!(err.kind, ErrorKind::TrialAlreadyFinished));
+
+        let trials = storage.get_trials(study_id)?;
+        assert_eq!(trials.len(), 1);
+        assert_eq!(trials[0].id, trial_id);
         Ok(())
     }
 
