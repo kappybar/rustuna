@@ -40,6 +40,17 @@ impl From<TrialStateValues> for PyTrialState {
 }
 #[pymethods]
 impl PyTrialState {
+    #[getter]
+    pub fn name(&self) -> &'static str {
+        match self {
+            PyTrialState::RUNNING => "RUNNING",
+            PyTrialState::COMPLETE => "COMPLETE",
+            PyTrialState::PRUNED => "PRUNED",
+            PyTrialState::WAITING => "WAITING",
+            PyTrialState::FAIL => "FAIL",
+        }
+    }
+
     pub fn is_finished(&self) -> bool {
         matches!(
             self,
