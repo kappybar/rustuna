@@ -3,6 +3,44 @@ import pytest
 import rustuna
 
 
+def test_load_study_with_trial_queue():
+    storage = rustuna.Storage.in_memory()
+    created = rustuna.create_study(study_name="queued-study", storage=storage)
+
+    template = rustuna.PersistedTrial(
+        trial_id=0,
+        study_id=created.id,
+        number=0,
+        state=rustuna.TrialState.WAITING,
+        system_attrs={"fixed_params:x": "f:0x4014000000000000"},
+    )
+    trial = storage.create_new_trial(created.id, template)
+
+    queue = rustuna.TrialQueue.in_memory()
+    queue.push(trial.id)
+
+    loaded = rustuna.load_study(
+        study_name="queued-study",
+        storage=storage,
+        trial_queue=queue,
+    )
+
+    asked = loaded.ask()
+    assert asked.number == trial.number
+    assert asked.suggest_float("x", 0.0, 10.0) == 5.0
+    loaded.trial_queue.push(123)
+    assert queue.pop() == 123
+
+
+def test_study_trial_queue_property():
+    queue = rustuna.TrialQueue.in_memory()
+    study = rustuna.create_study(trial_queue=queue)
+
+    study.trial_queue.push(123)
+
+    assert queue.pop() == 123
+
+
 def test_optimize():
     study = rustuna.create_study()
 

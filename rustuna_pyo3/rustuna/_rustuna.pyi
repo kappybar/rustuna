@@ -313,6 +313,7 @@ def load_study(
     study_name: str | None = None,
     storage: StorageProtocol | None = None,
     sampler: SamplerProtocol | None = None,
+    trial_queue: TrialQueue | None = None,
 ) -> Study:
     """Load an existing study.
 
@@ -320,6 +321,7 @@ def load_study(
         study_name: Study's name. If None, the most recently created study is loaded.
         storage: Storage object. If None, raises an error.
         sampler: Sampler object for parameter suggestion. If None, TPESampler is used.
+        trial_queue: TrialQueue object for managing trial execution order. If None, InMemoryTrialQueue is used.
     """
 
 def copy_study(
@@ -454,6 +456,9 @@ class Study:
     @property
     def sampler(self) -> SamplerProtocol:
         """Return the storage object."""
+    @property
+    def trial_queue(self) -> TrialQueue:
+        """Return the trial queue object."""
 
 class StudyDirection(enum.IntEnum):
     """Direction of optimization."""
