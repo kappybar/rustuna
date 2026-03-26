@@ -95,8 +95,8 @@ def test_directory_queue_multiprocess_push_pop():
         assert sorted(all_popped) == sorted(all_trial_ids)
 
 
-def test_directory_queue_fifo_across_processes():
-    """Test that FIFO ordering is maintained across process boundaries."""
+def test_directory_queue_lifo_across_processes():
+    """Test that LIFO ordering is maintained across process boundaries."""
     with tempfile.TemporaryDirectory() as tmpdir:
         queue_dir = str(Path(tmpdir) / "queue")
 
@@ -112,8 +112,7 @@ def test_directory_queue_fifo_across_processes():
         for _ in trial_ids:
             popped_ids.append(queue.pop())
 
-        # Should maintain FIFO order
-        assert popped_ids == trial_ids
+        assert popped_ids == list(reversed(trial_ids))
 
 
 def test_directory_queue_no_duplicates():
@@ -207,14 +206,14 @@ def test_directory_queue_persistence():
         p.join()
         second_batch = result_queue2.get()
 
-        # Verify all trials were popped in FIFO order
+        # Verify all trials were popped in LIFO order
         all_popped = first_batch + second_batch
-        assert all_popped == list(range(1, 11))
+        assert all_popped == list(range(10, 0, -1))
 
 
 if __name__ == "__main__":
     test_directory_queue_multiprocess_push_pop()
-    test_directory_queue_fifo_across_processes()
+    test_directory_queue_lifo_across_processes()
     test_directory_queue_no_duplicates()
     test_directory_queue_persistence()
     print("All DirectoryTrialQueue multiprocess tests passed!")

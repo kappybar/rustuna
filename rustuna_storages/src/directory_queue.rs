@@ -112,10 +112,10 @@ impl TrialQueue for DirectoryTrialQueue {
 
         entries.sort_by_key(|entry| entry.file_name());
 
-        // Try to move the first available file from pending to processing.
+        // Try to move the last available file from pending to processing.
         // Only one process will succeed in moving a specific file due to
         // the atomicity of rename on POSIX systems.
-        for entry in entries {
+        for entry in entries.into_iter().rev() {
             let filename = entry.file_name();
             let pending_path = entry.path();
             let processing_path = self.processing_dir.join(&filename);
@@ -166,9 +166,9 @@ mod tests {
         queue.push(2).unwrap();
         queue.push(3).unwrap();
 
-        assert_eq!(queue.pop().unwrap(), 1);
-        assert_eq!(queue.pop().unwrap(), 2);
         assert_eq!(queue.pop().unwrap(), 3);
+        assert_eq!(queue.pop().unwrap(), 2);
+        assert_eq!(queue.pop().unwrap(), 1);
     }
 
     #[test]
@@ -180,7 +180,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fifo_order() {
+    fn test_lifo_order() {
         let temp_dir = tempfile::tempdir().unwrap();
         let mut queue = DirectoryTrialQueue::new(temp_dir.path()).unwrap();
 
@@ -190,11 +190,10 @@ mod tests {
         queue.push(8).unwrap();
         queue.push(1).unwrap();
 
-        // Should pop in the order they were pushed (FIFO), not sorted by trial_id
-        assert_eq!(queue.pop().unwrap(), 5);
-        assert_eq!(queue.pop().unwrap(), 2);
-        assert_eq!(queue.pop().unwrap(), 8);
         assert_eq!(queue.pop().unwrap(), 1);
+        assert_eq!(queue.pop().unwrap(), 8);
+        assert_eq!(queue.pop().unwrap(), 2);
+        assert_eq!(queue.pop().unwrap(), 5);
     }
 
     #[test]
@@ -207,7 +206,7 @@ mod tests {
         queue1.push(2).unwrap();
 
         // Both queues share the same directory, so queue2 should see the items
-        assert_eq!(queue2.pop().unwrap(), 1);
-        assert_eq!(queue1.pop().unwrap(), 2);
+        assert_eq!(queue2.pop().unwrap(), 2);
+        assert_eq!(queue1.pop().unwrap(), 1);
     }
 }

@@ -940,7 +940,7 @@ class Sampler:
 class TrialQueue:
     """Factory class for creating trial queue instances.
 
-    Trial queues are used to manage a FIFO queue of trial IDs for parallel optimization.
+    Trial queues are used to manage a LIFO queue of trial IDs for parallel optimization.
     They provide persistence and multi-process safety for managing trial execution order.
     """
 
@@ -998,7 +998,7 @@ class TrialQueue:
         """Remove and return the next trial ID from the queue.
 
         Returns:
-            The next trial ID in FIFO order.
+            The next trial ID in LIFO order.
 
         Raises:
             Exception: If the queue is empty.
