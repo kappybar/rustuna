@@ -515,7 +515,8 @@ impl CachedStorageBackend for SQLite3Storage {
         let (study_id, number, state_str, datetime_start, datetime_complete) =
             trial_row.ok_or(Error::new(ErrorKind::TrialNotFound))?;
         let state_values = match state_str.as_str() {
-            "RUNNING" | "WAITING" => TrialStateValues::Running,
+            "RUNNING" => TrialStateValues::Running,
+            "WAITING" => TrialStateValues::Waiting,
             "PRUNED" => TrialStateValues::Pruned,
             "FAIL" => TrialStateValues::Fail,
             "COMPLETE" => {
@@ -1000,7 +1001,8 @@ impl CachedStorageBackend for SQLite3Storage {
 
             // Parse state and get values if COMPLETE
             let state_values = match state_str.as_str() {
-                "RUNNING" | "WAITING" => TrialStateValues::Running,
+                "RUNNING" => TrialStateValues::Running,
+                "WAITING" => TrialStateValues::Waiting,
                 "PRUNED" => TrialStateValues::Pruned,
                 "FAIL" => TrialStateValues::Fail,
                 "COMPLETE" => {
@@ -1638,6 +1640,25 @@ mod tests {
             .err()
             .expect("Expected DuplicatedStudy error");
         assert!(matches!(err.kind, ErrorKind::DuplicatedStudy));
+        Ok(())
+    }
+
+    #[test]
+    fn waiting_trials_round_trip_as_waiting() -> Result<()> {
+        let mut storage = init_storage()?;
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])?
+            .id;
+        let trial_id = storage.create_new_trial(study_id)?.id;
+        storage.set_trial_state_values(trial_id, TrialStateValues::Waiting)?;
+
+        let trial = storage.get_trial(trial_id)?;
+        assert!(matches!(trial.state_values, TrialStateValues::Waiting));
+
+        let trials = storage.get_trials_diff(study_id, &[trial.number], -1)?;
+        assert_eq!(trials.len(), 1);
+        assert!(matches!(trials[0].state_values, TrialStateValues::Waiting));
+
         Ok(())
     }
 
