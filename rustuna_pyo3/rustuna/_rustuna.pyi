@@ -364,6 +364,12 @@ class Study:
         Args:
             user_attrs: A dictionary of user attributes.
         """
+    def get_trials(
+        self,
+        *,
+        states: Sequence[TrialState] | None = None,
+    ) -> list[PersistedTrial]:
+        """Return trials in the study filtered by states if specified."""
     @property
     def id(self) -> int:
         """Return the study ID."""

@@ -23,6 +23,29 @@ def test_optimize():
     assert len(study.best_trial.params) == 3
 
 
+def test_study_get_trials_filters_by_states():
+    study = rustuna.create_study()
+
+    def objective(trial: rustuna.Trial):
+        if trial.number == 0:
+            raise ValueError("expected failure")
+        if trial.number == 1:
+            raise rustuna.exceptions.TrialPruned()
+        return 1.0
+
+    study.optimize(objective, n_trials=3, catch=ValueError)
+
+    filtered = study.get_trials(
+        states=[rustuna.TrialState.PRUNED, rustuna.TrialState.COMPLETE]
+    )
+
+    assert len(filtered) == 2
+    assert [trial.state for trial in filtered] == [
+        rustuna.TrialState.PRUNED,
+        rustuna.TrialState.COMPLETE,
+    ]
+
+
 def test_optimize_multi_objective():
     study = rustuna.create_study(directions=["minimize", "minimize"])
 

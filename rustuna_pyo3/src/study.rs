@@ -382,8 +382,8 @@ impl PyStudy {
         ))
     }
 
-    #[getter]
-    pub fn trials(&mut self) -> PyResult<Vec<PyPersistedTrial>> {
+    #[getter(trials)]
+    pub fn py_trials(&mut self) -> PyResult<Vec<PyPersistedTrial>> {
         let mut guard = self
             .study
             .storage
@@ -396,6 +396,33 @@ impl PyStudy {
             .iter()
             .map(|t| PyPersistedTrial::from_storage(self.study.storage.clone(), t))
             .collect();
+        Ok(trials)
+    }
+
+    #[pyo3(name = "get_trials", signature = (*, states = None))]
+    pub fn py_get_trials(
+        &mut self,
+        states: Option<Vec<PyTrialState>>,
+    ) -> PyResult<Vec<PyPersistedTrial>> {
+        let mut guard = self
+            .study
+            .storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+        let trials_vec = guard
+            .get_trials(self.study.id)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get trials: {:?}", e.kind)))?;
+        let trials: Vec<PyPersistedTrial> = match states {
+            Some(states) => trials_vec
+                .iter()
+                .filter(|trial| states.contains(&PyTrialState::from(trial.state_values.clone())))
+                .map(|trial| PyPersistedTrial::from_storage(self.study.storage.clone(), trial))
+                .collect(),
+            None => trials_vec
+                .iter()
+                .map(|trial| PyPersistedTrial::from_storage(self.study.storage.clone(), trial))
+                .collect(),
+        };
         Ok(trials)
     }
 
