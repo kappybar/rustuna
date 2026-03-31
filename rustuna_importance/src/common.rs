@@ -298,7 +298,7 @@ mod tests {
 
     #[test]
     fn test_get_param_importances_single_search_space() -> Result<()> {
-        let mut study = study::create_study(
+        let study = study::create_study(
             "empty-search-space",
             InMemoryStorage::new(),
             vec![Direction::Minimize],

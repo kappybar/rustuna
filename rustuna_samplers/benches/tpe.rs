@@ -17,7 +17,7 @@ mod tests {
             let directions = vec![Direction::Minimize];
             let storage = InMemoryStorage::new();
             let sampler = Arc::new(Mutex::new(TpeSampler::new()));
-            let mut study = create_study("dummy", storage, directions).unwrap();
+            let study = create_study("dummy", storage, directions).unwrap();
             study
                 .optimize(
                     |mut t| {

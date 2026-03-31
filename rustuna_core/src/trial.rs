@@ -348,7 +348,7 @@ mod tests {
         let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let mut study = create_study_with_arc("dummy", storage.clone(), directions)?;
+        let study = create_study_with_arc("dummy", storage.clone(), directions)?;
 
         let mut params = HashMap::new();
         params.insert("x".to_string(), CategoryLabel::Float(5.0));
@@ -365,7 +365,7 @@ mod tests {
         let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let mut study = create_study_with_arc("dummy", storage.clone(), directions)?;
+        let study = create_study_with_arc("dummy", storage.clone(), directions)?;
 
         let mut params = HashMap::new();
         params.insert("x".to_string(), CategoryLabel::Int(7));
@@ -382,7 +382,7 @@ mod tests {
         let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let mut study = create_study_with_arc("dummy", storage.clone(), directions)?;
+        let study = create_study_with_arc("dummy", storage.clone(), directions)?;
 
         let mut params = HashMap::new();
         params.insert("x".to_string(), CategoryLabel::Float(100.0));
@@ -399,7 +399,7 @@ mod tests {
         let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let mut study = create_study_with_arc("dummy", storage.clone(), directions)?;
+        let study = create_study_with_arc("dummy", storage.clone(), directions)?;
 
         let mut params = HashMap::new();
         params.insert("x".to_string(), CategoryLabel::Float(5.0));
@@ -422,7 +422,7 @@ mod tests {
         let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let mut study = create_study_with_arc("dummy", storage.clone(), directions)?;
+        let study = create_study_with_arc("dummy", storage.clone(), directions)?;
 
         let mut params = HashMap::new();
         params.insert("x".to_string(), CategoryLabel::Float(5.0));
@@ -442,7 +442,7 @@ mod tests {
         let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let mut study = create_study_with_arc("dummy", storage.clone(), directions)?;
+        let study = create_study_with_arc("dummy", storage.clone(), directions)?;
 
         // Set user attributes
         let mut trial = study.ask(sampler.clone())?;
