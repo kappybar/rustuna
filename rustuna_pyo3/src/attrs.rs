@@ -81,7 +81,7 @@ enum AttrsDictViewSource {
     },
 }
 
-#[pyclass(name = "AttrsDictView", unsendable)]
+#[pyclass(name = "AttrsDictView")]
 pub struct AttrsDictView {
     source: AttrsDictViewSource,
     kind: AttrKind,
