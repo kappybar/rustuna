@@ -14,7 +14,7 @@ fn run_optuna_python_script(python: &str, journal_path: &str, script: &str) -> R
         .map_err(|e| {
             Error::with_reason(
                 ErrorKind::Unexpected,
-                format!("Failed to execute Python: {}", e),
+                format!("Failed to execute Python: {e}"),
             )
         })?;
     if output.status.success() {
@@ -39,7 +39,7 @@ fn load_studies_from_optuna_journal() -> Result<()> {
     let dir = tempfile::tempdir().map_err(|e| {
         Error::with_reason(
             ErrorKind::Unexpected,
-            format!("Failed to create temp dir: {}", e),
+            format!("Failed to create temp dir: {e}"),
         )
     })?;
     let journal_path = dir.path().join("optuna.journal");
@@ -88,7 +88,7 @@ fn load_trial_from_optuna_journal() -> Result<()> {
     let dir = tempfile::tempdir().map_err(|e| {
         Error::with_reason(
             ErrorKind::Unexpected,
-            format!("Failed to create temp dir: {}", e),
+            format!("Failed to create temp dir: {e}"),
         )
     })?;
     let journal_path = dir.path().join("optuna.journal");
@@ -161,7 +161,7 @@ fn get_trials_from_optuna_journal() -> Result<()> {
     let dir = tempfile::tempdir().map_err(|e| {
         Error::with_reason(
             ErrorKind::Unexpected,
-            format!("Failed to create temp dir: {}", e),
+            format!("Failed to create temp dir: {e}"),
         )
     })?;
     let journal_path = dir.path().join("optuna.journal");

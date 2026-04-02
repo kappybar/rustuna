@@ -120,7 +120,7 @@ where
 
     assert!(m > 0, "reference_point must be non-empty");
     for (k, &v) in reference_point.iter().enumerate() {
-        assert!(!v.is_nan(), "reference_point[{}] is NaN", k);
+        assert!(!v.is_nan(), "reference_point[{k}] is NaN");
     }
 
     for (i, r) in loss_vals.iter().enumerate() {
@@ -394,9 +394,7 @@ mod tests {
         let expected_hv = 3.5;
         assert!(
             (hv - expected_hv).abs() < 1e-6,
-            "hv: {}, expected: {}",
-            hv,
-            expected_hv
+            "hv: {hv}, expected: {expected_hv}"
         );
     }
 
