@@ -542,7 +542,7 @@ mod tests {
 
         let mut trial = study.ask(sampler.clone())?;
         let value = trial.suggest_float("x", 0.0, 10.0)?;
-        assert!(value >= 0.0 && value <= 10.0);
+        assert!((0.0..=10.0).contains(&value));
         Ok(())
     }
 
@@ -564,7 +564,7 @@ mod tests {
         // Second ask should create a new trial (sampled)
         let mut trial2 = study.ask(sampler.clone())?;
         let value = trial2.suggest_float("x", 0.0, 10.0)?;
-        assert!(value >= 0.0 && value <= 10.0);
+        assert!((0.0..=10.0).contains(&value));
 
         Ok(())
     }
@@ -584,7 +584,7 @@ mod tests {
         assert_eq!(trial.suggest_float("x", 0.0, 10.0)?, 5.0);
         // "y" is not in fixed_params, so it should be sampled
         let y = trial.suggest_float("y", 0.0, 10.0)?;
-        assert!(y >= 0.0 && y <= 10.0);
+        assert!((0.0..=10.0).contains(&y));
 
         Ok(())
     }
