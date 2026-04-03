@@ -345,12 +345,28 @@ class Study:
             objective: A callable that takes a Trial object and returns a float value or a sequence of float values.
             n_trials: The number of trials to run.
         """
+    def set_user_attr(
+        self,
+        key: str,
+        value: str,
+    ) -> None:
+        """Set user attributes to the study.
+
+        .. note::
+            Unlike Optuna, Rustuna accepts only str values for user attributes.
+
+        Args:
+            user_attrs: A dictionary of user attributes.
+        """
     @property
     def id(self) -> int:
         """Return the study ID."""
     @property
     def directions(self) -> list[StudyDirection]:
         """Return the optimization directions."""
+    @property
+    def user_attrs(self) -> dict[str, str]:
+        """Return the user attributes."""
 
     @property
     def best_trial(self) -> PersistedTrial:

@@ -6,6 +6,9 @@ import rustuna
 def test_optimize():
     study = rustuna.create_study()
 
+    study.set_user_attr("key", "value")
+    assert study.user_attrs == {"key": "value"}
+
     def objective(trial):
         x = trial.suggest_float("x", -5.0, 5)
         y = trial.suggest_int("y", 0, 10)

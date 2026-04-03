@@ -294,6 +294,23 @@ impl PyStudy {
         Ok(())
     }
 
+    #[pyo3(signature = (key, value))]
+    pub fn set_user_attr(&mut self, key: String, value: String) -> PyResult<()> {
+        let mut attrs = rustuna_core::attr::Attrs::new();
+        attrs.insert(AttrKey::User(key.into()), value);
+        let mut guard = self
+            .study
+            .storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+        guard
+            .set_study_attrs(self.study.id, attrs, false)
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("Failed to set user attrs: {:?}", e.kind))
+            })?;
+        Ok(())
+    }
+
     #[getter]
     pub fn best_trial(&mut self) -> PyResult<PyPersistedTrial> {
         let trial_number = get_best_trial(&self.study).map_err(|e| {
@@ -334,7 +351,24 @@ impl PyStudy {
         Ok(trials)
     }
 
-    // TODO(c-bata): Add user_attrs property method and set_user_attrs() method.
+    #[getter]
+    pub fn user_attrs(&mut self) -> PyResult<HashMap<String, String>> {
+        let mut guard = self
+            .study
+            .storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+        let study = guard
+            .get_study(self.study.id)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get study: {:?}", e.kind)))?;
+        let mut user_attrs = HashMap::new();
+        for (key, value) in &study.attrs {
+            if let AttrKey::User(k) = key {
+                user_attrs.insert(k.to_string(), value.clone());
+            }
+        }
+        Ok(user_attrs)
+    }
 
     #[getter]
     pub fn id(&self) -> u32 {
