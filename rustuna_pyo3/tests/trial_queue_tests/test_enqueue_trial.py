@@ -3,12 +3,11 @@ from __future__ import annotations
 import shutil
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import pytest
-import rustuna
 
+import rustuna
 
 if TYPE_CHECKING:
     TrialQueueType = Literal["in_memory", "directory", "sqlite3"]
