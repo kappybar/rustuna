@@ -117,6 +117,10 @@ class Trial:
     number: int
     study_id: int
 
+    @property
+    def user_attrs(self) -> dict[str, str]:
+        """Return the user attributes."""
+
     def suggest_float(
         self,
         name: str,

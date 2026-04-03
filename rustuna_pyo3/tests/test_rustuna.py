@@ -14,6 +14,8 @@ def test_optimize():
         assert -5.0 <= x <= 5.0
         assert 0 <= y <= 10
         assert z in ["foo", "bar"]
+        trial.set_user_attr("key", "value")
+        assert trial.user_attrs == {"key": "value"}
         return x * 2 + y
 
     study.optimize(objective, n_trials=10)
