@@ -1902,19 +1902,7 @@ fn raw_value_to_json_string(value: &RawValue) -> Result<String> {
 fn raw_value_to_attr_string(value: &RawValue) -> Result<String> {
     let raw = value.get();
     if raw.starts_with('"') {
-        let s = raw_value_to_plain_string(value)?;
-        if matches!(s.as_str(), "Infinity" | "-Infinity" | "NaN") {
-            return Ok(s);
-        }
-        if serde_json::from_str::<Value>(&s).is_ok() {
-            return Ok(s);
-        }
-        return serde_json::to_string(&s).map_err(|_| {
-            Error::with_reason(
-                ErrorKind::StorageError,
-                format!("Failed to serialize value to JSON: {raw}"),
-            )
-        });
+        return raw_value_to_plain_string(value);
     }
     Ok(raw.to_string())
 }
@@ -1980,7 +1968,9 @@ fn extract_category_labels(attrs: &Attrs, param_name: &str) -> Option<Vec<Catego
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rustuna_core::attr::AttrKey;
     use rustuna_core::storage::Storage;
+    use rustuna_core::trial::PersistedTrial;
     use rustuna_core::ErrorKind;
     use std::sync::{Arc, Mutex};
 
@@ -2275,7 +2265,7 @@ mod tests {
                 .attrs
                 .get(&AttrKey::User("foo".into()))
                 .expect("User attr 'foo' should exist"),
-            "\"bar\""
+            "bar"
         );
 
         let mut t_attrs = Attrs::new();
@@ -2287,7 +2277,48 @@ mod tests {
                 .attrs
                 .get(&AttrKey::System("key".into()))
                 .expect("System attr 'key' should exist"),
-            "\"val\""
+            "val"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn raw_value_to_attr_string_preserves_plain_and_json_strings() -> Result<()> {
+        let plain = to_raw(&"abc.json".to_string())?;
+        assert_eq!(raw_value_to_attr_string(&plain)?, "abc.json");
+
+        let json_string = to_raw(&"\"abc.json\"".to_string())?;
+        assert_eq!(raw_value_to_attr_string(&json_string)?, "\"abc.json\"");
+        Ok(())
+    }
+
+    #[test]
+    fn create_new_trial_from_template_preserves_user_attr_strings() -> Result<()> {
+        let (mut storage, _logs) = new_storage()?;
+        let study_id = storage
+            .create_new_study("study", vec![Direction::Minimize])?
+            .id;
+
+        let mut template = PersistedTrial::new(100, study_id, 0);
+        template.attrs.insert(
+            AttrKey::User("plain".into()),
+            "abc.json".to_string(),
+        );
+        template.attrs.insert(
+            AttrKey::User("json".into()),
+            "\"abc.json\"".to_string(),
+        );
+
+        let trial_id = storage.create_new_trial_from_template(study_id, &template)?.id;
+        let trial = storage.get_trial(trial_id)?;
+
+        assert_eq!(
+            trial.attrs.get(&AttrKey::User("plain".into())),
+            Some(&"abc.json".to_string())
+        );
+        assert_eq!(
+            trial.attrs.get(&AttrKey::User("json".into())),
+            Some(&"\"abc.json\"".to_string())
         );
         Ok(())
     }
