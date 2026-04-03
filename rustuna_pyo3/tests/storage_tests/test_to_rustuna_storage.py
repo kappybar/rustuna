@@ -6,6 +6,7 @@ import time
 from concurrent.futures import ProcessPoolExecutor
 
 import optuna
+import pytest
 
 import rustuna
 from rustuna.converter import ToRustunaStorage
@@ -18,6 +19,14 @@ def test_optimize_with_optuna_storage():
     storage = ToRustunaStorage(optuna.storages.RDBStorage("sqlite://"))
     rustuna_study = rustuna.create_study(storage=storage)
     rustuna_study.optimize(objective, n_trials=10)
+
+
+def test_duplicate_study_error_with_optuna_storage_bridge():
+    storage = ToRustunaStorage(optuna.storages.InMemoryStorage())
+    rustuna.create_study(storage=storage, study_name="dup-study")
+
+    with pytest.raises(rustuna.exceptions.DuplicatedStudyError):
+        rustuna.create_study(storage=storage, study_name="dup-study")
 
 
 def test_resume_optimization():
