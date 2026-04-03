@@ -234,6 +234,26 @@ impl Study {
     }
 
     pub fn add_trial(&mut self, trial: PersistedTrial) -> Result<()> {
+        for param_name in trial.internal_params.keys() {
+            if !trial.distributions.contains_key(param_name) {
+                return Err(Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!(
+                        "The added trial has internal_params['{param_name}'] but no matching distribution."
+                    ),
+                ));
+            }
+        }
+        for param_name in trial.distributions.keys() {
+            if !trial.internal_params.contains_key(param_name) {
+                return Err(Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!(
+                        "The added trial has distributions['{param_name}'] but no matching internal_params."
+                    ),
+                ));
+            }
+        }
         if let TrialStateValues::Complete(ref values) = trial.state_values {
             if values.len() != self.directions.len() {
                 return Err(Error::with_reason(
@@ -253,22 +273,7 @@ impl Study {
                 format!("Failed to acquire a storage guard: {e}"),
             )
         })?;
-
-        let new_trial = guard.create_new_trial(self.id)?;
-        let trial_id = new_trial.id;
-
-        for (param_name, distribution) in &trial.distributions {
-            if let Some(internal_value) = trial.internal_params.get(param_name) {
-                guard.set_trial_param(trial_id, param_name, distribution, *internal_value)?;
-            }
-        }
-
-        if !trial.attrs.is_empty() {
-            guard.set_trial_attrs(trial_id, trial.attrs.clone(), false)?;
-        }
-
-        guard.set_trial_state_values(trial_id, trial.state_values)?;
-
+        guard.create_new_trial_from_template(self.id, &trial)?;
         Ok(())
     }
 }
@@ -407,6 +412,8 @@ pub fn dominates(values0: &[f64], values1: &[f64], directions: &[Direction]) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::attr::AttrKey;
+    use crate::distribution::Distribution;
     use std::thread;
 
     use crate::sampler::RandomSampler;
@@ -600,6 +607,66 @@ mod tests {
             )
             .unwrap_err();
         assert!(matches!(error.kind, ErrorKind::IncompatibleDistribution));
+        Ok(())
+    }
+
+    #[test]
+    fn test_add_trial_preserves_template_fields() -> Result<()> {
+        let storage = InMemoryStorage::new();
+        let directions = vec![Direction::Minimize];
+        let mut study = create_study("dummy-add-trial", storage, directions)?;
+
+        let mut trial = PersistedTrial::new(999, 888, 777);
+        trial.state_values = TrialStateValues::Complete(vec![1.23]);
+        trial.datetime_start = Some("2024-01-02 03:04:05.678".to_string());
+        trial.datetime_complete = Some("2024-01-02 03:14:15.678".to_string());
+        trial.internal_params.insert("x".to_string(), 0.5);
+        trial.distributions.insert(
+            "x".to_string(),
+            Distribution::Float {
+                low: 0.0,
+                high: 1.0,
+                step: None,
+                log: false,
+            },
+        );
+        trial
+            .attrs
+            .insert(AttrKey::User("memo".into()), "\"imported\"".to_string());
+
+        study.add_trial(trial)?;
+        let trials = study.get_trials()?;
+        assert_eq!(trials.len(), 1);
+        assert_eq!(trials[0].number, 0);
+        assert_eq!(trials[0].study_id, study.id);
+        assert_eq!(
+            trials[0].datetime_start.as_deref(),
+            Some("2024-01-02 03:04:05.678")
+        );
+        assert_eq!(
+            trials[0].datetime_complete.as_deref(),
+            Some("2024-01-02 03:14:15.678")
+        );
+        assert_eq!(trials[0].internal_params.get("x"), Some(&0.5));
+        assert_eq!(
+            trials[0].attrs.get(&AttrKey::User("memo".into())),
+            Some(&"\"imported\"".to_string())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_add_trial_rejects_param_distribution_mismatch() -> Result<()> {
+        let storage = InMemoryStorage::new();
+        let directions = vec![Direction::Minimize];
+        let mut study = create_study("dummy-add-trial-mismatch", storage, directions)?;
+
+        let mut trial = PersistedTrial::new(0, study.id, 0);
+        trial.state_values = TrialStateValues::Complete(vec![0.1]);
+        trial.internal_params.insert("x".to_string(), 0.3);
+
+        let err = study.add_trial(trial).expect_err("Expected mismatch error");
+        assert!(matches!(err.kind, ErrorKind::StorageError));
         Ok(())
     }
 }

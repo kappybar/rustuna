@@ -425,6 +425,31 @@ impl Storage for PyObjectStorage {
         self.cache.get_trial(src_trial_id)
     }
 
+    fn create_new_trial_from_template(
+        &mut self,
+        study_id: u32,
+        template: &PersistedTrial,
+    ) -> rustuna_core::Result<&rustuna_core::trial::PersistedTrial> {
+        let created = self.create_new_trial(study_id)?.clone();
+        let trial_id = created.id;
+        for (param_name, distribution) in &template.distributions {
+            let internal_value = template.internal_params.get(param_name).ok_or_else(|| {
+                rustuna_core::Error::with_reason(
+                    rustuna_core::ErrorKind::StorageError,
+                    format!("Template trial has no internal param for '{param_name}'"),
+                )
+            })?;
+            self.set_trial_param(trial_id, param_name, distribution, *internal_value)?;
+        }
+        if !template.attrs.is_empty() {
+            self.set_trial_attrs(trial_id, template.attrs.clone(), false)?;
+        }
+        if !matches!(template.state_values, TrialStateValues::Running) {
+            self.set_trial_state_values(trial_id, template.state_values.clone())?;
+        }
+        self.cache.get_trial(trial_id)
+    }
+
     fn set_trial_param(
         &mut self,
         trial_id: u32,

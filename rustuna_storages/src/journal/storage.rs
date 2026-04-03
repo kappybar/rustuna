@@ -178,6 +178,189 @@ impl Storage for JournalStorage {
         })
     }
 
+    fn create_new_trial_from_template(
+        &mut self,
+        study_id: u32,
+        template: &PersistedTrial,
+    ) -> Result<&PersistedTrial> {
+        self.sync_with_backend()?;
+        if !self.replay.studies.contains_key(&study_id) {
+            return Err(Error::with_reason(
+                ErrorKind::StudyNotFound,
+                format!("Study not found in storage: study_id={study_id}"),
+            ));
+        }
+
+        for param_name in template.internal_params.keys() {
+            if !template.distributions.contains_key(param_name) {
+                return Err(Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!(
+                        "Template trial has internal_params['{param_name}'] but no matching distribution."
+                    ),
+                ));
+            }
+        }
+        for param_name in template.distributions.keys() {
+            if !template.internal_params.contains_key(param_name) {
+                return Err(Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!(
+                        "Template trial has distributions['{param_name}'] but no matching internal_params."
+                    ),
+                ));
+            }
+        }
+        for (param_name, distribution) in &template.distributions {
+            self.replay
+                .check_param_compatibility(study_id, param_name, distribution)?;
+        }
+
+        let (state_code, values_raw) = match &template.state_values {
+            TrialStateValues::Running => (0, None),
+            TrialStateValues::Complete(values) => {
+                let arr = values
+                    .iter()
+                    .map(|value| value_to_json(*value))
+                    .collect::<Vec<_>>();
+                (1, Some(arr))
+            }
+            TrialStateValues::Pruned => (2, None),
+            TrialStateValues::Waiting => (3, None),
+            TrialStateValues::Fail => (4, None),
+        };
+
+        let mut user_attrs = HashMap::new();
+        let mut system_attrs = HashMap::new();
+        for (key, value) in &template.attrs {
+            match key {
+                AttrKey::User(key) => {
+                    user_attrs.insert(key.to_string(), value.clone());
+                }
+                AttrKey::System(key) => {
+                    if key.as_str() != "intermediate_values" {
+                        system_attrs.insert(key.to_string(), value.clone());
+                    }
+                }
+            }
+        }
+
+        let mut params = HashMap::new();
+        let mut distributions = HashMap::new();
+        for (param_name, distribution) in &template.distributions {
+            let param_value = template.internal_params.get(param_name).ok_or_else(|| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Template trial has no internal param for '{param_name}'"),
+                )
+            })?;
+            params.insert(param_name.clone(), param_value.to_string());
+            let labels = self.replay.labels_for_param(study_id, param_name);
+            let dist_json = distribution_to_json(distribution, labels.as_deref())?;
+            distributions.insert(param_name.clone(), dist_json);
+        }
+
+        let intermediate_entries = intermediate_entries_from_attrs(template)?;
+        let intermediate_values = intermediate_entries
+            .iter()
+            .map(|entry| {
+                let value = match entry.value_type.as_str() {
+                    "FINITE" => Value::Number(
+                        Number::from_f64(entry.value.unwrap_or(0.0)).ok_or_else(|| {
+                            Error::with_reason(
+                                ErrorKind::StorageError,
+                                format!(
+                                    "Failed to convert intermediate value to JSON: step={}",
+                                    entry.step
+                                ),
+                            )
+                        })?,
+                    ),
+                    "NAN" => Value::String("NaN".to_string()),
+                    "INF_POS" => Value::String("Infinity".to_string()),
+                    "INF_NEG" => Value::String("-Infinity".to_string()),
+                    _ => {
+                        return Err(Error::with_reason(
+                            ErrorKind::StorageError,
+                            format!("Invalid intermediate value type: {}", entry.value_type),
+                        ));
+                    }
+                };
+                Ok((entry.step.to_string(), value))
+            })
+            .collect::<Result<HashMap<_, _>>>()?;
+
+        let mut fields = HashMap::new();
+        fields.insert("study_id".to_string(), to_raw(&study_id)?);
+        fields.insert("state".to_string(), to_raw(&state_code)?);
+        if let Some(values_raw) = values_raw {
+            fields.insert("values".to_string(), to_raw(&values_raw)?);
+        } else {
+            fields.insert("values".to_string(), to_raw(&Value::Null)?);
+        }
+        fields.insert("params".to_string(), to_raw(&params)?);
+        fields.insert("distributions".to_string(), to_raw(&distributions)?);
+        fields.insert("user_attrs".to_string(), to_raw(&user_attrs)?);
+        fields.insert("system_attrs".to_string(), to_raw(&system_attrs)?);
+        fields.insert(
+            "intermediate_values".to_string(),
+            to_raw(&intermediate_values)?,
+        );
+        fields.insert(
+            "datetime_start".to_string(),
+            to_raw(&template.datetime_start)?,
+        );
+        fields.insert(
+            "datetime_complete".to_string(),
+            to_raw(&template.datetime_complete)?,
+        );
+        self.write_log(JournalOperation::CreateTrial, fields)?;
+        self.sync_with_backend()?;
+
+        let trial_id = self
+            .replay
+            .last_created_trial_id_by_this_process
+            .ok_or_else(|| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    "Failed to get last created trial id by this process",
+                )
+            })?;
+        let (trial_study_id, trial_number) = self
+            .replay
+            .trial_id_to_study_number
+            .get(&trial_id)
+            .copied()
+            .ok_or_else(|| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!(
+                        "Failed to get study number for newly created trial: trial_id={trial_id}"
+                    ),
+                )
+            })?;
+        if trial_study_id != study_id {
+            return Err(Error::with_reason(
+                ErrorKind::StorageError,
+                format!(
+                    "Trial study id mismatch: trial_study_id={trial_study_id}, expected study_id={study_id}"
+                ),
+            ));
+        }
+        let trials = self.replay.trials_by_study.get(&study_id).ok_or_else(|| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Failed to find trials for study: study_id={study_id}"),
+            )
+        })?;
+        trials.get(trial_number as usize).ok_or_else(|| {
+            Error::with_reason(
+                ErrorKind::TrialNotFound,
+                format!("Failed to find trial at given number: trial_number={trial_number}"),
+            )
+        })
+    }
+
     fn set_trial_param(
         &mut self,
         trial_id: u32,
@@ -208,7 +391,7 @@ impl Storage for JournalStorage {
         fields.insert("param_name".to_string(), to_raw(&name.to_string())?);
         fields.insert(
             "param_value_internal".to_string(),
-            to_raw(&format!("{value:.17e}"))?,
+            to_raw(&value_to_json(value))?,
         );
         fields.insert("distribution".to_string(), to_raw(&dist_json)?);
         self.write_log(JournalOperation::SetTrialParam, fields)?;
@@ -785,9 +968,8 @@ impl JournalReplayState {
 
         if let Some(params) = params {
             for (name, raw) in params {
-                if let Ok(value) = serde_json::from_str::<f64>(raw.get()) {
-                    trial.internal_params.insert(name.clone(), value);
-                }
+                let value = parse_f64_raw(&raw)?;
+                trial.internal_params.insert(name.clone(), value);
             }
         }
         if let Some(dists) = distributions {
@@ -1703,12 +1885,7 @@ fn parse_f64_json(raw: &str) -> Result<f64> {
         })?;
         return parse_f64_from_str(&s);
     }
-    serde_json::from_str::<f64>(raw).map_err(|_| {
-        Error::with_reason(
-            ErrorKind::StorageError,
-            format!("Failed to parse f64 value: {raw}"),
-        )
-    })
+    parse_f64_from_str(raw)
 }
 
 fn parse_f64_from_str(raw: &str) -> Result<f64> {

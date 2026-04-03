@@ -15,6 +15,11 @@ pub trait Storage: Send + Sync {
     ) -> Result<&PersistedStudy>;
     fn delete_study(&mut self, study_id: u32) -> Result<()>;
     fn create_new_trial(&mut self, study_id: u32) -> Result<&PersistedTrial>;
+    fn create_new_trial_from_template(
+        &mut self,
+        study_id: u32,
+        template: &PersistedTrial,
+    ) -> Result<&PersistedTrial>;
     fn set_trial_param(
         &mut self,
         trial_id: u32,
@@ -239,6 +244,26 @@ impl Storage for InMemoryStorage {
         self.next_trial_id += 1;
         let number = trials.len() as u32;
         let trial = PersistedTrial::new(trial_id, study_id, number);
+        trials.push(trial);
+        self.trial_id_to_study_number
+            .insert(trial_id, (study_id, number));
+        Ok(&trials[number as usize])
+    }
+
+    fn create_new_trial_from_template(
+        &mut self,
+        study_id: u32,
+        template: &PersistedTrial,
+    ) -> Result<&PersistedTrial> {
+        let trials = get_mut_trials_by_study_id(&mut self.trials, study_id)?;
+        let trial_id = self.next_trial_id;
+        self.next_trial_id += 1;
+        let number = trials.len() as u32;
+
+        let mut trial = template.clone();
+        trial.id = trial_id;
+        trial.study_id = study_id;
+        trial.number = number;
         trials.push(trial);
         self.trial_id_to_study_number
             .insert(trial_id, (study_id, number));
@@ -481,6 +506,27 @@ mod tests {
         assert_eq!(trial.id, 10);
         let trial = storage.create_new_trial(study_id)?;
         assert_eq!(trial.id, 11);
+        Ok(())
+    }
+
+    #[test]
+    fn create_new_trial_from_template_preserves_datetime() -> Result<()> {
+        let mut storage = InMemoryStorage::new();
+        let study_id = storage
+            .create_new_study("study", vec![Direction::Minimize])?
+            .id;
+        let mut template = PersistedTrial::new(100, 200, 300);
+        template.datetime_start = Some("2024-01-02 03:04:05.678".to_string());
+        template.datetime_complete = Some("2024-01-02 03:14:15.678".to_string());
+        template.state_values = TrialStateValues::Complete(vec![1.0]);
+
+        let trial = storage.create_new_trial_from_template(study_id, &template)?;
+        assert_eq!(trial.id, 0);
+        assert_eq!(trial.study_id, study_id);
+        assert_eq!(trial.number, 0);
+        assert_eq!(trial.datetime_start, template.datetime_start);
+        assert_eq!(trial.datetime_complete, template.datetime_complete);
+        assert_eq!(trial.state_values, template.state_values);
         Ok(())
     }
 }
