@@ -26,6 +26,9 @@ use crate::storage::PyStorage;
 use crate::trial::{PyPersistedTrial, PyTrial, PyTrialState};
 use crate::trial_queue::PyTrialQueue;
 
+type SharedStorage = Arc<RwLock<dyn Storage>>;
+type SharedTrialQueue = Arc<RwLock<dyn rustuna_core::trial_queue::TrialQueue>>;
+
 mod py_exceptions {
     pyo3::import_exception!(rustuna.exceptions, TrialPruned);
 }
@@ -88,7 +91,7 @@ fn matches_any_exception(py: Python<'_>, err: &PyErr, catch: &[Py<PyAny>]) -> Py
 fn into_trial_queue_pyobj(
     py: Python<'_>,
     trial_queue: Option<PyTrialQueue>,
-) -> PyResult<(Arc<RwLock<dyn rustuna_core::trial_queue::TrialQueue>>, Py<PyAny>)> {
+) -> PyResult<(SharedTrialQueue, Py<PyAny>)> {
     match trial_queue {
         Some(trial_queue) => {
             let queue = trial_queue.queue.clone();
@@ -97,7 +100,9 @@ fn into_trial_queue_pyobj(
         }
         None => {
             let trial_queue = PyTrialQueue {
-                queue: Arc::new(RwLock::new(rustuna_core::trial_queue::InMemoryTrialQueue::new())),
+                queue: Arc::new(RwLock::new(
+                    rustuna_core::trial_queue::InMemoryTrialQueue::new(),
+                )),
             };
             let queue = trial_queue.queue.clone();
             let py_trial_queue = Py::new(py, trial_queue)?.into_any();
@@ -339,7 +344,9 @@ impl PyStudy {
             Ok(Py::new(py, sampler.clone())?.into_any())
         })?;
         let trial_queue = PyTrialQueue {
-            queue: Arc::new(RwLock::new(rustuna_core::trial_queue::InMemoryTrialQueue::new())),
+            queue: Arc::new(RwLock::new(
+                rustuna_core::trial_queue::InMemoryTrialQueue::new(),
+            )),
         };
         let trial_queue_arc = trial_queue.queue.clone();
         let trial_queue_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
@@ -529,7 +536,7 @@ impl PyStudy {
     }
 
     #[getter]
-    pub fn best_trial(&mut self) -> PyResult<PyPersistedTrial> {
+    pub fn best_trial(&self) -> PyResult<PyPersistedTrial> {
         let trial_number = get_best_trial(&self.study).map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to get the best trial: {:?}", e.kind))
         })?;
@@ -551,8 +558,8 @@ impl PyStudy {
         ))
     }
 
-    #[getter]
-    pub fn trials(&mut self) -> PyResult<Vec<PyPersistedTrial>> {
+    #[getter(trials)]
+    pub fn py_trials(&self) -> PyResult<Vec<PyPersistedTrial>> {
         let mut guard = self
             .study
             .storage
@@ -568,8 +575,35 @@ impl PyStudy {
         Ok(trials)
     }
 
+    #[pyo3(name = "get_trials", signature = (*, states = None))]
+    pub fn py_get_trials(
+        &self,
+        states: Option<Vec<PyTrialState>>,
+    ) -> PyResult<Vec<PyPersistedTrial>> {
+        let mut guard = self
+            .study
+            .storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+        let trials_vec = guard
+            .get_trials(self.study.id)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get trials: {:?}", e.kind)))?;
+        let trials: Vec<PyPersistedTrial> = match states {
+            Some(states) => trials_vec
+                .iter()
+                .filter(|trial| states.contains(&PyTrialState::from(trial.state_values.clone())))
+                .map(|trial| PyPersistedTrial::from_storage(self.study.storage.clone(), trial))
+                .collect(),
+            None => trials_vec
+                .iter()
+                .map(|trial| PyPersistedTrial::from_storage(self.study.storage.clone(), trial))
+                .collect(),
+        };
+        Ok(trials)
+    }
+
     #[getter]
-    pub fn user_attrs(&mut self) -> PyResult<HashMap<String, String>> {
+    pub fn user_attrs(&self) -> PyResult<HashMap<String, String>> {
         let mut guard = self
             .study
             .storage
@@ -622,7 +656,7 @@ impl PyStudy {
     }
 
     #[getter]
-    pub fn best_trials(&mut self) -> PyResult<Vec<PyPersistedTrial>> {
+    pub fn best_trials(&self) -> PyResult<Vec<PyPersistedTrial>> {
         let pareto_front_numbers = get_pareto_front(&self.study).map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to get the pareto front: {:?}", e.kind))
         })?;
@@ -720,7 +754,7 @@ fn convert_directions(
     Ok(directions)
 }
 
-fn resolve_storage(storage: Py<PyAny>) -> PyResult<(Arc<RwLock<dyn Storage>>, Py<PyAny>)> {
+fn resolve_storage(storage: Py<PyAny>) -> PyResult<(SharedStorage, Py<PyAny>)> {
     Python::attach(|py| {
         let storage_pyobj = storage.clone_ref(py);
         let storage_ref = storage.bind(py);
@@ -732,7 +766,7 @@ fn resolve_storage(storage: Py<PyAny>) -> PyResult<(Arc<RwLock<dyn Storage>>, Py
         } else {
             let mut wrapped = PyObjectStorage::new(storage);
             wrapped.sync_studies(true).map_err(err_to_exceptions)?;
-            let wrapped: Arc<RwLock<dyn Storage>> = Arc::new(RwLock::new(wrapped));
+            let wrapped: SharedStorage = Arc::new(RwLock::new(wrapped));
             Ok((wrapped, storage_pyobj))
         }
     })
