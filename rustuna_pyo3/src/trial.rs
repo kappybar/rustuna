@@ -411,6 +411,14 @@ impl PyPersistedTrial {
     }
 
     #[getter]
+    fn value(&self) -> PyResult<Option<f64>> {
+        self.with_trial(|trial| match &trial.state_values {
+            TrialStateValues::Complete(values) => Ok(values.first().copied()),
+            _ => Ok(None),
+        })
+    }
+
+    #[getter]
     fn distributions(&self) -> PyResult<HashMap<String, PyDistribution>> {
         let (study_id, distributions) = self.collect_distributions()?;
         let mut result = HashMap::with_capacity(distributions.len());

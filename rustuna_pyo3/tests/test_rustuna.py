@@ -23,6 +23,7 @@ def test_optimize():
     assert len(study.best_trial.internal_params) == 3
     assert len(study.best_trial.distributions) == 3
     assert len(study.best_trial.params) == 3
+    assert study.best_trial.value is not None
 
 
 def test_study_get_trials_filters_by_states():

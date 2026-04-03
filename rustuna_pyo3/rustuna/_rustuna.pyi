@@ -218,6 +218,7 @@ class PersistedTrial:
         number: Unique and consecutive number of Trial for each Study.
         state: TrialState of the Trial.
         values: Sequence of objective values of the Trial.
+        value: An objective value of the Trial (only available when single objective optimization).
         params: Dictionary that contains suggested parameters.
         distributions: Dictionary that contains the distributions of params.
         user_attrs: Dictionary that contains the attributes of the Trial set with set_user_attr.
@@ -254,6 +255,8 @@ class PersistedTrial:
     def state(self) -> TrialState: ...
     @property
     def values(self) -> list[float] | None: ...
+    @property
+    def value(self) -> float | None: ...
     @property
     def distributions(self) -> dict[str, Distribution]: ...
     @property
