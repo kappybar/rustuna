@@ -61,8 +61,16 @@ class ToRustunaStorage:
             system_attrs={},
         )
 
-    def create_new_trial(self, study_id: int) -> rustuna.PersistedTrial:
-        trial_id = self._storage.create_new_trial(study_id)
+    def create_new_trial(
+        self,
+        study_id: int,
+        template_trial: rustuna.PersistedTrial | None = None,
+    ) -> rustuna.PersistedTrial:
+        if template_trial is None:
+            trial_id = self._storage.create_new_trial(study_id)
+        else:
+            frozen_trial = to_frozen_trial(template_trial)
+            trial_id = self._storage.create_new_trial(study_id, template_trial=frozen_trial)
         trial = self._storage.get_trial(trial_id)
         with self._lock:
             self._trial_id_to_study_id[trial_id] = study_id
@@ -243,7 +251,9 @@ class ToOptunaStorage(BaseStorage):
         persisted_trial_template: rustuna.PersistedTrial | None = None
         if template_trial is not None:
             for param_name, distribution in template_trial.distributions.items():
-                if isinstance(distribution, optuna.distributions.CategoricalDistribution):
+                if isinstance(
+                    distribution, optuna.distributions.CategoricalDistribution
+                ):
                     self._storage.set_category_labels(
                         study_id,
                         param_name,

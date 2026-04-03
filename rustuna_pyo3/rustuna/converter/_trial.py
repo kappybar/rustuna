@@ -335,12 +335,12 @@ class FrozenTrialLike(FrozenTrial):
         intermediate_values_raw = json.loads(intermediate_values_raw)
 
         if isinstance(intermediate_values_raw, dict):
-            intermediate_values: dict[int, float] = {}
+            decoded_intermediate_values: dict[int, float] = {}
             for raw_step, value in intermediate_values_raw.items():
                 step = int(raw_step)
                 if isinstance(value, (int, float)):
-                    intermediate_values[step] = float(value)
-            return intermediate_values
+                    decoded_intermediate_values[step] = float(value)
+            return decoded_intermediate_values
         assert isinstance(intermediate_values_raw, list)
 
         intermediate_values: dict[int, float] = {}
