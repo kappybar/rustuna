@@ -70,8 +70,8 @@ pub fn py_create_study(
     };
     let directions = convert_directions(direction, directions)?;
     let is_multi_objective = directions.len() > 1;
-    let study = create_study_with_arc(&study_name, storage_arc, directions)
-        .map_err(err_to_exceptions)?;
+    let study =
+        create_study_with_arc(&study_name, storage_arc, directions).map_err(err_to_exceptions)?;
     let (sampler_arc, sampler_pyobj): (Arc<Mutex<dyn Sampler>>, Py<PyAny>) = match sampler {
         Some(sampler_obj) => Python::attach(|py| {
             let sampler_pyobj = sampler_obj.clone_ref(py);

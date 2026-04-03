@@ -1,6 +1,14 @@
 import datetime
 import enum
-from collections.abc import Callable, ItemsView, Iterator, KeysView, Mapping, ValuesView
+from collections.abc import (
+    Callable,
+    ItemsView,
+    Iterator,
+    KeysView,
+    Mapping,
+    Sequence,
+    ValuesView,
+)
 from typing import Literal, Protocol, TypedDict, TypeVar, overload
 
 _T = TypeVar("_T")
@@ -362,7 +370,8 @@ class Study:
             Unlike Optuna, Rustuna accepts only str values for user attributes.
 
         Args:
-            user_attrs: A dictionary of user attributes.
+            key: A key string of the attribute.
+            value: A value of the attribute. The value should be JSON serializable.
         """
     def get_trials(
         self,

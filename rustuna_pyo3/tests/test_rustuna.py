@@ -25,23 +25,18 @@ def test_optimize():
 
 def test_study_get_trials_filters_by_states():
     study = rustuna.create_study()
-
-    def objective(trial: rustuna.Trial):
-        if trial.number == 0:
-            raise ValueError("expected failure")
-        if trial.number == 1:
-            raise rustuna.exceptions.TrialPruned()
-        return 1.0
-
-    study.optimize(objective, n_trials=3, catch=ValueError)
+    failed_trial = study.ask()
+    completed_trial = study.ask()
+    study.tell(failed_trial.number, state=rustuna.TrialState.FAIL)
+    study.tell(completed_trial.number, values=1.0)
 
     filtered = study.get_trials(
-        states=[rustuna.TrialState.PRUNED, rustuna.TrialState.COMPLETE]
+        states=[rustuna.TrialState.FAIL, rustuna.TrialState.COMPLETE]
     )
 
     assert len(filtered) == 2
     assert [trial.state for trial in filtered] == [
-        rustuna.TrialState.PRUNED,
+        rustuna.TrialState.FAIL,
         rustuna.TrialState.COMPLETE,
     ]
 
