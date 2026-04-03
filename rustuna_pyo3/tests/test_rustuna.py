@@ -6,7 +6,7 @@ import rustuna
 def test_optimize():
     study = rustuna.create_study()
 
-    def objective(trial):
+    def objective(trial: rustuna.Trial):
         x = trial.suggest_float("x", -5.0, 5)
         y = trial.suggest_int("y", 0, 10)
         z = trial.suggest_categorical("z", ["foo", "bar"])
@@ -14,6 +14,8 @@ def test_optimize():
         assert -5.0 <= x <= 5.0
         assert 0 <= y <= 10
         assert z in ["foo", "bar"]
+        trial.set_user_attr("key", "value")
+        assert trial.user_attrs == {"key": "value"}
         return x * 2 + y
 
     study.optimize(objective, n_trials=10)
@@ -21,6 +23,37 @@ def test_optimize():
     assert len(study.best_trial.internal_params) == 3
     assert len(study.best_trial.distributions) == 3
     assert len(study.best_trial.params) == 3
+    assert study.best_trial.value is not None
+
+
+def test_trial_storage_inside_objective():
+    storage = rustuna.Storage.in_memory()
+    study = rustuna.create_study(storage=storage)
+
+    def objective(trial: rustuna.Trial):
+        assert trial.storage is storage
+        assert len(trial.storage.get_studies()) == 1
+        return trial.suggest_float("x", -1.0, 1.0)
+
+    study.optimize(objective, n_trials=1)
+
+
+def test_study_get_trials_filters_by_states():
+    study = rustuna.create_study()
+    failed_trial = study.ask()
+    completed_trial = study.ask()
+    study.tell(failed_trial.number, state=rustuna.TrialState.FAIL)
+    study.tell(completed_trial.number, values=1.0)
+
+    filtered = study.get_trials(
+        states=[rustuna.TrialState.FAIL, rustuna.TrialState.COMPLETE]
+    )
+
+    assert len(filtered) == 2
+    assert [trial.state for trial in filtered] == [
+        rustuna.TrialState.FAIL,
+        rustuna.TrialState.COMPLETE,
+    ]
 
 
 def test_optimize_multi_objective():
@@ -46,6 +79,17 @@ def test_optimize_multi_objective():
     assert len(trial.distributions) == 3
     assert len(trial.params) == 3
     assert len(trial.values) == 2
+
+
+def test_study():
+    study = rustuna.create_study(study_name="example")
+
+    assert study.name == "example"
+
+    study.set_user_attr("key", "value")
+    assert study.user_attrs == {"key": "value"}
+
+    assert len(study.storage.get_studies()) == 1
 
 
 def test_suggest_categorical():

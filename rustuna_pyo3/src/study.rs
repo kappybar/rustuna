@@ -36,58 +36,78 @@ pub fn py_create_study(
         Some(s) => s,
         None => "default".to_string(), // TODO(c-bata): Generate random name with uuid.
     };
-    let storage: PyResult<Arc<RwLock<dyn Storage>>> = match storage {
+    let (storage_arc, storage_pyobj): (Arc<RwLock<dyn Storage>>, Py<PyAny>) = match storage {
         Some(storage_obj) => Python::attach(|py| {
+            let storage_pyobj = storage_obj.clone_ref(py);
             let storage_ref = storage_obj.bind(py);
             if storage_ref.is_instance_of::<PyStorage>() {
                 let storage = storage_ref.extract::<PyStorage>().map_err(|e| {
                     PyValueError::new_err(format!("Failed to extract PyStorage: {e:?}"))
                 })?;
-                Ok(storage.storage)
+                Ok::<_, PyErr>((storage.storage, storage_pyobj))
             } else {
-                let is_distributed = Python::attach(|py| {
-                    storage_obj
-                        .getattr(py, "is_distributed")?
-                        .extract::<bool>(py)
-                })?;
+                let is_distributed = storage_obj
+                    .getattr(py, "is_distributed")?
+                    .extract::<bool>(py)?;
                 let mut storage = PyObjectStorage::new(storage_obj, is_distributed);
                 storage.sync_studies(true).map_err(err_to_exceptions)?;
                 let storage: Arc<RwLock<dyn Storage>> = Arc::new(RwLock::new(storage));
-                Ok(storage)
+                Ok((storage, storage_pyobj))
             }
-        }),
-        None => Ok(Arc::new(RwLock::new(InMemoryStorage::new()))),
+        })?,
+        None => {
+            let arc: Arc<RwLock<dyn Storage>> = Arc::new(RwLock::new(InMemoryStorage::new()));
+            let py_storage = PyStorage {
+                storage: arc.clone(),
+                optuna_compatible: None,
+                kind: "in_memory",
+            };
+            let storage_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
+                Ok(Py::new(py, py_storage)?.into_any())
+            })?;
+            (arc, storage_pyobj)
+        }
     };
     let directions = convert_directions(direction, directions)?;
     let is_multi_objective = directions.len() > 1;
     let study =
-        create_study_with_arc(&study_name, storage?, directions).map_err(err_to_exceptions)?;
-    let sampler: PyResult<Arc<Mutex<dyn Sampler>>> = match sampler {
+        create_study_with_arc(&study_name, storage_arc, directions).map_err(err_to_exceptions)?;
+    let (sampler_arc, sampler_pyobj): (Arc<Mutex<dyn Sampler>>, Py<PyAny>) = match sampler {
         Some(sampler_obj) => Python::attach(|py| {
+            let sampler_pyobj = sampler_obj.clone_ref(py);
             let sampler_ref = sampler_obj.bind(py);
             if sampler_ref.is_instance_of::<PySampler>() {
                 let sampler = sampler_ref.extract::<PySampler>().map_err(|e| {
                     PyValueError::new_err(format!("Failed to extract PySampler: {e:?}"))
                 })?;
-                Ok(sampler.sampler)
+                Ok::<_, PyErr>((sampler.sampler, sampler_pyobj))
             } else {
                 let sampler: Arc<Mutex<dyn Sampler>> =
                     Arc::new(Mutex::new(PyObjectSampler::new(sampler_obj)));
-                Ok(sampler)
+                Ok((sampler, sampler_pyobj))
             }
-        }),
+        })?,
         None => {
-            let sampler: Arc<Mutex<dyn Sampler>> = if is_multi_objective {
+            let arc: Arc<Mutex<dyn Sampler>> = if is_multi_objective {
                 Arc::new(Mutex::new(RandomSampler::new()))
             } else {
                 Arc::new(Mutex::new(TpeSampler::new()))
             };
-            Ok(sampler)
+            let py_sampler = PySampler {
+                sampler: arc.clone(),
+                kind: "tpe",
+            };
+            let sampler_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
+                Ok(Py::new(py, py_sampler)?.into_any())
+            })?;
+            (arc, sampler_pyobj)
         }
     };
     Ok(PyStudy {
         study,
-        sampler: sampler?,
+        sampler: sampler_arc,
+        storage_pyobj,
+        sampler_pyobj,
     })
 }
 
@@ -98,6 +118,7 @@ pub fn py_load_study(
     storage: Py<PyAny>,
     sampler: Option<Py<PyAny>>,
 ) -> PyResult<PyStudy> {
+    let storage_pyobj = Python::attach(|py| storage.clone_ref(py));
     let storage: PyResult<Arc<RwLock<dyn Storage>>> = Python::attach(|py| {
         let storage_ref = storage.bind(py);
         if storage_ref.is_instance_of::<PyStorage>() {
@@ -129,32 +150,42 @@ pub fn py_load_study(
     drop(guard);
     let is_multi_objective = directions.len() > 1;
     let study = Study::new(study_id, study_name, directions, storage);
-    let sampler: PyResult<Arc<Mutex<dyn Sampler>>> = match sampler {
+    let (sampler_arc, sampler_pyobj): (Arc<Mutex<dyn Sampler>>, Py<PyAny>) = match sampler {
         Some(sampler_obj) => Python::attach(|py| {
+            let sampler_pyobj = sampler_obj.clone_ref(py);
             let sampler_ref = sampler_obj.bind(py);
             if sampler_ref.is_instance_of::<PySampler>() {
                 let sampler = sampler_ref.extract::<PySampler>().map_err(|e| {
                     PyValueError::new_err(format!("Failed to extract PySampler: {e:?}"))
                 })?;
-                Ok(sampler.sampler)
+                Ok::<_, PyErr>((sampler.sampler, sampler_pyobj))
             } else {
                 let sampler: Arc<Mutex<dyn Sampler>> =
                     Arc::new(Mutex::new(PyObjectSampler::new(sampler_obj)));
-                Ok(sampler)
+                Ok((sampler, sampler_pyobj))
             }
-        }),
+        })?,
         None => {
-            let sampler: Arc<Mutex<dyn Sampler>> = if is_multi_objective {
+            let arc: Arc<Mutex<dyn Sampler>> = if is_multi_objective {
                 Arc::new(Mutex::new(RandomSampler::new()))
             } else {
                 Arc::new(Mutex::new(TpeSampler::new()))
             };
-            Ok(sampler)
+            let py_sampler = PySampler {
+                sampler: arc.clone(),
+                kind: "tpe",
+            };
+            let sampler_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
+                Ok(Py::new(py, py_sampler)?.into_any())
+            })?;
+            (arc, sampler_pyobj)
         }
     };
     Ok(PyStudy {
         study,
-        sampler: sampler?,
+        sampler: sampler_arc,
+        storage_pyobj,
+        sampler_pyobj,
     })
 }
 
@@ -163,6 +194,8 @@ pub fn py_load_study(
 pub struct PyStudy {
     pub study: Study,
     sampler: Arc<Mutex<dyn Sampler>>,
+    storage_pyobj: Py<PyAny>,
+    sampler_pyobj: Py<PyAny>,
 }
 #[allow(non_local_definitions)]
 #[pymethods]
@@ -175,13 +208,21 @@ impl PyStudy {
         directions: Vec<PyDirection>,
         storage: PyStorage,
         sampler: PySampler,
-    ) -> Self {
+    ) -> PyResult<Self> {
         let directions: Vec<Direction> = directions.into_iter().map(|d| d.into()).collect();
+        let storage_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
+            Ok(Py::new(py, storage.clone())?.into_any())
+        })?;
+        let sampler_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
+            Ok(Py::new(py, sampler.clone())?.into_any())
+        })?;
         let study = Study::new(study_id, name, directions, storage.storage);
-        PyStudy {
+        Ok(PyStudy {
             study,
             sampler: sampler.sampler,
-        }
+            storage_pyobj,
+            sampler_pyobj,
+        })
     }
 
     #[pyo3(signature = (objective, n_trials))]
@@ -194,10 +235,10 @@ impl PyStudy {
                 .ask(sampler)
                 .map_err(|e| PyRuntimeError::new_err(format!("Failed to ask a trial {e:?}.")))?;
             let trial_number = rs_trial.number;
-            let trial: PyTrial = rs_trial.into();
 
             // Call an objective function
             let result: PyResult<Vec<f64>> = Python::attach(|py| {
+                let trial = PyTrial::new(rs_trial, self.storage_pyobj.clone_ref(py));
                 let val = objective.call1(py, (trial,))?;
                 let val_ref = val.bind(py);
                 if val_ref.is_instance_of::<PyFloat>() {
@@ -231,11 +272,11 @@ impl PyStudy {
     }
 
     pub fn ask(&mut self) -> PyResult<PyTrial> {
-        let trial: PyTrial = self
+        let trial = self
             .study
             .ask(self.sampler.clone())
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to ask a trial: {:?}", e.kind)))?
-            .into();
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to ask a trial: {:?}", e.kind)))?;
+        let trial = Python::attach(|py| PyTrial::new(trial, self.storage_pyobj.clone_ref(py)));
         Ok(trial)
     }
 
@@ -294,6 +335,30 @@ impl PyStudy {
         Ok(())
     }
 
+    pub fn add_trial(&mut self, trial: &Bound<'_, PyPersistedTrial>) -> PyResult<()> {
+        let persisted_trial = trial.borrow().with_trial(|t| Ok(t.clone()))?;
+        self.study
+            .add_trial(persisted_trial)
+            .map_err(err_to_exceptions)?;
+        Ok(())
+    }
+    #[pyo3(signature = (key, value))]
+    pub fn set_user_attr(&mut self, key: String, value: String) -> PyResult<()> {
+        let mut attrs = rustuna_core::attr::Attrs::new();
+        attrs.insert(AttrKey::User(key.into()), value);
+        let mut guard = self
+            .study
+            .storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+        guard
+            .set_study_attrs(self.study.id, attrs, false)
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("Failed to set user attrs: {:?}", e.kind))
+            })?;
+        Ok(())
+    }
+
     #[getter]
     pub fn best_trial(&mut self) -> PyResult<PyPersistedTrial> {
         let trial_number = get_best_trial(&self.study).map_err(|e| {
@@ -317,8 +382,8 @@ impl PyStudy {
         ))
     }
 
-    #[getter]
-    pub fn trials(&mut self) -> PyResult<Vec<PyPersistedTrial>> {
+    #[getter(trials)]
+    pub fn py_trials(&mut self) -> PyResult<Vec<PyPersistedTrial>> {
         let mut guard = self
             .study
             .storage
@@ -334,11 +399,70 @@ impl PyStudy {
         Ok(trials)
     }
 
-    // TODO(c-bata): Add user_attrs property method and set_user_attrs() method.
+    #[pyo3(name = "get_trials", signature = (*, states = None))]
+    pub fn py_get_trials(
+        &mut self,
+        states: Option<Vec<PyTrialState>>,
+    ) -> PyResult<Vec<PyPersistedTrial>> {
+        let mut guard = self
+            .study
+            .storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+        let trials_vec = guard
+            .get_trials(self.study.id)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get trials: {:?}", e.kind)))?;
+        let trials: Vec<PyPersistedTrial> = match states {
+            Some(states) => trials_vec
+                .iter()
+                .filter(|trial| states.contains(&PyTrialState::from(trial.state_values.clone())))
+                .map(|trial| PyPersistedTrial::from_storage(self.study.storage.clone(), trial))
+                .collect(),
+            None => trials_vec
+                .iter()
+                .map(|trial| PyPersistedTrial::from_storage(self.study.storage.clone(), trial))
+                .collect(),
+        };
+        Ok(trials)
+    }
+
+    #[getter]
+    pub fn user_attrs(&mut self) -> PyResult<HashMap<String, String>> {
+        let mut guard = self
+            .study
+            .storage
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+        let study = guard
+            .get_study(self.study.id)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get study: {:?}", e.kind)))?;
+        let mut user_attrs = HashMap::new();
+        for (key, value) in &study.attrs {
+            if let AttrKey::User(k) = key {
+                user_attrs.insert(k.to_string(), value.clone());
+            }
+        }
+        Ok(user_attrs)
+    }
 
     #[getter]
     pub fn id(&self) -> u32 {
         self.study.id
+    }
+
+    #[getter]
+    pub fn name(&self) -> &str {
+        &self.study.name
+    }
+
+    #[getter]
+    pub fn storage<'py>(&self, py: Python<'py>) -> Py<PyAny> {
+        self.storage_pyobj.clone_ref(py)
+    }
+
+    #[getter]
+    pub fn sampler<'py>(&self, py: Python<'py>) -> Py<PyAny> {
+        self.sampler_pyobj.clone_ref(py)
     }
 
     #[getter]

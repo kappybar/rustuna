@@ -1,6 +1,14 @@
 import datetime
 import enum
-from collections.abc import Callable, ItemsView, Iterator, KeysView, Mapping, ValuesView
+from collections.abc import (
+    Callable,
+    ItemsView,
+    Iterator,
+    KeysView,
+    Mapping,
+    Sequence,
+    ValuesView,
+)
 from typing import Literal, Protocol, TypedDict, TypeVar, overload
 
 _T = TypeVar("_T")
@@ -109,6 +117,14 @@ class Trial:
     number: int
     study_id: int
 
+    @property
+    def storage(self) -> StorageProtocol:
+        """Return the storage associated with this trial."""
+
+    @property
+    def user_attrs(self) -> dict[str, str]:
+        """Return the user attributes."""
+
     def suggest_float(
         self,
         name: str,
@@ -206,6 +222,7 @@ class PersistedTrial:
         number: Unique and consecutive number of Trial for each Study.
         state: TrialState of the Trial.
         values: Sequence of objective values of the Trial.
+        value: An objective value of the Trial (only available when single objective optimization).
         params: Dictionary that contains suggested parameters.
         distributions: Dictionary that contains the distributions of params.
         user_attrs: Dictionary that contains the attributes of the Trial set with set_user_attr.
@@ -242,6 +259,8 @@ class PersistedTrial:
     def state(self) -> TrialState: ...
     @property
     def values(self) -> list[float] | None: ...
+    @property
+    def value(self) -> float | None: ...
     @property
     def distributions(self) -> dict[str, Distribution]: ...
     @property
@@ -345,12 +364,44 @@ class Study:
             objective: A callable that takes a Trial object and returns a float value or a sequence of float values.
             n_trials: The number of trials to run.
         """
+    def add_trial(self, trial: PersistedTrial) -> None:
+        """Add trial to study.
+
+        Args:
+            trial: Trial to add.
+        """
+    def set_user_attr(
+        self,
+        key: str,
+        value: str,
+    ) -> None:
+        """Set user attributes to the study.
+
+        .. note::
+            Unlike Optuna, Rustuna accepts only str values for user attributes.
+
+        Args:
+            key: A key string of the attribute.
+            value: A value of the attribute. The value should be JSON serializable.
+        """
+    def get_trials(
+        self,
+        *,
+        states: Sequence[TrialState] | None = None,
+    ) -> list[PersistedTrial]:
+        """Return trials in the study filtered by states if specified."""
     @property
     def id(self) -> int:
         """Return the study ID."""
     @property
+    def name(self) -> str:
+        """Return the study name."""
+    @property
     def directions(self) -> list[StudyDirection]:
         """Return the optimization directions."""
+    @property
+    def user_attrs(self) -> dict[str, str]:
+        """Return the user attributes."""
 
     @property
     def best_trial(self) -> PersistedTrial:
@@ -361,6 +412,12 @@ class Study:
     @property
     def best_trials(self) -> list[PersistedTrial]:
         """Return the Pareto front trials in the multi-objective study."""
+    @property
+    def storage(self) -> StorageProtocol:
+        """Return the storage object."""
+    @property
+    def sampler(self) -> SamplerProtocol:
+        """Return the storage object."""
 
 class StudyDirection(enum.IntEnum):
     """Direction of optimization."""
@@ -454,7 +511,7 @@ class OptunaStorageProtocol(StorageProtocol, Protocol):
         self, trial_id: int, step: int, intermediate_value: float
     ) -> None: ...
 
-class PyObjectStorage:
+class PyObjectStorage(StorageProtocol):
     """Wrapper to convert a StorageProtocol implementation to Rust Storage trait.
 
     This class wraps a Python object implementing StorageProtocol and makes it
@@ -740,13 +797,13 @@ class SamplerProtocol(Protocol):
     def sample_joint(
         self,
         ctx: SamplerContext,
-        storage: Storage | PyObjectStorage,
+        storage: StorageProtocol,
         search_space: dict[str, Distribution],
     ) -> dict[str, float]: ...
     def sample_independent(
         self,
         ctx: SamplerContext,
-        storage: Storage | PyObjectStorage,
+        storage: StorageProtocol,
         name: str,
         distribution: Distribution,
     ) -> float: ...
@@ -809,7 +866,7 @@ class Sampler:
     def sample_joint(
         self,
         ctx: SamplerContext,
-        storage: Storage | PyObjectStorage,
+        storage: StorageProtocol,
         search_space: dict[str, Distribution],
     ) -> dict[str, float]:
         """Sample multiple parameters simultaneously.
@@ -825,7 +882,7 @@ class Sampler:
     def sample_independent(
         self,
         ctx: SamplerContext,
-        storage: Storage | PyObjectStorage,
+        storage: StorageProtocol,
         name: str,
         distribution: Distribution,
     ) -> float:

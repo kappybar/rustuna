@@ -8,6 +8,12 @@ class RustunaError(Exception):
     pass
 
 
+class TrialPruned(RustunaError):
+    """Exception for pruned trials."""
+
+    pass
+
+
 class StorageInternalError(RustunaError):
     """Exception for storage operation errors.
 

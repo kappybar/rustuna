@@ -61,25 +61,37 @@ impl PyTrialState {
 
 #[pyclass(name = "Trial")]
 #[pyo3(module = "rustuna")]
-pub struct PyTrial(Trial);
-impl From<Trial> for PyTrial {
-    fn from(item: Trial) -> Self {
-        PyTrial(item)
+pub struct PyTrial {
+    trial: Trial,
+    storage_pyobj: Py<PyAny>,
+    cached_user_attrs: RwLock<HashMap<String, String>>,
+}
+impl PyTrial {
+    pub fn new(trial: Trial, storage_pyobj: Py<PyAny>) -> Self {
+        PyTrial {
+            trial,
+            storage_pyobj,
+            cached_user_attrs: RwLock::new(HashMap::new()),
+        }
     }
 }
 #[pymethods]
 impl PyTrial {
     #[getter]
     pub fn id(&self) -> PyResult<u32> {
-        Ok(self.0.id)
+        Ok(self.trial.id)
     }
     #[getter]
     pub fn study_id(&self) -> PyResult<u32> {
-        Ok(self.0.study_id)
+        Ok(self.trial.study_id)
     }
     #[getter]
     pub fn number(&self) -> PyResult<u32> {
-        Ok(self.0.number)
+        Ok(self.trial.number)
+    }
+    #[getter]
+    pub fn storage<'py>(&self, py: Python<'py>) -> Py<PyAny> {
+        self.storage_pyobj.clone_ref(py)
     }
     #[pyo3(signature = (name, low, high, step=None, log=false))]
     pub fn suggest_float(
@@ -96,7 +108,7 @@ impl PyTrial {
             step,
             log,
         };
-        let value = self.0.suggest(name, &dist).map_err(|e| match e.kind {
+        let value = self.trial.suggest(name, &dist).map_err(|e| match e.kind {
             rustuna_core::ErrorKind::UnsupportedMultiObjective => PyRuntimeError::new_err(
                 "The TPE sampler of rustuna currently only supports single objective study.",
             ),
@@ -119,7 +131,7 @@ impl PyTrial {
             step,
             log,
         };
-        let value = self.0.suggest(name, &dist).map_err(|e| match e.kind {
+        let value = self.trial.suggest(name, &dist).map_err(|e| match e.kind {
             rustuna_core::ErrorKind::UnsupportedMultiObjective => PyRuntimeError::new_err(
                 "The TPE sampler of rustuna currently only supports single objective study.",
             ),
@@ -144,7 +156,7 @@ impl PyTrial {
             Ok(category_labels)
         })?;
         let label = self
-            .0
+            .trial
             .suggest_categorical_enum(name, &category_labels)
             .map_err(|e| match e.kind {
                 rustuna_core::ErrorKind::UnsupportedMultiObjective => PyRuntimeError::new_err(
@@ -157,10 +169,22 @@ impl PyTrial {
     }
     #[pyo3(signature = (key, value))]
     pub fn set_user_attr(&mut self, key: &str, value: String) -> PyResult<()> {
-        self.0.set_user_attr(key, value).map_err(|e| {
+        let mut cache = self.cached_user_attrs.write().map_err(|_| {
+            PyRuntimeError::new_err("Failed to acquire write lock for cached_user_attrs")
+        })?;
+        self.trial.set_user_attr(key, value.clone()).map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to set user attr: {:?}", e.kind))
         })?;
+        cache.insert(key.to_string(), value);
         Ok(())
+    }
+
+    #[getter]
+    pub fn user_attrs(&self) -> PyResult<HashMap<String, String>> {
+        let cache = self.cached_user_attrs.read().map_err(|_| {
+            PyRuntimeError::new_err("Failed to acquire read lock for cached_user_attrs")
+        })?;
+        Ok(cache.clone())
     }
 }
 
@@ -219,7 +243,7 @@ impl PyPersistedTrial {
         }
     }
 
-    fn with_trial<R>(&self, f: impl FnOnce(&PersistedTrial) -> PyResult<R>) -> PyResult<R> {
+    pub fn with_trial<R>(&self, f: impl FnOnce(&PersistedTrial) -> PyResult<R>) -> PyResult<R> {
         match &self.source {
             PyPersistedTrialSource::Owned(trial) => f(trial.as_ref()),
             PyPersistedTrialSource::StorageBacked {
@@ -388,6 +412,14 @@ impl PyPersistedTrial {
     fn values(&self) -> PyResult<Option<Vec<f64>>> {
         self.with_trial(|trial| match &trial.state_values {
             TrialStateValues::Complete(values) => Ok(Some(values.clone())),
+            _ => Ok(None),
+        })
+    }
+
+    #[getter]
+    fn value(&self) -> PyResult<Option<f64>> {
+        self.with_trial(|trial| match &trial.state_values {
+            TrialStateValues::Complete(values) => Ok(values.first().copied()),
             _ => Ok(None),
         })
     }
