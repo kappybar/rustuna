@@ -70,7 +70,9 @@ class ToRustunaStorage:
             trial_id = self._storage.create_new_trial(study_id)
         else:
             frozen_trial = to_frozen_trial(template_trial)
-            trial_id = self._storage.create_new_trial(study_id, template_trial=frozen_trial)
+            trial_id = self._storage.create_new_trial(
+                study_id, template_trial=frozen_trial
+            )
         trial = self._storage.get_trial(trial_id)
         with self._lock:
             self._trial_id_to_study_id[trial_id] = study_id
