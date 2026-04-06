@@ -14,9 +14,6 @@ pub trait Storage: Send + Sync {
         directions: Vec<Direction>,
     ) -> Result<&PersistedStudy>;
     fn delete_study(&mut self, study_id: u32) -> Result<()>;
-    // TODO(c-bata): Support an initial state parameter (e.g. template_trial like Optuna) so that
-    // enqueue_trial can create a Waiting trial directly instead of creating a Running trial and
-    // immediately calling set_trial_state_values to change it to Waiting.
     fn create_new_trial(&mut self, study_id: u32) -> Result<&PersistedTrial>;
     fn create_new_trial_from_template(
         &mut self,

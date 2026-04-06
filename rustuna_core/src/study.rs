@@ -345,17 +345,17 @@ impl Study {
                 format!("Failed to acquire a storage guard: {e}"),
             )
         })?;
-        let trial = guard.create_new_trial(self.id)?;
-        let trial_id = trial.id;
-
+        let mut template = PersistedTrial::new(0, self.id, 0);
+        template.state_values = TrialStateValues::Waiting;
         let fixed_attrs = fixed_params_to_attrs(&params);
-        guard.set_trial_attrs(trial_id, fixed_attrs, false)?;
+        template.attrs.extend(fixed_attrs);
 
         if let Some(attrs) = user_attrs {
-            guard.set_trial_attrs(trial_id, attrs, false)?;
+            template.attrs.extend(attrs);
         }
 
-        guard.set_trial_state_values(trial_id, TrialStateValues::Waiting)?;
+        let trial = guard.create_new_trial_from_template(self.id, &template)?;
+        let trial_id = trial.id;
         drop(guard);
 
         let mut queue_guard = self.queue.write().map_err(|e| {
