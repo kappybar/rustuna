@@ -92,6 +92,36 @@ def test_study():
     assert len(study.storage.get_studies()) == 1
 
 
+def test_create_study_load_if_exists_true():
+    storage = rustuna.Storage.in_memory()
+    first = rustuna.create_study(
+        storage=storage,
+        study_name="load-if-exists",
+        direction="minimize",
+    )
+    second = rustuna.create_study(
+        storage=storage,
+        study_name="load-if-exists",
+        direction="maximize",
+        load_if_exists=True,
+    )
+
+    assert first.id == second.id
+    assert second.directions == [rustuna.StudyDirection.MINIMIZE]
+
+
+def test_create_study_load_if_exists_false():
+    storage = rustuna.Storage.in_memory()
+    rustuna.create_study(storage=storage, study_name="load-if-exists")
+
+    with pytest.raises(rustuna.exceptions.DuplicatedStudyError):
+        rustuna.create_study(
+            storage=storage,
+            study_name="load-if-exists",
+            load_if_exists=False,
+        )
+
+
 def test_suggest_categorical():
     study = rustuna.create_study()
 

@@ -286,6 +286,7 @@ def create_study(
     sampler: Sampler | SamplerProtocol | None = None,
     direction: Literal["minimize"] | Literal["maximize"] | None = None,
     directions: list[Literal["minimize"] | Literal["maximize"]] | None = None,
+    load_if_exists: bool = False,
 ) -> Study:
     """Create a new study.
 
@@ -297,6 +298,7 @@ def create_study(
             Cannot be specified together with ``directions``.
         directions: Directions of optimization for multi-objective optimization.
             Cannot be specified together with ``direction``.
+        load_if_exists: If True, return an existing study when ``study_name`` already exists.
 
     Returns:
         A Study object.
@@ -546,13 +548,13 @@ class Storage:
         """
     @classmethod
     def sqlite3(
-        cls, file_path: str, *, create_database: bool = False
+        cls, file_path: str, *, create_database: bool = True
     ) -> OptunaStorageProtocol:
         """Create a SQLite3 storage.
 
         Args:
             file_path: Path to the SQLite3 database file.
-            create_database: If True, create the database file if it does not exist.
+            create_database: If True, initialize the database when it is missing.
 
         Returns:
             A SQLite3 storage instance.
