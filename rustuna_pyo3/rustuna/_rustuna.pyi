@@ -301,8 +301,6 @@ def create_study(
             Cannot be specified together with ``direction``.
         load_if_exists: If True, return an existing study when ``study_name`` already exists.
         trial_queue: TrialQueue object for managing trial execution order. If None, InMemoryTrialQueue is used.
-        load_if_exists: If True, return an existing study when ``study_name`` already exists.
-        trial_queue: TrialQueue object for managing trial execution order. If None, InMemoryTrialQueue is used.
 
     Returns:
         A Study object.

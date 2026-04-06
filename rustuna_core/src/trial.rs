@@ -57,6 +57,7 @@ impl Trial {
     pub fn suggest(&mut self, name: &str, distribution: &Distribution) -> Result<f64> {
         if let Some(fixed_value) = self.fixed_params.get(name) {
             let result = if let Distribution::Categorical { cardinality } = distribution {
+                // CategoricalDistribution
                 let mut storage_guard = self
                     .storage
                     .write()
@@ -72,7 +73,16 @@ impl Trial {
                         .map(|index| index as f64)
                 })
             } else {
-                validate_and_convert(fixed_value, distribution).ok()
+                // IntDistribution and FloatDistribution
+                // Note: step and log validation are intentionally omitted, matching Optuna's behavior.
+                match (fixed_value, distribution) {
+                    (CategoryLabel::Float(f), Distribution::Float { .. }) => Some(*f),
+                    (CategoryLabel::Int(i), Distribution::Float { .. }) => Some(*i as f64),
+                    (CategoryLabel::Int(i), Distribution::Int { .. }) => Some(*i as f64),
+                    (CategoryLabel::Float(f), Distribution::Int { .. }) => Some(*f as i64 as f64),
+                    _ => None,
+                }
+                .filter(|&v| distribution.contains(v))
             };
 
             if let Some(internal_value) = result {
@@ -325,57 +335,6 @@ pub enum TrialStateValues {
     Waiting,
 }
 
-// Validate a fixed parameter value against its distribution and convert it
-// to its internal representation.
-// Note: step and log validation are intentionally omitted, matching Optuna's behavior
-// (Optuna's _is_valid_distribution_value only checks range).
-fn validate_and_convert(value: &CategoryLabel, distribution: &Distribution) -> Result<f64> {
-    match (value, distribution) {
-        (CategoryLabel::Float(f), Distribution::Float { low, high, .. }) => {
-            if *f < *low || *f > *high {
-                return Err(Error::with_reason(
-                    ErrorKind::InvalidFixedParam,
-                    format!("Fixed param {f} is out of range [{low}, {high}]"),
-                ));
-            }
-            Ok(*f)
-        }
-        (CategoryLabel::Int(i), Distribution::Float { low, high, .. }) => {
-            let f = *i as f64;
-            if f < *low || f > *high {
-                return Err(Error::with_reason(
-                    ErrorKind::InvalidFixedParam,
-                    format!("Fixed param {i} is out of range [{low}, {high}]"),
-                ));
-            }
-            Ok(f)
-        }
-        (CategoryLabel::Int(i), Distribution::Int { low, high, .. }) => {
-            if *i < *low || *i > *high {
-                return Err(Error::with_reason(
-                    ErrorKind::InvalidFixedParam,
-                    format!("Fixed param {i} is out of range [{low}, {high}]"),
-                ));
-            }
-            Ok(*i as f64)
-        }
-        (CategoryLabel::Float(f), Distribution::Int { low, high, .. }) => {
-            let i = *f as i64;
-            if i < *low || i > *high {
-                return Err(Error::with_reason(
-                    ErrorKind::InvalidFixedParam,
-                    format!("Fixed param {f} is out of range [{low}, {high}]"),
-                ));
-            }
-            Ok(i as f64)
-        }
-        _ => Err(Error::with_reason(
-            ErrorKind::InvalidFixedParam,
-            "Incompatible type for distribution".to_string(),
-        )),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -383,117 +342,6 @@ mod tests {
     use crate::sampler::RandomSampler;
     use crate::storage::InMemoryStorage;
     use crate::study::create_study_with_arc;
-
-    #[test]
-    fn test_validate_and_convert_float_in_range() {
-        let val = CategoryLabel::Float(5.0);
-        let dist = Distribution::Float {
-            low: 0.0,
-            high: 10.0,
-            step: None,
-            log: false,
-        };
-        assert_eq!(validate_and_convert(&val, &dist).unwrap(), 5.0);
-    }
-
-    #[test]
-    fn test_validate_and_convert_float_at_boundary() {
-        let dist = Distribution::Float {
-            low: 0.0,
-            high: 10.0,
-            step: None,
-            log: false,
-        };
-        assert_eq!(
-            validate_and_convert(&CategoryLabel::Float(0.0), &dist).unwrap(),
-            0.0
-        );
-        assert_eq!(
-            validate_and_convert(&CategoryLabel::Float(10.0), &dist).unwrap(),
-            10.0
-        );
-    }
-
-    #[test]
-    fn test_validate_and_convert_float_out_of_range() {
-        let dist = Distribution::Float {
-            low: 0.0,
-            high: 10.0,
-            step: None,
-            log: false,
-        };
-        assert!(validate_and_convert(&CategoryLabel::Float(-1.0), &dist).is_err());
-        assert!(validate_and_convert(&CategoryLabel::Float(11.0), &dist).is_err());
-    }
-
-    #[test]
-    fn test_validate_and_convert_int_to_float() {
-        let val = CategoryLabel::Int(5);
-        let dist = Distribution::Float {
-            low: 0.0,
-            high: 10.0,
-            step: None,
-            log: false,
-        };
-        assert_eq!(validate_and_convert(&val, &dist).unwrap(), 5.0);
-    }
-
-    #[test]
-    fn test_validate_and_convert_int_in_range() {
-        let val = CategoryLabel::Int(5);
-        let dist = Distribution::Int {
-            low: 0,
-            high: 10,
-            step: 1,
-            log: false,
-        };
-        assert_eq!(validate_and_convert(&val, &dist).unwrap(), 5.0);
-    }
-
-    #[test]
-    fn test_validate_and_convert_int_out_of_range() {
-        let dist = Distribution::Int {
-            low: 0,
-            high: 10,
-            step: 1,
-            log: false,
-        };
-        assert!(validate_and_convert(&CategoryLabel::Int(-1), &dist).is_err());
-        assert!(validate_and_convert(&CategoryLabel::Int(11), &dist).is_err());
-    }
-
-    #[test]
-    fn test_validate_and_convert_float_to_int() {
-        let val = CategoryLabel::Float(5.0);
-        let dist = Distribution::Int {
-            low: 0,
-            high: 10,
-            step: 1,
-            log: false,
-        };
-        let result = validate_and_convert(&val, &dist).unwrap();
-        assert_eq!(result, 5.0);
-    }
-
-    #[test]
-    fn test_validate_and_convert_incompatible_type() {
-        let dist = Distribution::Float {
-            low: 0.0,
-            high: 10.0,
-            step: None,
-            log: false,
-        };
-        assert!(validate_and_convert(&CategoryLabel::String("a".to_string()), &dist).is_err());
-        assert!(validate_and_convert(&CategoryLabel::Bool(true), &dist).is_err());
-        assert!(validate_and_convert(&CategoryLabel::None, &dist).is_err());
-    }
-
-    #[test]
-    fn test_validate_and_convert_categorical_not_supported() {
-        let val = CategoryLabel::Int(1);
-        let dist = Distribution::Categorical { cardinality: 3 };
-        assert!(validate_and_convert(&val, &dist).is_err());
-    }
 
     #[test]
     fn test_enqueue_and_suggest_float() -> Result<()> {

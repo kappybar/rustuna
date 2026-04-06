@@ -1,56 +1,19 @@
 from __future__ import annotations
 
-import shutil
-import tempfile
-from pathlib import Path
-from typing import TYPE_CHECKING, Literal
-
-import pytest
-
 import rustuna
 
-if TYPE_CHECKING:
-    TrialQueueType = Literal["in_memory", "directory", "sqlite3"]
-
-
-class TrialQueueFactory:
-    def __init__(self, queue_type: "TrialQueueType") -> None:
-        self.queue_type = queue_type
-        self.tmpdir: str | None = None
-        self.queue: rustuna.TrialQueue | None = None
-
-    def __enter__(self) -> rustuna.TrialQueue:
-        if self.queue_type == "in_memory":
-            self.queue = rustuna.TrialQueue.in_memory()
-        elif self.queue_type == "directory":
-            self.tmpdir = tempfile.mkdtemp()
-            queue_dir = str(Path(self.tmpdir) / "queue")
-            self.queue = rustuna.TrialQueue.directory(queue_dir)
-        elif self.queue_type == "sqlite3":
-            self.tmpdir = tempfile.mkdtemp()
-            db_path = str(Path(self.tmpdir) / "queue.db")
-            self.queue = rustuna.TrialQueue.sqlite3(db_path, study_id=1)
-        else:
-            raise ValueError(f"Unknown queue type: {self.queue_type}")
-        return self.queue
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:  # type: ignore
-        if self.tmpdir is not None:
-            shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-
-parametrize_trial_queue = pytest.mark.parametrize(
-    "queue_type",
-    ["in_memory", "directory", "sqlite3"],
-    ids=["InMemoryTrialQueue", "DirectoryTrialQueue", "SQLite3TrialQueue"],
+from . import (
+    TrialQueueFactory,
+    TrialQueueType,
+    parametrize_trial_queue,
 )
 
 
 @parametrize_trial_queue
 def test_enqueue_trial_basic(queue_type: TrialQueueType) -> None:
     """Test basic enqueue_trial with float parameters."""
-    with TrialQueueFactory(queue_type) as queue:
-        study = rustuna.create_study(trial_queue=queue)
+    with TrialQueueFactory(queue_type) as factory:
+        study = rustuna.create_study(trial_queue=factory.queue)
         study.enqueue_trial({"x": 1.5, "y": 2.5})
 
         trial = study.ask()
@@ -61,8 +24,8 @@ def test_enqueue_trial_basic(queue_type: TrialQueueType) -> None:
 @parametrize_trial_queue
 def test_enqueue_trial_int(queue_type: TrialQueueType) -> None:
     """Test enqueue_trial with integer parameters."""
-    with TrialQueueFactory(queue_type) as queue:
-        study = rustuna.create_study(trial_queue=queue)
+    with TrialQueueFactory(queue_type) as factory:
+        study = rustuna.create_study(trial_queue=factory.queue)
         study.enqueue_trial({"x": 10, "y": 20})
 
         trial = study.ask()
@@ -73,8 +36,8 @@ def test_enqueue_trial_int(queue_type: TrialQueueType) -> None:
 @parametrize_trial_queue
 def test_enqueue_trial_categorical(queue_type: TrialQueueType) -> None:
     """Test enqueue_trial with categorical parameters."""
-    with TrialQueueFactory(queue_type) as queue:
-        study = rustuna.create_study(trial_queue=queue)
+    with TrialQueueFactory(queue_type) as factory:
+        study = rustuna.create_study(trial_queue=factory.queue)
         study.enqueue_trial({"x": "a", "y": "b"})
 
         trial = study.ask()
@@ -85,8 +48,8 @@ def test_enqueue_trial_categorical(queue_type: TrialQueueType) -> None:
 @parametrize_trial_queue
 def test_enqueue_trial_mixed(queue_type: TrialQueueType) -> None:
     """Test enqueue_trial with mixed parameter types."""
-    with TrialQueueFactory(queue_type) as queue:
-        study = rustuna.create_study(trial_queue=queue)
+    with TrialQueueFactory(queue_type) as factory:
+        study = rustuna.create_study(trial_queue=factory.queue)
         study.enqueue_trial({"x": 1.5, "y": 10, "z": "a"})
 
         trial = study.ask()
@@ -98,8 +61,8 @@ def test_enqueue_trial_mixed(queue_type: TrialQueueType) -> None:
 @parametrize_trial_queue
 def test_multiple_enqueued_trials(queue_type: TrialQueueType) -> None:
     """Test multiple trials enqueued in LIFO order."""
-    with TrialQueueFactory(queue_type) as queue:
-        study = rustuna.create_study(trial_queue=queue)
+    with TrialQueueFactory(queue_type) as factory:
+        study = rustuna.create_study(trial_queue=factory.queue)
         study.enqueue_trial({"x": 1.0})
         study.enqueue_trial({"x": 2.0})
         study.enqueue_trial({"x": 3.0})
@@ -117,8 +80,8 @@ def test_multiple_enqueued_trials(queue_type: TrialQueueType) -> None:
 @parametrize_trial_queue
 def test_enqueue_fallback_on_out_of_range(queue_type: TrialQueueType) -> None:
     """Test that out-of-range enqueued values fall back to sampler."""
-    with TrialQueueFactory(queue_type) as queue:
-        study = rustuna.create_study(trial_queue=queue)
+    with TrialQueueFactory(queue_type) as factory:
+        study = rustuna.create_study(trial_queue=factory.queue)
         study.enqueue_trial({"x": 100.0})
 
         trial = study.ask()
@@ -129,8 +92,8 @@ def test_enqueue_fallback_on_out_of_range(queue_type: TrialQueueType) -> None:
 @parametrize_trial_queue
 def test_enqueue_then_normal_ask(queue_type: TrialQueueType) -> None:
     """Test that normal sampling works after enqueued trials are exhausted."""
-    with TrialQueueFactory(queue_type) as queue:
-        study = rustuna.create_study(trial_queue=queue)
+    with TrialQueueFactory(queue_type) as factory:
+        study = rustuna.create_study(trial_queue=factory.queue)
         study.enqueue_trial({"x": 5.0})
 
         trial1 = study.ask()
@@ -146,8 +109,8 @@ def test_enqueue_then_normal_ask(queue_type: TrialQueueType) -> None:
 @parametrize_trial_queue
 def test_enqueue_unspecified_param_sampled(queue_type: TrialQueueType) -> None:
     """Test that unspecified parameters are sampled normally."""
-    with TrialQueueFactory(queue_type) as queue:
-        study = rustuna.create_study(trial_queue=queue)
+    with TrialQueueFactory(queue_type) as factory:
+        study = rustuna.create_study(trial_queue=factory.queue)
         study.enqueue_trial({"x": 5.0})
 
         trial = study.ask()
@@ -159,8 +122,8 @@ def test_enqueue_unspecified_param_sampled(queue_type: TrialQueueType) -> None:
 @parametrize_trial_queue
 def test_enqueue_trial_with_user_attrs(queue_type: TrialQueueType) -> None:
     """Test enqueue_trial with user attributes."""
-    with TrialQueueFactory(queue_type) as queue:
-        study = rustuna.create_study(trial_queue=queue)
+    with TrialQueueFactory(queue_type) as factory:
+        study = rustuna.create_study(trial_queue=factory.queue)
         study.enqueue_trial({"x": 5.0}, user_attrs={"memo": "test"})
 
         trial = study.ask()
@@ -170,18 +133,19 @@ def test_enqueue_trial_with_user_attrs(queue_type: TrialQueueType) -> None:
 @parametrize_trial_queue
 def test_queue_basic_push_pop(queue_type: "TrialQueueType") -> None:
     """Test basic queue creation and push/pop operations."""
-    with TrialQueueFactory(queue_type) as queue:
-        queue.push(1)
-        queue.push(2)
-        assert queue.pop() == 2
-        assert queue.pop() == 1
+    with TrialQueueFactory(queue_type) as factory:
+        assert factory.queue is not None
+        factory.queue.push(1)
+        factory.queue.push(2)
+        assert factory.queue.pop() == 2
+        assert factory.queue.pop() == 1
 
 
 @parametrize_trial_queue
 def test_enqueue_lifo_order_preserved(queue_type: "TrialQueueType") -> None:
     """Test that LIFO order is strictly preserved for enqueued trials."""
-    with TrialQueueFactory(queue_type) as queue:
-        study = rustuna.create_study(trial_queue=queue)
+    with TrialQueueFactory(queue_type) as factory:
+        study = rustuna.create_study(trial_queue=factory.queue)
 
         # Enqueue 10 trials with sequential values
         for i in range(10):
