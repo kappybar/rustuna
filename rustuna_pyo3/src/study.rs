@@ -286,7 +286,7 @@ impl PyStudy {
         number: u32,
         values: Option<Py<PyAny>>,
         state: Option<PyTrialState>,
-    ) -> PyResult<()> {
+    ) -> PyResult<PyPersistedTrial> {
         let state_values = match (state, values) {
             (None, None) => Err(PyValueError::new_err(
                 "Either state or values must be specified",
@@ -332,7 +332,22 @@ impl PyStudy {
         self.study
             .tell(number, state_values?)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to tell: {e:?}")))?;
-        Ok(())
+
+        let mut guard = self.study.storage.write().map_err(|e| {
+            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
+        })?;
+        let trial_id = guard
+            .get_trial_id_from_study_id_trial_number(self.study.id, number)
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("Failed to get trial id: {:?}", e.kind))
+            })?;
+        let trial = guard
+            .get_trial(trial_id)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get trial: {:?}", e.kind)))?;
+        Ok(PyPersistedTrial::from_storage(
+            self.study.storage.clone(),
+            trial,
+        ))
     }
 
     pub fn add_trial(&mut self, trial: &Bound<'_, PyPersistedTrial>) -> PyResult<()> {
