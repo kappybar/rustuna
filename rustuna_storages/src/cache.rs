@@ -235,6 +235,8 @@ impl rustuna_core::storage::Storage for CachedStorage {
             .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
 
         let study_cache = self.study_caches.entry(study_id).or_default();
+        // TODO(c-bata): Avoid cloning trials before study_cache.trial_number_cursor,
+        // since study_cache.update only processes trials from that index onward.
         let mut trials_vec: Vec<_> = trials.values().cloned().collect();
         trials_vec.sort_by_key(|t| t.number);
         study_cache.update(&trials_vec);

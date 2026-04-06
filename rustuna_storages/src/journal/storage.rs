@@ -183,39 +183,6 @@ impl Storage for JournalStorage {
         study_id: u32,
         template: &PersistedTrial,
     ) -> Result<&PersistedTrial> {
-        self.sync_with_backend()?;
-        if !self.replay.studies.contains_key(&study_id) {
-            return Err(Error::with_reason(
-                ErrorKind::StudyNotFound,
-                format!("Study not found in storage: study_id={study_id}"),
-            ));
-        }
-
-        for param_name in template.internal_params.keys() {
-            if !template.distributions.contains_key(param_name) {
-                return Err(Error::with_reason(
-                    ErrorKind::StorageError,
-                    format!(
-                        "Template trial has internal_params['{param_name}'] but no matching distribution."
-                    ),
-                ));
-            }
-        }
-        for param_name in template.distributions.keys() {
-            if !template.internal_params.contains_key(param_name) {
-                return Err(Error::with_reason(
-                    ErrorKind::StorageError,
-                    format!(
-                        "Template trial has distributions['{param_name}'] but no matching internal_params."
-                    ),
-                ));
-            }
-        }
-        for (param_name, distribution) in &template.distributions {
-            self.replay
-                .check_param_compatibility(study_id, param_name, distribution)?;
-        }
-
         let (state_code, values_raw) = match &template.state_values {
             TrialStateValues::Running => (0, None),
             TrialStateValues::Complete(values) => {
@@ -310,10 +277,9 @@ impl Storage for JournalStorage {
             "datetime_start".to_string(),
             to_raw(&template.datetime_start)?,
         );
-        fields.insert(
-            "datetime_complete".to_string(),
-            to_raw(&template.datetime_complete)?,
-        );
+        if let Some(ref dt) = template.datetime_complete {
+            fields.insert("datetime_complete".to_string(), to_raw(dt)?);
+        }
         self.write_log(JournalOperation::CreateTrial, fields)?;
         self.sync_with_backend()?;
 

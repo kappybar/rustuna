@@ -15,7 +15,7 @@ use rustuna_core::{Error, ErrorKind};
 use crate::distribution::PyDistribution;
 use crate::exception::err_to_exceptions;
 use crate::study::{pyobject_to_persisted_study, PyDirection};
-use crate::trial::{pyobject_to_persisted_trial, PyTrialState};
+use crate::trial::{pyobject_to_persisted_trial, PyPersistedTrial, PyTrialState};
 
 // PyObjectStorage wraps an Optuna storage object and maintains an in-memory cache.
 //
@@ -96,6 +96,21 @@ impl PyObjectStorage {
     fn obj_create_new_trial(&mut self, study_id: u32) -> PyResult<PersistedTrial> {
         Python::attach(|py| {
             let py_trial = self.obj.call_method1(py, "create_new_trial", (study_id,))?;
+            let py_trial = py_trial.bind(py);
+            pyobject_to_persisted_trial(py_trial, study_id)
+        })
+    }
+
+    fn obj_create_new_trial_from_template(
+        &mut self,
+        study_id: u32,
+        template: &PersistedTrial,
+    ) -> PyResult<PersistedTrial> {
+        Python::attach(|py| {
+            let py_template = Py::new(py, PyPersistedTrial::new(template.clone(), Attrs::new()))?;
+            let py_trial =
+                self.obj
+                    .call_method1(py, "create_new_trial", (study_id, py_template))?;
             let py_trial = py_trial.bind(py);
             pyobject_to_persisted_trial(py_trial, study_id)
         })
@@ -410,7 +425,7 @@ impl Storage for PyObjectStorage {
                 ))?;
         let src_trial = self
             .obj_create_new_trial(*src_study_id)
-            .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
+            .map_err(Self::map_pyerr)?;
         let src_trial_id = src_trial.id;
         if self.is_distributed {
             self.sync_trials(study_id)?;
@@ -430,24 +445,29 @@ impl Storage for PyObjectStorage {
         study_id: u32,
         template: &PersistedTrial,
     ) -> rustuna_core::Result<&rustuna_core::trial::PersistedTrial> {
-        let created = self.create_new_trial(study_id)?.clone();
-        let trial_id = created.id;
-        for (param_name, distribution) in &template.distributions {
-            let internal_value = template.internal_params.get(param_name).ok_or_else(|| {
-                rustuna_core::Error::with_reason(
-                    rustuna_core::ErrorKind::StorageError,
-                    format!("Template trial has no internal param for '{param_name}'"),
-                )
-            })?;
-            self.set_trial_param(trial_id, param_name, distribution, *internal_value)?;
+        self.sync_study_from_id(study_id, false)?;
+        let src_study_id =
+            *self
+                .cache_study_to_src_study
+                .get(&study_id)
+                .ok_or(rustuna_core::Error::new(
+                    rustuna_core::ErrorKind::StudyNotFound,
+                ))?;
+        let src_trial = self
+            .obj_create_new_trial_from_template(src_study_id, template)
+            .map_err(Self::map_pyerr)?;
+        let src_trial_id = src_trial.id;
+        if self.is_distributed {
+            self.sync_trials(study_id)?;
+            return self.cache.get_trial(src_trial_id);
         }
-        if !template.attrs.is_empty() {
-            self.set_trial_attrs(trial_id, template.attrs.clone(), false)?;
+        let cached_n_trials = self.cache.get_trials(study_id)?.len() as u32;
+        if src_trial.number != cached_n_trials {
+            self.sync_trials(study_id)?;
+            return self.cache.get_trial(src_trial_id);
         }
-        if !matches!(template.state_values, TrialStateValues::Running) {
-            self.set_trial_state_values(trial_id, template.state_values.clone())?;
-        }
-        self.cache.get_trial(trial_id)
+        self.sync_trial(study_id, src_trial, Some(cached_n_trials))?;
+        self.cache.get_trial(src_trial_id)
     }
 
     fn set_trial_param(

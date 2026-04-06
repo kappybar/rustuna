@@ -516,8 +516,8 @@ mod tests {
             .create_new_study("study", vec![Direction::Minimize])?
             .id;
         let mut template = PersistedTrial::new(100, 200, 300);
-        template.datetime_start = Some("2024-01-02 03:04:05.678".to_string());
-        template.datetime_complete = Some("2024-01-02 03:14:15.678".to_string());
+        template.datetime_start = Some("2026-04-02 03:04:05.678".to_string());
+        template.datetime_complete = Some("2026-04-02 03:14:15.678".to_string());
         template.state_values = TrialStateValues::Complete(vec![1.0]);
 
         let trial = storage.create_new_trial_from_template(study_id, &template)?;
