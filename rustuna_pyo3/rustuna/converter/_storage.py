@@ -38,15 +38,10 @@ logger = optuna.logging.get_logger(__name__)
 
 
 class ToRustunaStorage:
-    def __init__(self, storage: BaseStorage, is_distributed: bool = False) -> None:
+    def __init__(self, storage: BaseStorage) -> None:
         self._storage = storage
-        self._is_distributed = is_distributed
         self._trial_id_to_study_id: dict[int, int] = {}
         self._lock = threading.Lock()
-
-    @property
-    def is_distributed(self) -> bool:
-        return self._is_distributed
 
     def create_new_study(
         self, study_name: str, directions: list[rustuna.StudyDirection]
@@ -176,9 +171,11 @@ class ToRustunaStorage:
         study_id: int,
         param_name: str,
         cardinality: int,
-    ) -> list[CategoricalChoiceType]:
+    ) -> list[CategoricalChoiceType] | None:
         key = f"optuna_category_labels:{param_name}"
         value = self._storage.get_study_system_attrs(study_id).get(key)
+        if value is None:
+            return None
         assert isinstance(value, list)
         assert len(value) == cardinality
         return typing.cast("list[CategoricalChoiceType]", value)

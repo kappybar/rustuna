@@ -122,6 +122,63 @@ def test_create_study_load_if_exists_false():
         )
 
 
+def test_copy_study():
+    from_storage = rustuna.Storage.in_memory()
+    to_storage = rustuna.Storage.in_memory()
+    from_study = rustuna.create_study(
+        storage=from_storage,
+        study_name="copy-source",
+        directions=["maximize", "minimize"],
+    )
+    from_study.storage.set_study_system_attrs(from_study.id, {"sys": "value"})
+    from_study.set_user_attr("user", "value")
+    from_study.optimize(
+        lambda trial: (
+            trial.suggest_float("x0", 0, 1),
+            trial.suggest_float("x1", 0, 1),
+        ),
+        n_trials=3,
+    )
+
+    rustuna.copy_study(
+        from_study_name="copy-source",
+        from_storage=from_storage,
+        to_storage=to_storage,
+    )
+    to_study = rustuna.load_study(study_name="copy-source", storage=to_storage)
+
+    assert to_study.name == from_study.name
+    assert to_study.directions == from_study.directions
+    assert to_study.user_attrs == from_study.user_attrs
+    assert (
+        to_study.storage.get_study(to_study.id).system_attrs
+        == from_study.storage.get_study(from_study.id).system_attrs
+    )
+    assert len(to_study.trials) == len(from_study.trials)
+
+
+def test_copy_study_to_study_name():
+    from_storage = rustuna.Storage.in_memory()
+    to_storage = rustuna.Storage.in_memory()
+    rustuna.create_study(storage=from_storage, study_name="foo")
+    rustuna.create_study(storage=to_storage, study_name="foo")
+
+    with pytest.raises(rustuna.exceptions.DuplicatedStudyError):
+        rustuna.copy_study(
+            from_study_name="foo",
+            from_storage=from_storage,
+            to_storage=to_storage,
+        )
+
+    rustuna.copy_study(
+        from_study_name="foo",
+        from_storage=from_storage,
+        to_storage=to_storage,
+        to_study_name="bar",
+    )
+    rustuna.load_study(study_name="bar", storage=to_storage)
+
+
 def test_suggest_categorical():
     study = rustuna.create_study()
 

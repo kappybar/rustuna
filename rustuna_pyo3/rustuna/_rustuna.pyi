@@ -9,7 +9,7 @@ from collections.abc import (
     Sequence,
     ValuesView,
 )
-from typing import Literal, Protocol, TypedDict, TypeVar, overload
+from typing import Any, Literal, Protocol, TypedDict, TypeVar, overload
 
 _T = TypeVar("_T")
 
@@ -282,8 +282,8 @@ ObjectiveFuncType = Callable[[Trial], float | tuple[float, ...]]
 def create_study(
     *,
     study_name: str | None = None,
-    storage: Storage | StorageProtocol | None = None,
-    sampler: Sampler | SamplerProtocol | None = None,
+    storage: StorageProtocol | None = None,
+    sampler: SamplerProtocol | None = None,
     direction: Literal["minimize"] | Literal["maximize"] | None = None,
     directions: list[Literal["minimize"] | Literal["maximize"]] | None = None,
     load_if_exists: bool = False,
@@ -307,8 +307,8 @@ def create_study(
 def load_study(
     *,
     study_name: str | None = None,
-    storage: Storage | StorageProtocol | None = None,
-    sampler: Sampler | SamplerProtocol | None = None,
+    storage: StorageProtocol | None = None,
+    sampler: SamplerProtocol | None = None,
 ) -> Study:
     """Load an existing study.
 
@@ -317,6 +317,15 @@ def load_study(
         storage: Storage object. If None, raises an error.
         sampler: Sampler object for parameter suggestion. If None, TPESampler is used.
     """
+
+def copy_study(
+    *,
+    from_study_name: str,
+    from_storage: StorageProtocol,
+    to_storage: StorageProtocol,
+    to_study_name: str | None = None,
+) -> None:
+    """Copy a study to another storage."""
 
 def get_param_importance(study: Study) -> list[list[float]]: ...
 
@@ -463,8 +472,6 @@ class StorageProtocol(Protocol):
     This protocol defines the interface that storage backends must implement
     to persist optimization history.
     """
-    @property
-    def is_distributed(self) -> bool: ...
     def create_new_study(
         self, study_name: str, directions: list[StudyDirection]
     ) -> PersistedStudy: ...
@@ -510,7 +517,7 @@ class StorageProtocol(Protocol):
         study_id: int,
         param_name: str,
         cardinality: int,
-    ) -> list[CategoricalChoiceType]: ...
+    ) -> list[CategoricalChoiceType] | None: ...
 
 class OptunaStorageProtocol(StorageProtocol, Protocol):
     def set_trial_intermediate_value(
