@@ -349,9 +349,7 @@ pub fn encode_logs(logs: &[JournalLog]) -> Result<Vec<u8>> {
         let mut buf = Vec::new();
         let mut serializer =
             serde_json::Serializer::with_formatter(&mut buf, serde_json::ser::CompactFormatter);
-        serde_json::to_value(log)
-            .map_err(|e| Error::with_reason(ErrorKind::StorageError, e.to_string()))?
-            .serialize(&mut serializer)
+        log.serialize(&mut serializer)
             .map_err(|e| Error::with_reason(ErrorKind::StorageError, e.to_string()))?;
         result.extend_from_slice(&buf);
     }

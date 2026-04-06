@@ -198,6 +198,77 @@ impl CachedStorageBackend for SQLite3Storage {
         Ok(trial)
     }
 
+    fn create_new_trial_from_template(
+        &mut self,
+        study_id: u32,
+        template: &PersistedTrial,
+    ) -> rustuna_core::Result<PersistedTrial> {
+        for param_name in template.internal_params.keys() {
+            if !template.distributions.contains_key(param_name) {
+                return Err(Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!(
+                        "Template trial has internal_params['{param_name}'] but no matching distribution."
+                    ),
+                ));
+            }
+        }
+        for param_name in template.distributions.keys() {
+            if !template.internal_params.contains_key(param_name) {
+                return Err(Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!(
+                        "Template trial has distributions['{param_name}'] but no matching internal_params."
+                    ),
+                ));
+            }
+        }
+
+        let new_trial = self.create_new_trial(study_id)?;
+        let trial_id = new_trial.id;
+
+        for (param_name, distribution) in &template.distributions {
+            let internal_value = template.internal_params.get(param_name).ok_or_else(|| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Template trial has no internal param for '{param_name}'"),
+                )
+            })?;
+            self.set_trial_param(trial_id, param_name, distribution, *internal_value)?;
+        }
+
+        if !template.attrs.is_empty() {
+            self.set_trial_attrs(trial_id, template.attrs.clone(), false)?;
+        }
+
+        if !matches!(template.state_values, TrialStateValues::Running) {
+            self.set_trial_state_values(trial_id, template.state_values.clone())?;
+        }
+
+        let guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
+        guard
+            .execute(
+                "UPDATE trials SET datetime_start = ?, datetime_complete = ? WHERE trial_id = ?",
+                params![
+                    template.datetime_start,
+                    template.datetime_complete,
+                    trial_id
+                ],
+            )
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {e}"),
+                )
+            })?;
+        drop(guard);
+
+        self.get_trial(trial_id)
+    }
+
     fn set_trial_param(
         &mut self,
         trial_id: u32,
@@ -1694,6 +1765,36 @@ mod tests {
 
         let trial = storage.create_new_trial(study_id)?;
         assert_eq!(trial.number, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn create_new_trial_from_template_preserves_datetime() -> Result<()> {
+        let mut storage = init_storage()?;
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])?
+            .id;
+
+        let mut template = PersistedTrial::new(999, 998, 997);
+        template.state_values = TrialStateValues::Complete(vec![0.5]);
+        template.datetime_start = Some("2024-01-02 03:04:05.678".to_string());
+        template.datetime_complete = Some("2024-01-02 03:14:15.678".to_string());
+        template.internal_params.insert("x".to_string(), 0.4);
+        template.distributions.insert(
+            "x".to_string(),
+            Distribution::Float {
+                low: 0.0,
+                high: 1.0,
+                step: None,
+                log: false,
+            },
+        );
+
+        let trial = storage.create_new_trial_from_template(study_id, &template)?;
+        assert_eq!(trial.number, 0);
+        assert_eq!(trial.datetime_start, template.datetime_start);
+        assert_eq!(trial.datetime_complete, template.datetime_complete);
+        assert_eq!(trial.state_values, template.state_values);
         Ok(())
     }
 

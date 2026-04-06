@@ -22,6 +22,11 @@ pub trait CachedStorageBackend: Send + Sync {
     ) -> Result<PersistedStudy>;
     fn delete_study(&mut self, study_id: u32) -> Result<()>;
     fn create_new_trial(&mut self, study_id: u32) -> Result<PersistedTrial>;
+    fn create_new_trial_from_template(
+        &mut self,
+        study_id: u32,
+        template: &PersistedTrial,
+    ) -> Result<PersistedTrial>;
     fn set_trial_param(
         &mut self,
         trial_id: u32,
@@ -209,6 +214,46 @@ impl rustuna_core::storage::Storage for CachedStorage {
             .entry(study_id)
             .or_default()
             .push(trial_ref.number);
+        Ok(trial_ref)
+    }
+
+    fn create_new_trial_from_template(
+        &mut self,
+        study_id: u32,
+        template: &PersistedTrial,
+    ) -> Result<&PersistedTrial> {
+        let trial = self
+            .backend
+            .create_new_trial_from_template(study_id, template)?;
+        let trials = self.trials.entry(study_id).or_default();
+        let number = trial.number;
+        self.trial_id_to_study_number
+            .insert(trial.id, (study_id, number));
+        trials.insert(number, trial);
+        let trial_ref = trials
+            .get(&number)
+            .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
+
+        let study_cache = self.study_caches.entry(study_id).or_default();
+        // TODO(c-bata): Avoid cloning trials before study_cache.trial_number_cursor,
+        // since study_cache.update only processes trials from that index onward.
+        let mut trials_vec: Vec<_> = trials.values().cloned().collect();
+        trials_vec.sort_by_key(|t| t.number);
+        study_cache.update(&trials_vec);
+        if !trial_ref.is_finished() {
+            self.unfinished_trials
+                .entry(study_id)
+                .or_default()
+                .push(trial_ref.number);
+        } else {
+            let last_finished = self
+                .last_finished_trial_number
+                .get(&study_id)
+                .copied()
+                .unwrap_or(-1);
+            self.last_finished_trial_number
+                .insert(study_id, last_finished.max(trial_ref.number as i32));
+        }
         Ok(trial_ref)
     }
 
@@ -525,6 +570,18 @@ mod tests {
 
         fn create_new_trial(&mut self, study_id: u32) -> Result<PersistedTrial> {
             let trial = self.inner.create_new_trial(study_id)?.clone();
+            Ok(trial)
+        }
+
+        fn create_new_trial_from_template(
+            &mut self,
+            study_id: u32,
+            template: &PersistedTrial,
+        ) -> Result<PersistedTrial> {
+            let trial = self
+                .inner
+                .create_new_trial_from_template(study_id, template)?
+                .clone();
             Ok(trial)
         }
 

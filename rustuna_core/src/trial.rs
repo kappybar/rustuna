@@ -211,6 +211,65 @@ impl PersistedTrial {
             TrialStateValues::Complete(_) | TrialStateValues::Pruned | TrialStateValues::Fail
         )
     }
+
+    pub fn validate(&self) -> Result<()> {
+        // TODO(c-bata): Consider introducing ErrorKind::TrialInvalid.
+        if !matches!(self.state_values, TrialStateValues::Waiting) && self.datetime_start.is_none()
+        {
+            return Err(Error::with_reason(
+                ErrorKind::StorageError,
+                "datetime_start is supposed to be set when the trial state is not waiting."
+                    .to_string(),
+            ));
+        }
+        if self.is_finished() && self.datetime_complete.is_none() {
+            return Err(Error::with_reason(
+                ErrorKind::StorageError,
+                "datetime_complete is supposed to be set for a finished trial.".to_string(),
+            ));
+        }
+        if !self.is_finished() && self.datetime_complete.is_some() {
+            return Err(Error::with_reason(
+                ErrorKind::StorageError,
+                "datetime_complete is supposed to be None for an unfinished trial.".to_string(),
+            ));
+        }
+        if let TrialStateValues::Complete(values) = &self.state_values {
+            if values.iter().any(|v| v.is_nan()) {
+                return Err(Error::with_reason(
+                    ErrorKind::StorageError,
+                    "values should not contain NaN.".to_string(),
+                ));
+            }
+        }
+        if self.internal_params.len() != self.distributions.len() {
+            return Err(Error::with_reason(
+                ErrorKind::StorageError,
+                format!(
+                    "The number of parameters {} and distributions {} don't match.",
+                    self.internal_params.len(),
+                    self.distributions.len()
+                ),
+            ));
+        }
+        for (param_name, &internal_value) in &self.internal_params {
+            let distribution = self.distributions.get(param_name).ok_or_else(|| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Parameter '{param_name}' is not found in distributions."),
+                )
+            })?;
+            if !distribution.contains(internal_value) {
+                return Err(Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!(
+                        "The value {internal_value} of parameter '{param_name}' isn't contained in the distribution {distribution:?}."
+                    ),
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(PartialEq, Clone, Debug)]
