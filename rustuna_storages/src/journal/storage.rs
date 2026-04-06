@@ -193,8 +193,8 @@ impl Storage for JournalStorage {
                 (1, Some(arr))
             }
             TrialStateValues::Pruned => (2, None),
-            TrialStateValues::Waiting => (3, None),
-            TrialStateValues::Fail => (4, None),
+            TrialStateValues::Fail => (3, None),
+            TrialStateValues::Waiting => (4, None),
         };
 
         let mut user_attrs = HashMap::new();
@@ -391,8 +391,8 @@ impl Storage for JournalStorage {
             TrialStateValues::Running => (0, None),
             TrialStateValues::Complete(v) => (1, Some(v)),
             TrialStateValues::Pruned => (2, None),
-            TrialStateValues::Waiting => (3, None),
-            TrialStateValues::Fail => (4, None),
+            TrialStateValues::Fail => (3, None),
+            TrialStateValues::Waiting => (4, None),
         };
         let mut fields = HashMap::new();
         fields.insert("trial_id".to_string(), to_raw(&trial_id)?);
@@ -414,7 +414,7 @@ impl Storage for JournalStorage {
                 "datetime_start".to_string(),
                 to_raw(&chrono::Local::now().naive_local().to_string())?,
             );
-        } else if matches!(state_code, 1 | 2 | 4) {
+        } else if matches!(state_code, 1..=3) {
             fields.insert(
                 "datetime_complete".to_string(),
                 to_raw(&chrono::Local::now().naive_local().to_string())?,
@@ -922,8 +922,8 @@ impl JournalReplayState {
                 }
             }
             2 => TrialStateValues::Pruned,
-            3 => TrialStateValues::Waiting,
-            4 => TrialStateValues::Fail,
+            3 => TrialStateValues::Fail,
+            4 => TrialStateValues::Waiting,
             _ => {
                 return Err(Error::with_reason(
                     ErrorKind::StorageError,
@@ -1124,8 +1124,8 @@ impl JournalReplayState {
                 TrialStateValues::Complete(values)
             }
             2 => TrialStateValues::Pruned,
-            3 => TrialStateValues::Waiting,
-            4 => TrialStateValues::Fail,
+            3 => TrialStateValues::Fail,
+            4 => TrialStateValues::Waiting,
             _ => {
                 return Err(Error::with_reason(
                     ErrorKind::StorageError,
@@ -1141,7 +1141,7 @@ impl JournalReplayState {
                 self.worker_id_to_owned_trial_id
                     .insert(worker_id.to_string(), trial_id);
             }
-        } else if matches!(state_code, 1 | 2 | 4) {
+        } else if matches!(state_code, 1..=3) {
             if let Some(dt) = datetime_complete {
                 trial.datetime_complete = Some(dt);
             }
