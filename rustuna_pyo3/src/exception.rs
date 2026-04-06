@@ -3,6 +3,7 @@ use pyo3::prelude::*;
 
 mod exceptions {
     pyo3::import_exception!(rustuna.exceptions, DuplicatedStudyError);
+    pyo3::import_exception!(rustuna.exceptions, TrialPruned);
     pyo3::import_exception!(rustuna.exceptions, UpdateFinishedTrialError);
     pyo3::import_exception!(rustuna.exceptions, StorageInternalError);
 }

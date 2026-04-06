@@ -56,6 +56,50 @@ def test_study_get_trials_filters_by_states():
     ]
 
 
+def test_optimize_catch_exception():
+    study = rustuna.create_study()
+
+    def objective(trial: rustuna.Trial):
+        if trial.number % 2 == 0:
+            raise ValueError("expected failure")
+        return 1.0
+
+    study.optimize(objective, n_trials=2, catch=ValueError)
+    study.optimize(objective, n_trials=2, catch=(Exception, RuntimeError))
+
+    assert len(study.trials) == 4
+    assert study.trials[0].state == rustuna.TrialState.FAIL
+    assert study.trials[1].state == rustuna.TrialState.COMPLETE
+    assert study.trials[2].state == rustuna.TrialState.FAIL
+    assert study.trials[3].state == rustuna.TrialState.COMPLETE
+
+
+def test_optimize_reraises_uncaught_exception():
+    study = rustuna.create_study()
+
+    def objective(_trial: rustuna.Trial):
+        raise ValueError("expected failure")
+
+    with pytest.raises(ValueError):
+        study.optimize(objective, n_trials=1)
+
+    with pytest.raises(ValueError):
+        study.optimize(objective, n_trials=1, catch=(RuntimeError,))
+
+    assert study.trials[0].state == rustuna.TrialState.FAIL
+
+
+def test_optimize_trial_pruned():
+    study = rustuna.create_study()
+
+    def objective(_trial: rustuna.Trial):
+        raise rustuna.exceptions.TrialPruned()
+
+    study.optimize(objective, n_trials=1)
+
+    assert study.trials[0].state == rustuna.TrialState.PRUNED
+
+
 def test_optimize_multi_objective():
     study = rustuna.create_study(directions=["minimize", "minimize"])
 
