@@ -9,6 +9,7 @@ theme:
       primary: indigo
       accent: indigo
   features:
+    - content.code.copy
     - navigation.sections
     - navigation.expand
     - navigation.top
@@ -31,13 +32,16 @@ nav:
   - Tutorial:
       - Getting Started: tutorial/getting-started.md
   - API Reference:
-      - Study: api/study.md
-      - Trial: api/trial.md
-      - Samplers: api/samplers.md
-      - Storage: api/storage.md
+      - rustuna: api/rustuna.md
+      - rustuna.Study: api/study.md
+      - rustuna.Trial: api/trial.md
+      - rustuna.Sampler: api/sampler.md
+      - rustuna.Storage: api/storage.md
 
 markdown_extensions:
   - admonition
+  - pymdownx.arithmatex:
+      generic: true
   - pymdownx.details
   - pymdownx.superfences
   - pymdownx.highlight
@@ -47,3 +51,7 @@ markdown_extensions:
       alternate_style: true
   - toc:
       permalink: true
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
