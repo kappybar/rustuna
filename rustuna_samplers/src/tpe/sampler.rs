@@ -459,7 +459,7 @@ mod tests {
     fn test_optimize() {
         let storage = InMemoryStorage::new();
         let directions = vec![Direction::Minimize];
-        let mut study = create_study("simple-quadratic", storage, directions).unwrap();
+        let study = create_study("simple-quadratic", storage, directions).unwrap();
 
         let sampler = Arc::new(Mutex::new(TpeSampler::new()));
         study
@@ -487,7 +487,7 @@ mod tests {
     fn test_optimize_conditional() {
         let storage = InMemoryStorage::new();
         let directions = vec![Direction::Minimize];
-        let mut study = create_study("simple-quadratic", storage, directions).unwrap();
+        let study = create_study("simple-quadratic", storage, directions).unwrap();
 
         let sampler = Arc::new(Mutex::new(TpeSampler::new()));
         study
@@ -521,7 +521,7 @@ mod tests {
     fn test_multi_objective() {
         let storage = InMemoryStorage::new();
         let directions = vec![Direction::Minimize, Direction::Minimize];
-        let mut study = create_study("simple-bi-objective", storage, directions).unwrap();
+        let study = create_study("simple-bi-objective", storage, directions).unwrap();
 
         let sampler = Arc::new(Mutex::new(TpeSampler::new()));
         study

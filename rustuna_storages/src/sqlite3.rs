@@ -2169,7 +2169,7 @@ mod tests {
         storage.create_database()?;
         let storage = CachedStorage::new(Box::new(storage));
 
-        let mut study = create_study("simple-quadratic", storage, vec![Direction::Minimize])?;
+        let study = create_study("simple-quadratic", storage, vec![Direction::Minimize])?;
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         study.optimize(
             |mut t| {

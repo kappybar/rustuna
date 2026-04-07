@@ -15,7 +15,7 @@ type JsResult<T> = Result<T, JsError>;
 pub struct JsStudy(Study);
 #[wasm_bindgen(js_class=Study)]
 impl JsStudy {
-    pub fn optimize(&mut self, objective: &Function, n_trials: usize) -> JsResult<()> {
+    pub fn optimize(&self, objective: &Function, n_trials: usize) -> JsResult<()> {
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         self.0
             .optimize(
@@ -38,7 +38,7 @@ impl JsStudy {
     }
 
     #[wasm_bindgen(getter)]
-    pub fn best_trial(&mut self) -> JsResult<JsPersistedTrial> {
+    pub fn best_trial(&self) -> JsResult<JsPersistedTrial> {
         let number = get_best_trial(&self.0).map_err(|e| JsError::new(&format!("{e:?}")))?;
         let (trials, study_attrs) = {
             let mut guard = self.0.storage.write().map_err(|e| {

@@ -115,7 +115,7 @@ impl Study {
         Ok(Study::new(study_id, name, directions, storage))
     }
 
-    pub fn ask(&mut self, sampler: Arc<Mutex<dyn Sampler>>) -> Result<Trial> {
+    pub fn ask(&self, sampler: Arc<Mutex<dyn Sampler>>) -> Result<Trial> {
         let queued_trial_id = {
             let mut queue_guard = self.queue.write().map_err(|e| {
                 Error::with_reason(
@@ -231,7 +231,7 @@ impl Study {
         Ok(trial)
     }
 
-    pub fn tell(&mut self, trial_number: u32, state_values: TrialStateValues) -> Result<()> {
+    pub fn tell(&self, trial_number: u32, state_values: TrialStateValues) -> Result<()> {
         let mut guard = self
             .storage
             .write()
@@ -242,7 +242,7 @@ impl Study {
     }
 
     pub fn optimize<F>(
-        self: &mut Study,
+        &self,
         mut objective: F,
         // TODO(c-bata): Avoid to wrap Sampler by Arc and Mutex.
         // Sampler does not need to be shared across threads.
@@ -297,7 +297,7 @@ impl Study {
         }
     }
 
-    pub fn set_user_attr(&mut self, attrs: HashMap<String, String>) -> Result<()> {
+    pub fn set_user_attr(&self, attrs: HashMap<String, String>) -> Result<()> {
         let mut guard = self
             .storage
             .write()
@@ -310,7 +310,7 @@ impl Study {
         Ok(())
     }
 
-    pub fn add_trial(&mut self, trial: PersistedTrial) -> Result<()> {
+    pub fn add_trial(&self, trial: PersistedTrial) -> Result<()> {
         trial.validate()?;
         if let TrialStateValues::Complete(ref values) = trial.state_values {
             if values.len() != self.directions.len() {
@@ -335,7 +335,7 @@ impl Study {
     }
 
     pub fn enqueue_trial(
-        &mut self,
+        &self,
         params: HashMap<String, CategoryLabel>,
         user_attrs: Option<Attrs>,
     ) -> Result<()> {
@@ -365,6 +365,7 @@ impl Study {
             )
         })?;
         queue_guard.push(trial_id)?;
+
         Ok(())
     }
 }
@@ -517,7 +518,7 @@ mod tests {
         let storage = InMemoryStorage::new();
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let mut study = create_study("dummy", storage, directions)?;
+        let study = create_study("dummy", storage, directions)?;
 
         study.optimize(
             |mut t| {
@@ -543,7 +544,7 @@ mod tests {
 
         thread::scope(|s| {
             for i in 0..4 {
-                let mut study = study.clone();
+                let study = study.clone();
                 let sampler = Arc::new(Mutex::new(RandomSampler::seed_from_u64(i)));
                 let choices = vec![String::from("foo"), String::from("bar")];
                 s.spawn(move || {
@@ -574,7 +575,7 @@ mod tests {
         let storage = InMemoryStorage::new();
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let mut study = create_study("dummy", storage, directions)?;
+        let study = create_study("dummy", storage, directions)?;
 
         let mut trial = study.ask(sampler)?;
         trial.set_user_attr("key", String::from("bar"))?;
@@ -590,7 +591,7 @@ mod tests {
         let storage = InMemoryStorage::new();
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let mut study = create_study("dummy", storage, directions)?;
+        let study = create_study("dummy", storage, directions)?;
 
         study.optimize(
             |mut t| {
@@ -615,7 +616,7 @@ mod tests {
         let storage = InMemoryStorage::new();
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize, Direction::Maximize];
-        let mut study = create_study("dummy", storage, directions)?;
+        let study = create_study("dummy", storage, directions)?;
 
         study.optimize(
             |mut t| {
@@ -651,7 +652,7 @@ mod tests {
         let storage = InMemoryStorage::new();
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let mut study = create_study("dummy", storage, directions)?;
+        let study = create_study("dummy", storage, directions)?;
 
         study.optimize(
             |mut t| {
@@ -677,7 +678,7 @@ mod tests {
         let storage = InMemoryStorage::new();
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let mut study = create_study("dummy", storage, directions)?;
+        let study = create_study("dummy", storage, directions)?;
 
         study.optimize(
             |mut t| {
@@ -705,7 +706,7 @@ mod tests {
     fn test_add_trial_preserves_template_fields() -> Result<()> {
         let storage = InMemoryStorage::new();
         let directions = vec![Direction::Minimize];
-        let mut study = create_study("dummy-add-trial", storage, directions)?;
+        let study = create_study("dummy-add-trial", storage, directions)?;
 
         let mut trial = PersistedTrial::new(999, 888, 777);
         trial.state_values = TrialStateValues::Complete(vec![1.23]);

@@ -12,7 +12,7 @@ use rustuna_samplers::tpe::TpeSampler;
 fn main() -> Result<()> {
     let storage = InMemoryStorage::new();
     let directions = vec![Direction::Minimize];
-    let mut study = create_study("simple-quadratic", storage, directions)?;
+    let study = create_study("simple-quadratic", storage, directions)?;
 
     let sampler = Arc::new(Mutex::new(TpeSampler::new()));
     study.optimize(

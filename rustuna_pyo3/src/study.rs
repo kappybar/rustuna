@@ -364,7 +364,7 @@ impl PyStudy {
 
     #[pyo3(signature = (objective, n_trials, catch = None))]
     pub fn optimize(
-        &mut self,
+        &self,
         objective: Py<PyAny>,
         n_trials: usize,
         catch: Option<Py<PyAny>>,
@@ -411,7 +411,7 @@ impl PyStudy {
         Ok(())
     }
 
-    pub fn ask(&mut self) -> PyResult<PyTrial> {
+    pub fn ask(&self) -> PyResult<PyTrial> {
         let trial = self
             .study
             .ask(self.sampler.clone())
@@ -422,7 +422,7 @@ impl PyStudy {
 
     #[pyo3(signature = (number, values = None, state = None))]
     pub fn tell(
-        &mut self,
+        &self,
         number: u32,
         values: Option<Py<PyAny>>,
         state: Option<PyTrialState>,
@@ -492,7 +492,7 @@ impl PyStudy {
 
     #[pyo3(signature = (params, user_attrs = None))]
     pub fn enqueue_trial(
-        &mut self,
+        &self,
         params: &Bound<'_, PyDict>,
         user_attrs: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<()> {
@@ -506,7 +506,7 @@ impl PyStudy {
         Ok(())
     }
 
-    pub fn add_trial(&mut self, trial: &Bound<'_, PyPersistedTrial>) -> PyResult<()> {
+    pub fn add_trial(&self, trial: &Bound<'_, PyPersistedTrial>) -> PyResult<()> {
         // Extract the underlying PersistedTrial
         let persisted_trial = trial.borrow().with_trial(|t| Ok(t.clone()))?;
 
@@ -519,7 +519,7 @@ impl PyStudy {
     }
 
     #[pyo3(signature = (key, value))]
-    pub fn set_user_attr(&mut self, key: String, value: String) -> PyResult<()> {
+    pub fn set_user_attr(&self, key: String, value: String) -> PyResult<()> {
         let mut attrs = rustuna_core::attr::Attrs::new();
         attrs.insert(AttrKey::User(key.into()), value);
         let mut guard = self
