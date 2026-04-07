@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyFloat, PyIterator, PyType};
+use pyo3::types::{PyDict, PyFloat, PyInt, PyIterator, PyType};
 use pyo3::{PyTypeInfo, Python};
 
 use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
@@ -65,17 +65,32 @@ fn normalize_catch(py: Python<'_>, catch: Option<&Bound<'_, PyAny>>) -> PyResult
 }
 
 fn objective_result_to_values(val: Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
-    if val.is_instance_of::<PyFloat>() {
+    if val.is_instance_of::<PyFloat>() || val.is_instance_of::<PyInt>() {
         let val = val
             .extract::<f64>()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to extract f64: {e:?}")))?;
         Ok(vec![val])
     } else {
-        val.extract::<Vec<f64>>().map_err(|e| {
+        let iter = PyIterator::from_object(&val).map_err(|e| {
             PyRuntimeError::new_err(format!(
-                "Objective function must return either float or tuple[float]. error={e:?}"
+                "Objective function must return either int, float or tuple[int | float]. error={e:?}"
             ))
-        })
+        })?;
+        let mut vals = Vec::new();
+        for item in iter {
+            let item = item.map_err(|e| {
+                PyRuntimeError::new_err(format!(
+                    "Objective function must return either int, float or tuple[int | float]. error={e:?}"
+                ))
+            })?;
+            let v = if item.is_instance_of::<PyInt>() {
+                item.extract::<i64>()? as f64
+            } else {
+                item.extract::<f64>()?
+            };
+            vals.push(v);
+        }
+        Ok(vals)
     }
 }
 
@@ -442,32 +457,12 @@ impl PyStudy {
             (Some(PyTrialState::COMPLETE), None) => Err(PyValueError::new_err(
                 "values must be specified when state is COMPLETE",
             )),
-            (Some(PyTrialState::COMPLETE), Some(values)) => {
-                let state_values: PyResult<TrialStateValues> = Python::attach(|py| {
-                    let val = values.bind(py);
-                    if val.is_instance_of::<PyFloat>() {
-                        let val = val.extract::<f64>()?;
-                        Ok(TrialStateValues::Complete(vec![val]))
-                    } else {
-                        let val = val.extract::<Vec<f64>>()?;
-                        Ok(TrialStateValues::Complete(val))
-                    }
-                });
-                state_values
-            }
-            (None, Some(values)) => {
-                let state_values: PyResult<TrialStateValues> = Python::attach(|py| {
-                    let val = values.bind(py);
-                    if val.is_instance_of::<PyFloat>() {
-                        let val = val.extract::<f64>()?;
-                        Ok(TrialStateValues::Complete(vec![val]))
-                    } else {
-                        let val = val.extract::<Vec<f64>>()?;
-                        Ok(TrialStateValues::Complete(val))
-                    }
-                });
-                state_values
-            }
+            (Some(PyTrialState::COMPLETE), Some(values)) => Python::attach(|py| {
+                objective_result_to_values(values.bind(py).clone()).map(TrialStateValues::Complete)
+            }),
+            (None, Some(values)) => Python::attach(|py| {
+                objective_result_to_values(values.bind(py).clone()).map(TrialStateValues::Complete)
+            }),
         };
         self.study
             .tell(number, state_values?)

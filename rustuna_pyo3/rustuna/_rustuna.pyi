@@ -358,7 +358,7 @@ class Study:
     def tell(
         self,
         number: int,
-        values: float | Sequence[float] | None = None,
+        values: int | float | Sequence[int | float] | None = None,
         state: TrialState | None = None,
     ) -> PersistedTrial:
         """Finish a trial created with :func:`~Study.ask`.
