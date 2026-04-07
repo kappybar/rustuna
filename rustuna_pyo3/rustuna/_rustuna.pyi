@@ -245,7 +245,6 @@ class PersistedTrial:
         system_attrs: dict[str, str] | None = None,
         datetime_start: datetime.datetime | None = None,
         datetime_complete: datetime.datetime | None = None,
-        id: int | None = None,
     ) -> None: ...
     @property
     def id(self) -> int: ...
@@ -359,9 +358,9 @@ class Study:
     def tell(
         self,
         number: int,
-        values: float | None = None,
+        values: float | Sequence[float] | None = None,
         state: TrialState | None = None,
-    ) -> Trial:
+    ) -> PersistedTrial:
         """Finish a trial created with :func:`~Study.ask`.
 
         Args:
@@ -370,7 +369,7 @@ class Study:
             state: State to set on the trial. If None, COMPLETE is used when values is not None.
 
         Returns:
-            A Trial object.
+            A PersistedTrial object.
         """
     def optimize(
         self,
@@ -419,6 +418,23 @@ class Study:
         Args:
             key: A key string of the attribute.
             value: A value of the attribute. The value should be JSON serializable.
+
+        Example:
+            .. code-block:: python
+
+                import rustuna
+
+                def objective(trial):
+                    x = trial.suggest_float("x", 0, 1)
+                    y = trial.suggest_float("y", 0, 1)
+                    return x**2 + y**2
+
+                study = rustuna.create_study()
+                study.set_user_attr("objective function", "quadratic function")
+
+                assert study.user_attrs == {
+                    "objective function": "quadratic function",
+                }
         """
     def get_trials(
         self,
@@ -625,11 +641,17 @@ class Storage:
         Args:
             study_id: ID of the study to delete.
         """
-    def create_new_trial(self, study_id: int) -> PersistedTrial:
+    def create_new_trial(
+        self,
+        study_id: int,
+        template_trial: PersistedTrial | None = None,
+    ) -> PersistedTrial:
         """Create a new trial in the specified study.
 
         Args:
             study_id: ID of the study.
+            template_trial: Template PersistedTrial with default user-attributes,
+                system-attributes, intermediate-values, and a state.
 
         Returns:
             The created trial.

@@ -33,8 +33,11 @@ nav:
   - API Reference:
       - Study: api/study.md
       - Trial: api/trial.md
-      - Samplers: api/samplers.md
+      - Sampler: api/sampler.md
       - Storage: api/storage.md
+      - Trial Queue: api/trial_queue.md
+      - Importance: api/importance.md
+      - Distribution: api/distribution.md
 
 markdown_extensions:
   - admonition
