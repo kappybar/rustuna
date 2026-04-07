@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
-use crate::attr::{AttrKey, Attrs};
+use crate::attr::{extract_fixed_params, fixed_params_to_attrs, AttrKey, Attrs, CategoryLabel};
 use crate::distribution::Distribution;
 use crate::sampler::{Context as SamplerContext, Sampler};
 use crate::storage::Storage;
 use crate::trial::{PersistedTrial, Trial, TrialStateValues};
+use crate::trial_queue::{InMemoryTrialQueue, TrialQueue};
 use crate::{Error, ErrorKind, Result};
 
 pub fn create_study<S: Storage + Send + Sync + 'static>(
@@ -47,6 +48,7 @@ pub struct Study {
     pub name: String,
     pub directions: Vec<Direction>,
     pub storage: Arc<RwLock<dyn Storage>>,
+    pub queue: Arc<RwLock<dyn TrialQueue>>,
 }
 impl Study {
     pub fn new(
@@ -55,11 +57,29 @@ impl Study {
         directions: Vec<Direction>,
         storage: Arc<RwLock<dyn Storage>>,
     ) -> Self {
+        let queue = Arc::new(RwLock::new(InMemoryTrialQueue::new()));
         Study {
             id,
             name,
             directions,
             storage,
+            queue,
+        }
+    }
+
+    pub fn with_queue(
+        id: u32,
+        name: String,
+        directions: Vec<Direction>,
+        storage: Arc<RwLock<dyn Storage>>,
+        queue: Arc<RwLock<dyn TrialQueue>>,
+    ) -> Self {
+        Study {
+            id,
+            name,
+            directions,
+            storage,
+            queue,
         }
     }
 
@@ -95,21 +115,77 @@ impl Study {
         Ok(Study::new(study_id, name, directions, storage))
     }
 
-    pub fn ask(&mut self, sampler: Arc<Mutex<dyn Sampler>>) -> Result<Trial> {
-        let mut guard = self.storage.write().map_err(|e| {
-            Error::with_reason(
-                ErrorKind::Unexpected,
-                format!("Failed to acquire a storage guard: {e}"),
-            )
-        })?;
-        let trial = guard.create_new_trial(self.id)?;
-        let trial_id = trial.id;
-        let trial_number = trial.number;
-        let datetime_start = trial.datetime_start.clone();
-        let datetime_complete = trial.datetime_complete.clone();
-        drop(guard);
+    pub fn ask(&self, sampler: Arc<Mutex<dyn Sampler>>) -> Result<Trial> {
+        let queued_trial_id = {
+            let mut queue_guard = self.queue.write().map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::Unexpected,
+                    format!("Failed to acquire a queue guard: {e}"),
+                )
+            })?;
+            queue_guard.pop().ok()
+        };
 
-        // Joint sampling
+        let (trial_id, trial_number, datetime_start, datetime_complete, fixed_params) =
+            if let Some(trial_id) = queued_trial_id {
+                // Try to get trial from storage and transition to Running state.
+                // If any storage operation fails, push the trial_id back to the queue.
+                let result = (|| {
+                    let mut guard = self.storage.write().map_err(|e| {
+                        Error::with_reason(
+                            ErrorKind::Unexpected,
+                            format!("Failed to acquire a storage guard: {e}"),
+                        )
+                    })?;
+                    let trial = guard.get_trial(trial_id)?;
+
+                    let trial_number = trial.number;
+                    let datetime_start = trial.datetime_start.clone();
+                    let datetime_complete = trial.datetime_complete.clone();
+                    let fixed_params = extract_fixed_params(&trial.attrs);
+
+                    guard.set_trial_state_values(trial_id, TrialStateValues::Running)?;
+
+                    Ok((
+                        trial_id,
+                        trial_number,
+                        datetime_start,
+                        datetime_complete,
+                        fixed_params,
+                    ))
+                })();
+
+                match result {
+                    Ok(values) => values,
+                    Err(e) => {
+                        // Push the trial_id back to the queue on storage error
+                        let mut queue_guard = self.queue.write().map_err(|queue_err| {
+                            Error::with_reason(
+                                ErrorKind::Unexpected,
+                                format!("Failed to acquire queue guard for recovery: {queue_err}"),
+                            )
+                        })?;
+                        let _ = queue_guard.push(trial_id);
+                        return Err(e);
+                    }
+                }
+            } else {
+                let mut guard = self.storage.write().map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::Unexpected,
+                        format!("Failed to acquire a storage guard: {e}"),
+                    )
+                })?;
+                let trial = guard.create_new_trial(self.id)?;
+                (
+                    trial.id,
+                    trial.number,
+                    trial.datetime_start.clone(),
+                    trial.datetime_complete.clone(),
+                    HashMap::new(),
+                )
+            };
+
         let mut guard = sampler
             .lock()
             .map_err(|_| Error::new(ErrorKind::Unexpected))?;
@@ -130,7 +206,7 @@ impl Study {
             let mut joint_params = HashMap::new();
             for (name, param_value) in params {
                 if !joint_search_space.contains_key(&name) {
-                    continue; // ignore parameters not in search space
+                    continue;
                 }
                 let distribution = joint_search_space[&name].clone();
                 joint_params.insert(name, (distribution, param_value));
@@ -150,11 +226,12 @@ impl Study {
             Arc::clone(&self.storage),
             sampler.clone(),
             joint_params,
+            fixed_params,
         );
         Ok(trial)
     }
 
-    pub fn tell(&mut self, trial_number: u32, state_values: TrialStateValues) -> Result<()> {
+    pub fn tell(&self, trial_number: u32, state_values: TrialStateValues) -> Result<()> {
         let mut guard = self
             .storage
             .write()
@@ -165,7 +242,7 @@ impl Study {
     }
 
     pub fn optimize<F>(
-        self: &mut Study,
+        &self,
         mut objective: F,
         // TODO(c-bata): Avoid to wrap Sampler by Arc and Mutex.
         // Sampler does not need to be shared across threads.
@@ -220,7 +297,7 @@ impl Study {
         }
     }
 
-    pub fn set_user_attr(&mut self, attrs: HashMap<String, String>) -> Result<()> {
+    pub fn set_user_attr(&self, attrs: HashMap<String, String>) -> Result<()> {
         let mut guard = self
             .storage
             .write()
@@ -233,7 +310,8 @@ impl Study {
         Ok(())
     }
 
-    pub fn add_trial(&mut self, trial: PersistedTrial) -> Result<()> {
+    pub fn add_trial(&self, trial: PersistedTrial) -> Result<()> {
+        trial.validate()?;
         if let TrialStateValues::Complete(ref values) = trial.state_values {
             if values.len() != self.directions.len() {
                 return Err(Error::with_reason(
@@ -246,28 +324,47 @@ impl Study {
                 ));
             }
         }
-
         let mut guard = self.storage.write().map_err(|e| {
             Error::with_reason(
                 ErrorKind::Unexpected,
                 format!("Failed to acquire a storage guard: {e}"),
             )
         })?;
+        guard.create_new_trial_from_template(self.id, &trial)?;
+        Ok(())
+    }
 
-        let new_trial = guard.create_new_trial(self.id)?;
-        let trial_id = new_trial.id;
+    pub fn enqueue_trial(
+        &self,
+        params: HashMap<String, CategoryLabel>,
+        user_attrs: Option<Attrs>,
+    ) -> Result<()> {
+        let mut guard = self.storage.write().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::Unexpected,
+                format!("Failed to acquire a storage guard: {e}"),
+            )
+        })?;
+        let mut template = PersistedTrial::new(0, self.id, 0);
+        template.state_values = TrialStateValues::Waiting;
+        let fixed_attrs = fixed_params_to_attrs(&params);
+        template.attrs.extend(fixed_attrs);
 
-        for (param_name, distribution) in &trial.distributions {
-            if let Some(internal_value) = trial.internal_params.get(param_name) {
-                guard.set_trial_param(trial_id, param_name, distribution, *internal_value)?;
-            }
+        if let Some(attrs) = user_attrs {
+            template.attrs.extend(attrs);
         }
 
-        if !trial.attrs.is_empty() {
-            guard.set_trial_attrs(trial_id, trial.attrs.clone(), false)?;
-        }
+        let trial = guard.create_new_trial_from_template(self.id, &template)?;
+        let trial_id = trial.id;
+        drop(guard);
 
-        guard.set_trial_state_values(trial_id, trial.state_values)?;
+        let mut queue_guard = self.queue.write().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::Unexpected,
+                format!("Failed to acquire a queue guard: {e}"),
+            )
+        })?;
+        queue_guard.push(trial_id)?;
 
         Ok(())
     }
@@ -407,6 +504,8 @@ pub fn dominates(values0: &[f64], values1: &[f64], directions: &[Direction]) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::attr::AttrKey;
+    use crate::distribution::Distribution;
     use std::thread;
 
     use crate::sampler::RandomSampler;
@@ -419,7 +518,7 @@ mod tests {
         let storage = InMemoryStorage::new();
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let mut study = create_study("dummy", storage, directions)?;
+        let study = create_study("dummy", storage, directions)?;
 
         study.optimize(
             |mut t| {
@@ -445,7 +544,7 @@ mod tests {
 
         thread::scope(|s| {
             for i in 0..4 {
-                let mut study = study.clone();
+                let study = study.clone();
                 let sampler = Arc::new(Mutex::new(RandomSampler::seed_from_u64(i)));
                 let choices = vec![String::from("foo"), String::from("bar")];
                 s.spawn(move || {
@@ -476,7 +575,7 @@ mod tests {
         let storage = InMemoryStorage::new();
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let mut study = create_study("dummy", storage, directions)?;
+        let study = create_study("dummy", storage, directions)?;
 
         let mut trial = study.ask(sampler)?;
         trial.set_user_attr("key", String::from("bar"))?;
@@ -492,7 +591,7 @@ mod tests {
         let storage = InMemoryStorage::new();
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let mut study = create_study("dummy", storage, directions)?;
+        let study = create_study("dummy", storage, directions)?;
 
         study.optimize(
             |mut t| {
@@ -517,7 +616,7 @@ mod tests {
         let storage = InMemoryStorage::new();
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize, Direction::Maximize];
-        let mut study = create_study("dummy", storage, directions)?;
+        let study = create_study("dummy", storage, directions)?;
 
         study.optimize(
             |mut t| {
@@ -553,7 +652,7 @@ mod tests {
         let storage = InMemoryStorage::new();
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let mut study = create_study("dummy", storage, directions)?;
+        let study = create_study("dummy", storage, directions)?;
 
         study.optimize(
             |mut t| {
@@ -579,7 +678,7 @@ mod tests {
         let storage = InMemoryStorage::new();
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let mut study = create_study("dummy", storage, directions)?;
+        let study = create_study("dummy", storage, directions)?;
 
         study.optimize(
             |mut t| {
@@ -600,6 +699,51 @@ mod tests {
             )
             .unwrap_err();
         assert!(matches!(error.kind, ErrorKind::IncompatibleDistribution));
+        Ok(())
+    }
+
+    #[test]
+    fn test_add_trial_preserves_template_fields() -> Result<()> {
+        let storage = InMemoryStorage::new();
+        let directions = vec![Direction::Minimize];
+        let study = create_study("dummy-add-trial", storage, directions)?;
+
+        let mut trial = PersistedTrial::new(999, 888, 777);
+        trial.state_values = TrialStateValues::Complete(vec![1.23]);
+        trial.datetime_start = Some("2026-04-02 03:04:05.678".to_string());
+        trial.datetime_complete = Some("2026-04-02 03:14:15.678".to_string());
+        trial.internal_params.insert("x".to_string(), 0.5);
+        trial.distributions.insert(
+            "x".to_string(),
+            Distribution::Float {
+                low: 0.0,
+                high: 1.0,
+                step: None,
+                log: false,
+            },
+        );
+        trial
+            .attrs
+            .insert(AttrKey::User("memo".into()), "\"imported\"".to_string());
+
+        study.add_trial(trial)?;
+        let trials = study.get_trials()?;
+        assert_eq!(trials.len(), 1);
+        assert_eq!(trials[0].number, 0);
+        assert_eq!(trials[0].study_id, study.id);
+        assert_eq!(
+            trials[0].datetime_start.as_deref(),
+            Some("2026-04-02 03:04:05.678")
+        );
+        assert_eq!(
+            trials[0].datetime_complete.as_deref(),
+            Some("2026-04-02 03:14:15.678")
+        );
+        assert_eq!(trials[0].internal_params.get("x"), Some(&0.5));
+        assert_eq!(
+            trials[0].attrs.get(&AttrKey::User("memo".into())),
+            Some(&"\"imported\"".to_string())
+        );
         Ok(())
     }
 }

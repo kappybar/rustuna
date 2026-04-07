@@ -35,13 +35,58 @@ impl SQLite3Storage {
             .conn
             .lock()
             .map_err(|_| Error::new(ErrorKind::StorageError))?;
-        conn.execute_batch(SCHEMA_SQL).map_err(|e| {
+        conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| {
             Error::with_reason(
                 ErrorKind::StorageError,
-                format!("Failed to create database: {e}"),
+                format!("Failed to start database initialization: {e}"),
             )
         })?;
+
+        let result = (|| -> Result<()> {
+            if Self::is_initialized(&conn)? {
+                return Ok(());
+            }
+
+            conn.execute_batch(SCHEMA_SQL).map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Failed to create database: {e}"),
+                )
+            })?;
+            Ok(())
+        })();
+
+        match result {
+            Ok(()) => conn.execute_batch("COMMIT").map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Failed to commit database initialization: {e}"),
+                )
+            })?,
+            Err(err) => {
+                let _ = conn.execute_batch("ROLLBACK");
+                return Err(err);
+            }
+        }
+
         Ok(())
+    }
+
+    fn is_initialized(conn: &Connection) -> Result<bool> {
+        let exists: Option<String> = conn
+            .query_row(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'version_info'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Failed to inspect database schema: {e}"),
+                )
+            })?;
+        Ok(exists.is_some())
     }
 
     fn validate_study_id(&self, study_id: u32) -> Result<()> {
@@ -196,6 +241,77 @@ impl CachedStorageBackend for SQLite3Storage {
         let mut trial = PersistedTrial::new(trial_id, study_id, number);
         trial.datetime_start = datetime_start;
         Ok(trial)
+    }
+
+    fn create_new_trial_from_template(
+        &mut self,
+        study_id: u32,
+        template: &PersistedTrial,
+    ) -> rustuna_core::Result<PersistedTrial> {
+        for param_name in template.internal_params.keys() {
+            if !template.distributions.contains_key(param_name) {
+                return Err(Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!(
+                        "Template trial has internal_params['{param_name}'] but no matching distribution."
+                    ),
+                ));
+            }
+        }
+        for param_name in template.distributions.keys() {
+            if !template.internal_params.contains_key(param_name) {
+                return Err(Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!(
+                        "Template trial has distributions['{param_name}'] but no matching internal_params."
+                    ),
+                ));
+            }
+        }
+
+        let new_trial = self.create_new_trial(study_id)?;
+        let trial_id = new_trial.id;
+
+        for (param_name, distribution) in &template.distributions {
+            let internal_value = template.internal_params.get(param_name).ok_or_else(|| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Template trial has no internal param for '{param_name}'"),
+                )
+            })?;
+            self.set_trial_param(trial_id, param_name, distribution, *internal_value)?;
+        }
+
+        if !template.attrs.is_empty() {
+            self.set_trial_attrs(trial_id, template.attrs.clone(), false)?;
+        }
+
+        if !matches!(template.state_values, TrialStateValues::Running) {
+            self.set_trial_state_values(trial_id, template.state_values.clone())?;
+        }
+
+        let guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
+        guard
+            .execute(
+                "UPDATE trials SET datetime_start = ?, datetime_complete = ? WHERE trial_id = ?",
+                params![
+                    template.datetime_start,
+                    template.datetime_complete,
+                    trial_id
+                ],
+            )
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {e}"),
+                )
+            })?;
+        drop(guard);
+
+        self.get_trial(trial_id)
     }
 
     fn set_trial_param(
@@ -1608,6 +1724,7 @@ mod tests {
     use rustuna_core::sampler::RandomSampler;
     use rustuna_core::study::{create_study, Direction};
     use std::sync::Arc;
+    use tempfile::tempdir;
 
     fn init_storage() -> Result<SQLite3Storage> {
         let storage = SQLite3Storage::new(":memory:")?;
@@ -1627,6 +1744,22 @@ mod tests {
             study.directions,
             vec![Direction::Minimize, Direction::Maximize]
         );
+        assert_eq!(storage.get_studies()?.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn create_database_is_idempotent() -> Result<()> {
+        let dir = tempdir().map_err(|_| Error::new(ErrorKind::Unexpected))?;
+        let path = dir.path().join("storage.sqlite3");
+        let storage = SQLite3Storage::new(path.to_string_lossy().as_ref())?;
+
+        storage.create_database()?;
+        storage.create_database()?;
+
+        let mut storage = storage;
+        let study = storage.create_new_study("example", vec![Direction::Minimize])?;
+        assert_eq!(study.name, "example");
         assert_eq!(storage.get_studies()?.len(), 1);
         Ok(())
     }
@@ -1694,6 +1827,36 @@ mod tests {
 
         let trial = storage.create_new_trial(study_id)?;
         assert_eq!(trial.number, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn create_new_trial_from_template_preserves_datetime() -> Result<()> {
+        let mut storage = init_storage()?;
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])?
+            .id;
+
+        let mut template = PersistedTrial::new(999, 998, 997);
+        template.state_values = TrialStateValues::Complete(vec![0.5]);
+        template.datetime_start = Some("2024-01-02 03:04:05.678".to_string());
+        template.datetime_complete = Some("2024-01-02 03:14:15.678".to_string());
+        template.internal_params.insert("x".to_string(), 0.4);
+        template.distributions.insert(
+            "x".to_string(),
+            Distribution::Float {
+                low: 0.0,
+                high: 1.0,
+                step: None,
+                log: false,
+            },
+        );
+
+        let trial = storage.create_new_trial_from_template(study_id, &template)?;
+        assert_eq!(trial.number, 0);
+        assert_eq!(trial.datetime_start, template.datetime_start);
+        assert_eq!(trial.datetime_complete, template.datetime_complete);
+        assert_eq!(trial.state_values, template.state_values);
         Ok(())
     }
 
@@ -2006,7 +2169,7 @@ mod tests {
         storage.create_database()?;
         let storage = CachedStorage::new(Box::new(storage));
 
-        let mut study = create_study("simple-quadratic", storage, vec![Direction::Minimize])?;
+        let study = create_study("simple-quadratic", storage, vec![Direction::Minimize])?;
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         study.optimize(
             |mut t| {

@@ -206,7 +206,7 @@ mod tests {
     fn test_joint_sampling_empty() -> Result<()> {
         let joint_params = HashMap::new();
         let sampler = Arc::new(Mutex::new(DummyJointSampler { joint_params }));
-        let mut study = create_study("dummy", InMemoryStorage::new(), vec![Direction::Minimize])?;
+        let study = create_study("dummy", InMemoryStorage::new(), vec![Direction::Minimize])?;
         study.optimize(objective, sampler, 2)?;
         Ok(())
     }
@@ -217,7 +217,7 @@ mod tests {
         joint_params.insert(String::from("x"), 0.5);
 
         let sampler = Arc::new(Mutex::new(DummyJointSampler { joint_params }));
-        let mut study = create_study("dummy", InMemoryStorage::new(), vec![Direction::Minimize])?;
+        let study = create_study("dummy", InMemoryStorage::new(), vec![Direction::Minimize])?;
         study.optimize(objective, sampler, 2)?;
 
         let trials = study.get_trials()?;
@@ -234,7 +234,7 @@ mod tests {
         joint_params.insert(String::from("y"), 1.0);
 
         let sampler = Arc::new(Mutex::new(DummyJointSampler { joint_params }));
-        let mut study = create_study("dummy", InMemoryStorage::new(), vec![Direction::Minimize])?;
+        let study = create_study("dummy", InMemoryStorage::new(), vec![Direction::Minimize])?;
         study.optimize(objective, sampler, 2)?;
 
         let trials = study.get_trials()?;

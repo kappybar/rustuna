@@ -37,6 +37,9 @@ nav:
       - rustuna.Trial: api/trial.md
       - rustuna.Sampler: api/sampler.md
       - rustuna.Storage: api/storage.md
+      - rustuna.TrialQueue: api/trial_queue.md
+      - rustuna.Importance: api/importance.md
+      - rustuna.Distribution: api/distribution.md
 
 markdown_extensions:
   - admonition

@@ -57,13 +57,33 @@ def to_rustuna_state(state: optuna.trial.TrialState) -> rustuna.TrialState:
     return to_rustuna_state_map[state]
 
 
+def _encode_intermediate_values(
+    intermediate_values: Mapping[int, float],
+) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for step, value in sorted(intermediate_values.items(), key=lambda x: x[0]):
+        if value != value:
+            entries.append({"step": int(step), "value": None, "value_type": "NAN"})
+        elif value == float("inf"):
+            entries.append({"step": int(step), "value": None, "value_type": "INF_POS"})
+        elif value == float("-inf"):
+            entries.append({"step": int(step), "value": None, "value_type": "INF_NEG"})
+        else:
+            entries.append(
+                {"step": int(step), "value": float(value), "value_type": "FINITE"}
+            )
+    return entries
+
+
 def to_persisted_trial(
     trial: optuna.trial.FrozenTrial,
     study_id: int,
 ) -> rustuna.PersistedTrial:
     optuna_system_attrs = trial.system_attrs.copy()
     if trial.intermediate_values:
-        optuna_system_attrs["intermediate_values"] = trial.intermediate_values
+        optuna_system_attrs["intermediate_values"] = _encode_intermediate_values(
+            trial.intermediate_values
+        )
 
     internal_params: dict[str, float] = {}
     distributions: dict[str, rustuna.Distribution] = {}
@@ -75,9 +95,9 @@ def to_persisted_trial(
         )
 
     return rustuna.PersistedTrial(
-        trial_id=trial._trial_id,
+        trial_id=max(trial._trial_id, 0),
         study_id=study_id,
-        number=trial.number,
+        number=max(trial.number, 0),
         state=to_rustuna_state(trial.state),
         values=trial.values,
         internal_params=internal_params,
@@ -313,6 +333,14 @@ class FrozenTrialLike(FrozenTrial):
         if intermediate_values_raw is None:
             return {}
         intermediate_values_raw = json.loads(intermediate_values_raw)
+
+        if isinstance(intermediate_values_raw, dict):
+            decoded_intermediate_values: dict[int, float] = {}
+            for raw_step, value in intermediate_values_raw.items():
+                step = int(raw_step)
+                if isinstance(value, (int, float)):
+                    decoded_intermediate_values[step] = float(value)
+            return decoded_intermediate_values
         assert isinstance(intermediate_values_raw, list)
 
         intermediate_values: dict[int, float] = {}

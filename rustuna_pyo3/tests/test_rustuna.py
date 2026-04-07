@@ -3,6 +3,44 @@ import pytest
 import rustuna
 
 
+def test_load_study_with_trial_queue():
+    storage = rustuna.Storage.in_memory()
+    created = rustuna.create_study(study_name="queued-study", storage=storage)
+
+    template = rustuna.PersistedTrial(
+        trial_id=0,
+        study_id=created.id,
+        number=0,
+        state=rustuna.TrialState.WAITING,
+        system_attrs={"fixed_params:x": "f:0x4014000000000000"},
+    )
+    trial = storage.create_new_trial(created.id, template)
+
+    queue = rustuna.TrialQueue.in_memory()
+    queue.push(trial.id)
+
+    loaded = rustuna.load_study(
+        study_name="queued-study",
+        storage=storage,
+        trial_queue=queue,
+    )
+
+    asked = loaded.ask()
+    assert asked.number == trial.number
+    assert asked.suggest_float("x", 0.0, 10.0) == 5.0
+    loaded.trial_queue.push(123)
+    assert queue.pop() == 123
+
+
+def test_study_trial_queue_property():
+    queue = rustuna.TrialQueue.in_memory()
+    study = rustuna.create_study(trial_queue=queue)
+
+    study.trial_queue.push(123)
+
+    assert queue.pop() == 123
+
+
 def test_optimize():
     study = rustuna.create_study()
 
@@ -56,6 +94,50 @@ def test_study_get_trials_filters_by_states():
     ]
 
 
+def test_optimize_catch_exception():
+    study = rustuna.create_study()
+
+    def objective(trial: rustuna.Trial):
+        if trial.number % 2 == 0:
+            raise ValueError("expected failure")
+        return 1.0
+
+    study.optimize(objective, n_trials=2, catch=ValueError)
+    study.optimize(objective, n_trials=2, catch=(Exception, RuntimeError))
+
+    assert len(study.trials) == 4
+    assert study.trials[0].state == rustuna.TrialState.FAIL
+    assert study.trials[1].state == rustuna.TrialState.COMPLETE
+    assert study.trials[2].state == rustuna.TrialState.FAIL
+    assert study.trials[3].state == rustuna.TrialState.COMPLETE
+
+
+def test_optimize_reraises_uncaught_exception():
+    study = rustuna.create_study()
+
+    def objective(_trial: rustuna.Trial):
+        raise ValueError("expected failure")
+
+    with pytest.raises(ValueError):
+        study.optimize(objective, n_trials=1)
+
+    with pytest.raises(ValueError):
+        study.optimize(objective, n_trials=1, catch=(RuntimeError,))
+
+    assert study.trials[0].state == rustuna.TrialState.FAIL
+
+
+def test_optimize_trial_pruned():
+    study = rustuna.create_study()
+
+    def objective(_trial: rustuna.Trial):
+        raise rustuna.exceptions.TrialPruned()
+
+    study.optimize(objective, n_trials=1)
+
+    assert study.trials[0].state == rustuna.TrialState.PRUNED
+
+
 def test_optimize_multi_objective():
     study = rustuna.create_study(directions=["minimize", "minimize"])
 
@@ -90,6 +172,93 @@ def test_study():
     assert study.user_attrs == {"key": "value"}
 
     assert len(study.storage.get_studies()) == 1
+
+
+def test_create_study_load_if_exists_true():
+    storage = rustuna.Storage.in_memory()
+    first = rustuna.create_study(
+        storage=storage,
+        study_name="load-if-exists",
+        direction="minimize",
+    )
+    second = rustuna.create_study(
+        storage=storage,
+        study_name="load-if-exists",
+        direction="maximize",
+        load_if_exists=True,
+    )
+
+    assert first.id == second.id
+    assert second.directions == [rustuna.StudyDirection.MINIMIZE]
+
+
+def test_create_study_load_if_exists_false():
+    storage = rustuna.Storage.in_memory()
+    rustuna.create_study(storage=storage, study_name="load-if-exists")
+
+    with pytest.raises(rustuna.exceptions.DuplicatedStudyError):
+        rustuna.create_study(
+            storage=storage,
+            study_name="load-if-exists",
+            load_if_exists=False,
+        )
+
+
+def test_copy_study():
+    from_storage = rustuna.Storage.in_memory()
+    to_storage = rustuna.Storage.in_memory()
+    from_study = rustuna.create_study(
+        storage=from_storage,
+        study_name="copy-source",
+        directions=["maximize", "minimize"],
+    )
+    from_study.storage.set_study_system_attrs(from_study.id, {"sys": "value"})
+    from_study.set_user_attr("user", "value")
+    from_study.optimize(
+        lambda trial: (
+            trial.suggest_float("x0", 0, 1),
+            trial.suggest_float("x1", 0, 1),
+        ),
+        n_trials=3,
+    )
+
+    rustuna.copy_study(
+        from_study_name="copy-source",
+        from_storage=from_storage,
+        to_storage=to_storage,
+    )
+    to_study = rustuna.load_study(study_name="copy-source", storage=to_storage)
+
+    assert to_study.name == from_study.name
+    assert to_study.directions == from_study.directions
+    assert to_study.user_attrs == from_study.user_attrs
+    assert (
+        to_study.storage.get_study(to_study.id).system_attrs
+        == from_study.storage.get_study(from_study.id).system_attrs
+    )
+    assert len(to_study.trials) == len(from_study.trials)
+
+
+def test_copy_study_to_study_name():
+    from_storage = rustuna.Storage.in_memory()
+    to_storage = rustuna.Storage.in_memory()
+    rustuna.create_study(storage=from_storage, study_name="foo")
+    rustuna.create_study(storage=to_storage, study_name="foo")
+
+    with pytest.raises(rustuna.exceptions.DuplicatedStudyError):
+        rustuna.copy_study(
+            from_study_name="foo",
+            from_storage=from_storage,
+            to_storage=to_storage,
+        )
+
+    rustuna.copy_study(
+        from_study_name="foo",
+        from_storage=from_storage,
+        to_storage=to_storage,
+        to_study_name="bar",
+    )
+    rustuna.load_study(study_name="bar", storage=to_storage)
 
 
 def test_suggest_categorical():

@@ -86,7 +86,7 @@ pub(crate) fn get_study(
     } else {
         vec![direction]
     };
-    let mut study = study::create_study("test-study", storage, directions)?;
+    let study = study::create_study("test-study", storage, directions)?;
     let sampler = Arc::new(Mutex::new(RandomSampler::seed_from_u64(seed)));
     study.optimize(
         if is_multi_objective {

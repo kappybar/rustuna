@@ -9,7 +9,7 @@ from collections.abc import (
     Sequence,
     ValuesView,
 )
-from typing import Literal, Protocol, TypedDict, TypeVar, overload
+from typing import Any, Literal, Protocol, TypedDict, TypeVar, overload
 
 _T = TypeVar("_T")
 
@@ -245,7 +245,6 @@ class PersistedTrial:
         system_attrs: dict[str, str] | None = None,
         datetime_start: datetime.datetime | None = None,
         datetime_complete: datetime.datetime | None = None,
-        id: int | None = None,
     ) -> None: ...
     @property
     def id(self) -> int: ...
@@ -282,10 +281,12 @@ ObjectiveFuncType = Callable[[Trial], float | tuple[float, ...]]
 def create_study(
     *,
     study_name: str | None = None,
-    storage: Storage | StorageProtocol | None = None,
-    sampler: Sampler | SamplerProtocol | None = None,
+    storage: StorageProtocol | None = None,
+    sampler: SamplerProtocol | None = None,
     direction: Literal["minimize"] | Literal["maximize"] | None = None,
     directions: list[Literal["minimize"] | Literal["maximize"]] | None = None,
+    load_if_exists: bool = False,
+    trial_queue: TrialQueue | None = None,
 ) -> Study:
     """Create a new study.
 
@@ -297,6 +298,8 @@ def create_study(
             Cannot be specified together with ``directions``.
         directions: Directions of optimization for multi-objective optimization.
             Cannot be specified together with ``direction``.
+        load_if_exists: If True, return an existing study when ``study_name`` already exists.
+        trial_queue: TrialQueue object for managing trial execution order. If None, InMemoryTrialQueue is used.
 
     Returns:
         A Study object.
@@ -305,8 +308,9 @@ def create_study(
 def load_study(
     *,
     study_name: str | None = None,
-    storage: Storage | StorageProtocol | None = None,
-    sampler: Sampler | SamplerProtocol | None = None,
+    storage: StorageProtocol | None = None,
+    sampler: SamplerProtocol | None = None,
+    trial_queue: TrialQueue | None = None,
 ) -> Study:
     """Load an existing study.
 
@@ -314,7 +318,17 @@ def load_study(
         study_name: Study's name. If None, the most recently created study is loaded.
         storage: Storage object. If None, raises an error.
         sampler: Sampler object for parameter suggestion. If None, TPESampler is used.
+        trial_queue: TrialQueue object for managing trial execution order. If None, InMemoryTrialQueue is used.
     """
+
+def copy_study(
+    *,
+    from_study_name: str,
+    from_storage: StorageProtocol,
+    to_storage: StorageProtocol,
+    to_study_name: str | None = None,
+) -> None:
+    """Copy a study to another storage."""
 
 def get_param_importance(study: Study) -> list[list[float]]: ...
 
@@ -344,9 +358,9 @@ class Study:
     def tell(
         self,
         number: int,
-        values: float | None = None,
+        values: float | Sequence[float] | None = None,
         state: TrialState | None = None,
-    ) -> Trial:
+    ) -> PersistedTrial:
         """Finish a trial created with :func:`~Study.ask`.
 
         Args:
@@ -355,14 +369,35 @@ class Study:
             state: State to set on the trial. If None, COMPLETE is used when values is not None.
 
         Returns:
-            A Trial object.
+            A PersistedTrial object.
         """
-    def optimize(self, objective: ObjectiveFuncType, n_trials: int) -> None:
+    def optimize(
+        self,
+        objective: ObjectiveFuncType,
+        n_trials: int,
+        catch: type[Exception] | tuple[type[Exception], ...] | None = None,
+    ) -> None:
         """Optimize an objective function.
 
         Args:
             objective: A callable that takes a Trial object and returns a float value or a sequence of float values.
             n_trials: The number of trials to run.
+            catch: Exception class or tuple of exception classes that should fail the trial and allow optimization to continue.
+        """
+    def enqueue_trial(
+        self,
+        params: dict[str, Any],
+        user_attrs: dict[str, str] | None = None,
+        # TODO(c-bata): Add support for skip_if_exists option
+        # skip_if_exists: bool = False,
+    ) -> None:
+        """Enqueue a trial with given parameter values.
+
+        You can fix the next sampling parameters will be evaluated in your objective function.
+
+        Args:
+            params: Parameter values to pass your objective function.
+            user_attrs: A dictionary of user attributes other than params.
         """
     def add_trial(self, trial: PersistedTrial) -> None:
         """Add trial to study.
@@ -383,6 +418,23 @@ class Study:
         Args:
             key: A key string of the attribute.
             value: A value of the attribute. The value should be JSON serializable.
+
+        Example:
+            .. code-block:: python
+
+                import rustuna
+
+                def objective(trial):
+                    x = trial.suggest_float("x", 0, 1)
+                    y = trial.suggest_float("y", 0, 1)
+                    return x**2 + y**2
+
+                study = rustuna.create_study()
+                study.set_user_attr("objective function", "quadratic function")
+
+                assert study.user_attrs == {
+                    "objective function": "quadratic function",
+                }
         """
     def get_trials(
         self,
@@ -418,6 +470,9 @@ class Study:
     @property
     def sampler(self) -> SamplerProtocol:
         """Return the storage object."""
+    @property
+    def trial_queue(self) -> TrialQueue:
+        """Return the trial queue object."""
 
 class StudyDirection(enum.IntEnum):
     """Direction of optimization."""
@@ -461,13 +516,15 @@ class StorageProtocol(Protocol):
     This protocol defines the interface that storage backends must implement
     to persist optimization history.
     """
-    @property
-    def is_distributed(self) -> bool: ...
     def create_new_study(
         self, study_name: str, directions: list[StudyDirection]
     ) -> PersistedStudy: ...
     def delete_study(self, study_id: int) -> None: ...
-    def create_new_trial(self, study_id: int) -> PersistedTrial: ...
+    def create_new_trial(
+        self,
+        study_id: int,
+        template_trial: PersistedTrial | None = None,
+    ) -> PersistedTrial: ...
     def set_trial_param(
         self,
         trial_id: int,
@@ -504,7 +561,7 @@ class StorageProtocol(Protocol):
         study_id: int,
         param_name: str,
         cardinality: int,
-    ) -> list[CategoricalChoiceType]: ...
+    ) -> list[CategoricalChoiceType] | None: ...
 
 class OptunaStorageProtocol(StorageProtocol, Protocol):
     def set_trial_intermediate_value(
@@ -542,13 +599,13 @@ class Storage:
         """
     @classmethod
     def sqlite3(
-        cls, file_path: str, *, create_database: bool = False
+        cls, file_path: str, *, create_database: bool = True
     ) -> OptunaStorageProtocol:
         """Create a SQLite3 storage.
 
         Args:
             file_path: Path to the SQLite3 database file.
-            create_database: If True, create the database file if it does not exist.
+            create_database: If True, initialize the database when it is missing.
 
         Returns:
             A SQLite3 storage instance.
@@ -584,11 +641,17 @@ class Storage:
         Args:
             study_id: ID of the study to delete.
         """
-    def create_new_trial(self, study_id: int) -> PersistedTrial:
+    def create_new_trial(
+        self,
+        study_id: int,
+        template_trial: PersistedTrial | None = None,
+    ) -> PersistedTrial:
         """Create a new trial in the specified study.
 
         Args:
             study_id: ID of the study.
+            template_trial: Template PersistedTrial with default user-attributes,
+                system-attributes, intermediate-values, and a state.
 
         Returns:
             The created trial.
@@ -896,6 +959,74 @@ class Sampler:
 
         Returns:
             Suggested parameter value (Optuna's internal representation).
+        """
+
+# Trial Queue
+class TrialQueue:
+    """Factory class for creating trial queue instances.
+
+    Trial queues are used to manage a LIFO queue of trial IDs for parallel optimization.
+    They provide persistence and multi-process safety for managing trial execution order.
+    """
+
+    @classmethod
+    def in_memory(cls) -> TrialQueue:
+        """Create an in-memory trial queue.
+
+        This queue stores trial IDs in memory and does not persist across process restarts.
+        Suitable for single-process optimization or when persistence is not required.
+
+        Returns:
+            An in-memory trial queue instance.
+        """
+
+    @classmethod
+    def directory(cls, base_dir: str) -> TrialQueue:
+        """Create a directory-based trial queue.
+
+        This queue uses the filesystem to persist trial IDs and provides multi-process
+        safety through atomic file operations. The queue is stored in two subdirectories
+        under the base directory: 'pending/' for queued trials and 'processing/' for
+        trials being processed.
+
+        Args:
+            base_dir: Base directory path for the queue. Should be study-specific
+                (e.g., '{storage_dir}/queue/{study_id}/') to ensure isolation between studies.
+
+        Returns:
+            A directory-based trial queue instance.
+        """
+
+    @classmethod
+    def sqlite3(cls, db_path: str, study_id: int) -> TrialQueue:
+        """Create a SQLite3-based trial queue.
+
+        This queue uses SQLite to persist trial IDs with ACID guarantees. Multiple studies
+        can share the same database file, with study_id used for isolation.
+
+        Args:
+            db_path: Path to the SQLite database file.
+            study_id: Study ID to isolate trials for this queue.
+
+        Returns:
+            A SQLite3-based trial queue instance.
+        """
+
+    def push(self, trial_id: int) -> None:
+        """Add a trial ID to the queue.
+
+        Args:
+            trial_id: The trial ID to enqueue.
+        """
+
+    def pop(self) -> int:
+        """Remove and return the next trial ID from the queue.
+
+        Returns:
+            The next trial ID in LIFO order.
+
+        Raises:
+            Exception: If the queue is empty.
         """
 
 # Private APIs for rustuna.optuna package.

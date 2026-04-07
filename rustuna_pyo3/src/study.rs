@@ -1,9 +1,10 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyFloat};
-use pyo3::Python;
+use pyo3::types::{PyDict, PyFloat, PyIterator, PyType};
+use pyo3::{PyTypeInfo, Python};
 
-use pyo3::exceptions::{PyRuntimeError, PyValueError};
+use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
 use rustuna_core::sampler::RandomSampler;
+use rustuna_core::ErrorKind;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -17,20 +18,109 @@ use rustuna_core::trial::TrialStateValues;
 use rustuna_samplers::tpe::TpeSampler;
 
 use crate::attrs::pyobj_to_attrs;
+use crate::attrs::{convert_pydict_to_fixed_params, pyobj_to_attrs_with_kind, AttrKind};
 use crate::exception::err_to_exceptions;
 use crate::pyobject_storage::PyObjectStorage;
 use crate::sampler::{PyObjectSampler, PySampler};
 use crate::storage::PyStorage;
 use crate::trial::{PyPersistedTrial, PyTrial, PyTrialState};
+use crate::trial_queue::PyTrialQueue;
+
+type SharedStorage = Arc<RwLock<dyn Storage>>;
+type SharedTrialQueue = Arc<RwLock<dyn rustuna_core::trial_queue::TrialQueue>>;
+
+mod py_exceptions {
+    pyo3::import_exception!(rustuna.exceptions, TrialPruned);
+}
+
+fn normalize_catch(py: Python<'_>, catch: Option<&Bound<'_, PyAny>>) -> PyResult<Vec<Py<PyAny>>> {
+    let Some(catch) = catch else {
+        return Ok(Vec::new());
+    };
+    let base_exception = py.import("builtins")?.getattr("BaseException")?;
+
+    if let Ok(catch_type) = catch.cast::<PyType>() {
+        if catch_type.is_subclass(&base_exception)? {
+            return Ok(vec![catch.clone().unbind()]);
+        }
+    }
+
+    let iter = PyIterator::from_object(catch)?;
+    let mut normalized = Vec::new();
+    for item in iter {
+        let item = item?;
+        let item_type = item.cast::<PyType>().map_err(|_| {
+            PyTypeError::new_err(
+                "The catch argument must be an exception class or an iterable of exception classes.",
+            )
+        })?;
+        if !item_type.is_subclass(&base_exception)? {
+            return Err(PyTypeError::new_err(
+                "The catch argument must be an exception class or an iterable of exception classes.",
+            ));
+        }
+        normalized.push(item.unbind());
+    }
+    Ok(normalized)
+}
+
+fn objective_result_to_values(val: Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
+    if val.is_instance_of::<PyFloat>() {
+        let val = val
+            .extract::<f64>()
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to extract f64: {e:?}")))?;
+        Ok(vec![val])
+    } else {
+        val.extract::<Vec<f64>>().map_err(|e| {
+            PyRuntimeError::new_err(format!(
+                "Objective function must return either float or tuple[float]. error={e:?}"
+            ))
+        })
+    }
+}
+
+fn matches_any_exception(py: Python<'_>, err: &PyErr, catch: &[Py<PyAny>]) -> PyResult<bool> {
+    for exc_type in catch {
+        if err.matches(py, exc_type.bind(py))? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn into_trial_queue_pyobj(
+    py: Python<'_>,
+    trial_queue: Option<PyTrialQueue>,
+) -> PyResult<(SharedTrialQueue, Py<PyAny>)> {
+    match trial_queue {
+        Some(trial_queue) => {
+            let queue = trial_queue.queue.clone();
+            let py_trial_queue = Py::new(py, trial_queue)?.into_any();
+            Ok((queue, py_trial_queue))
+        }
+        None => {
+            let trial_queue = PyTrialQueue {
+                queue: Arc::new(RwLock::new(
+                    rustuna_core::trial_queue::InMemoryTrialQueue::new(),
+                )),
+            };
+            let queue = trial_queue.queue.clone();
+            let py_trial_queue = Py::new(py, trial_queue)?.into_any();
+            Ok((queue, py_trial_queue))
+        }
+    }
+}
 
 #[pyfunction]
-#[pyo3(name = "create_study", signature = (*, study_name = None, storage = None, sampler = None, direction = None, directions = None))]
+#[pyo3(name = "create_study", signature = (*, study_name = None, storage = None, sampler = None, direction = None, directions = None, load_if_exists = false, trial_queue = None))]
 pub fn py_create_study(
     study_name: Option<String>,
     storage: Option<Py<PyAny>>,
     sampler: Option<Py<PyAny>>,
     direction: Option<String>,
     directions: Option<Vec<String>>,
+    load_if_exists: bool,
+    trial_queue: Option<PyTrialQueue>,
 ) -> PyResult<PyStudy> {
     let study_name = match study_name {
         Some(s) => s,
@@ -46,10 +136,7 @@ pub fn py_create_study(
                 })?;
                 Ok::<_, PyErr>((storage.storage, storage_pyobj))
             } else {
-                let is_distributed = storage_obj
-                    .getattr(py, "is_distributed")?
-                    .extract::<bool>(py)?;
-                let mut storage = PyObjectStorage::new(storage_obj, is_distributed);
+                let mut storage = PyObjectStorage::new(storage_obj);
                 storage.sync_studies(true).map_err(err_to_exceptions)?;
                 let storage: Arc<RwLock<dyn Storage>> = Arc::new(RwLock::new(storage));
                 Ok((storage, storage_pyobj))
@@ -69,9 +156,43 @@ pub fn py_create_study(
         }
     };
     let directions = convert_directions(direction, directions)?;
-    let is_multi_objective = directions.len() > 1;
-    let study =
-        create_study_with_arc(&study_name, storage_arc, directions).map_err(err_to_exceptions)?;
+    let study = match create_study_with_arc(&study_name, storage_arc.clone(), directions) {
+        Ok(study) => study,
+        Err(err) => {
+            if !load_if_exists || !matches!(err.kind, ErrorKind::DuplicatedStudy) {
+                return Err(err_to_exceptions(err));
+            }
+            let mut guard = storage_arc
+                .write()
+                .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+            let (study_id, directions) = guard
+                .get_studies()
+                .map_err(err_to_exceptions)?
+                .iter()
+                .find(|s| s.name == study_name)
+                .map(|s| (s.id, s.directions.clone()))
+                .ok_or(PyRuntimeError::new_err(format!(
+                    "Study {study_name} not found"
+                )))?;
+            drop(guard);
+            Study::new(
+                study_id,
+                study_name.clone(),
+                directions,
+                storage_arc.clone(),
+            )
+        }
+    };
+    let (trial_queue_arc, trial_queue_pyobj) =
+        Python::attach(|py| into_trial_queue_pyobj(py, trial_queue))?;
+    let study = Study::with_queue(
+        study.id,
+        study.name,
+        study.directions,
+        study.storage,
+        trial_queue_arc,
+    );
+    let is_multi_objective = study.directions.len() > 1;
     let (sampler_arc, sampler_pyobj): (Arc<Mutex<dyn Sampler>>, Py<PyAny>) = match sampler {
         Some(sampler_obj) => Python::attach(|py| {
             let sampler_pyobj = sampler_obj.clone_ref(py);
@@ -108,15 +229,17 @@ pub fn py_create_study(
         sampler: sampler_arc,
         storage_pyobj,
         sampler_pyobj,
+        trial_queue_pyobj,
     })
 }
 
 #[pyfunction]
-#[pyo3(name = "load_study", signature = (study_name, storage, *, sampler = None))]
+#[pyo3(name = "load_study", signature = (study_name, storage, *, sampler = None, trial_queue = None))]
 pub fn py_load_study(
     study_name: String,
     storage: Py<PyAny>,
     sampler: Option<Py<PyAny>>,
+    trial_queue: Option<PyTrialQueue>,
 ) -> PyResult<PyStudy> {
     let storage_pyobj = Python::attach(|py| storage.clone_ref(py));
     let storage: PyResult<Arc<RwLock<dyn Storage>>> = Python::attach(|py| {
@@ -128,7 +251,7 @@ pub fn py_load_study(
             let storage: Arc<RwLock<dyn Storage>> = storage.storage;
             Ok(storage)
         } else {
-            let mut storage = PyObjectStorage::new(storage, true);
+            let mut storage = PyObjectStorage::new(storage);
             storage.sync_studies(true).map_err(err_to_exceptions)?;
             let storage: Arc<RwLock<dyn Storage>> = Arc::new(RwLock::new(storage));
             Ok(storage)
@@ -149,7 +272,9 @@ pub fn py_load_study(
         )))?;
     drop(guard);
     let is_multi_objective = directions.len() > 1;
-    let study = Study::new(study_id, study_name, directions, storage);
+    let (trial_queue_arc, trial_queue_pyobj) =
+        Python::attach(|py| into_trial_queue_pyobj(py, trial_queue))?;
+    let study = Study::with_queue(study_id, study_name, directions, storage, trial_queue_arc);
     let (sampler_arc, sampler_pyobj): (Arc<Mutex<dyn Sampler>>, Py<PyAny>) = match sampler {
         Some(sampler_obj) => Python::attach(|py| {
             let sampler_pyobj = sampler_obj.clone_ref(py);
@@ -186,6 +311,7 @@ pub fn py_load_study(
         sampler: sampler_arc,
         storage_pyobj,
         sampler_pyobj,
+        trial_queue_pyobj,
     })
 }
 
@@ -196,6 +322,7 @@ pub struct PyStudy {
     sampler: Arc<Mutex<dyn Sampler>>,
     storage_pyobj: Py<PyAny>,
     sampler_pyobj: Py<PyAny>,
+    trial_queue_pyobj: Py<PyAny>,
 }
 #[allow(non_local_definitions)]
 #[pymethods]
@@ -216,19 +343,34 @@ impl PyStudy {
         let sampler_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
             Ok(Py::new(py, sampler.clone())?.into_any())
         })?;
-        let study = Study::new(study_id, name, directions, storage.storage);
+        let trial_queue = PyTrialQueue {
+            queue: Arc::new(RwLock::new(
+                rustuna_core::trial_queue::InMemoryTrialQueue::new(),
+            )),
+        };
+        let trial_queue_arc = trial_queue.queue.clone();
+        let trial_queue_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
+            Ok(Py::new(py, trial_queue)?.into_any())
+        })?;
+        let study = Study::with_queue(study_id, name, directions, storage.storage, trial_queue_arc);
         Ok(PyStudy {
             study,
             sampler: sampler.sampler,
             storage_pyobj,
             sampler_pyobj,
+            trial_queue_pyobj,
         })
     }
 
-    #[pyo3(signature = (objective, n_trials))]
-    pub fn optimize(&mut self, objective: Py<PyAny>, n_trials: usize) -> PyResult<()> {
+    #[pyo3(signature = (objective, n_trials, catch = None))]
+    pub fn optimize(
+        &self,
+        objective: Py<PyAny>,
+        n_trials: usize,
+        catch: Option<Py<PyAny>>,
+    ) -> PyResult<()> {
+        let catch = Python::attach(|py| normalize_catch(py, catch.as_ref().map(|c| c.bind(py))))?;
         for _ in 0..n_trials {
-            // Ask a trial
             let sampler = self.sampler.clone();
             let rs_trial = self
                 .study
@@ -236,24 +378,12 @@ impl PyStudy {
                 .map_err(|e| PyRuntimeError::new_err(format!("Failed to ask a trial {e:?}.")))?;
             let trial_number = rs_trial.number;
 
-            // Call an objective function
             let result: PyResult<Vec<f64>> = Python::attach(|py| {
                 let trial = PyTrial::new(rs_trial, self.storage_pyobj.clone_ref(py));
                 let val = objective.call1(py, (trial,))?;
-                let val_ref = val.bind(py);
-                if val_ref.is_instance_of::<PyFloat>() {
-                    let val = val_ref.extract::<f64>().map_err(|e| {
-                        PyRuntimeError::new_err(format!("Failed to extract f64: {e:?}"))
-                    })?;
-                    Ok(vec![val])
-                } else {
-                    val_ref.extract::<Vec<f64>>().map_err(|e| {
-                        PyRuntimeError::new_err(format!("Objective function must return either float or tuple[float]. error={e:?}"))
-                    })
-                }
+                objective_result_to_values(val.bind(py).clone())
             });
 
-            // Tell
             match result {
                 Ok(val) => {
                     self.study
@@ -261,17 +391,27 @@ impl PyStudy {
                         .map_err(|e| PyRuntimeError::new_err(format!("Failed to tell: {e:?}")))?;
                 }
                 Err(e) => {
-                    self.study
-                        .tell(trial_number, TrialStateValues::Fail)
-                        .map_err(|e| PyRuntimeError::new_err(format!("Failed to tell: {e:?}")))?;
-                    return Err(e);
+                    let (state, should_reraise) = Python::attach(|py| -> PyResult<_> {
+                        if e.matches(py, py_exceptions::TrialPruned::type_object(py))? {
+                            Ok((TrialStateValues::Pruned, false))
+                        } else {
+                            let should_reraise = !matches_any_exception(py, &e, &catch)?;
+                            Ok((TrialStateValues::Fail, should_reraise))
+                        }
+                    })?;
+                    self.study.tell(trial_number, state).map_err(|err| {
+                        PyRuntimeError::new_err(format!("Failed to tell: {err:?}"))
+                    })?;
+                    if should_reraise {
+                        return Err(e);
+                    }
                 }
             }
         }
         Ok(())
     }
 
-    pub fn ask(&mut self) -> PyResult<PyTrial> {
+    pub fn ask(&self) -> PyResult<PyTrial> {
         let trial = self
             .study
             .ask(self.sampler.clone())
@@ -282,11 +422,11 @@ impl PyStudy {
 
     #[pyo3(signature = (number, values = None, state = None))]
     pub fn tell(
-        &mut self,
+        &self,
         number: u32,
         values: Option<Py<PyAny>>,
         state: Option<PyTrialState>,
-    ) -> PyResult<()> {
+    ) -> PyResult<PyPersistedTrial> {
         let state_values = match (state, values) {
             (None, None) => Err(PyValueError::new_err(
                 "Either state or values must be specified",
@@ -332,18 +472,54 @@ impl PyStudy {
         self.study
             .tell(number, state_values?)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to tell: {e:?}")))?;
-        Ok(())
+
+        let mut guard = self.study.storage.write().map_err(|e| {
+            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
+        })?;
+        let trial_id = guard
+            .get_trial_id_from_study_id_trial_number(self.study.id, number)
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("Failed to get trial id: {:?}", e.kind))
+            })?;
+        let trial = guard
+            .get_trial(trial_id)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get trial: {:?}", e.kind)))?;
+        Ok(PyPersistedTrial::from_storage(
+            self.study.storage.clone(),
+            trial,
+        ))
     }
 
-    pub fn add_trial(&mut self, trial: &Bound<'_, PyPersistedTrial>) -> PyResult<()> {
-        let persisted_trial = trial.borrow().with_trial(|t| Ok(t.clone()))?;
+    #[pyo3(signature = (params, user_attrs = None))]
+    pub fn enqueue_trial(
+        &self,
+        params: &Bound<'_, PyDict>,
+        user_attrs: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<()> {
+        let fixed_params = convert_pydict_to_fixed_params(params)?;
+        let user_attrs_opt = user_attrs
+            .map(|d| pyobj_to_attrs_with_kind(d.as_any(), AttrKind::User))
+            .transpose()?;
         self.study
-            .add_trial(persisted_trial)
+            .enqueue_trial(fixed_params, user_attrs_opt)
             .map_err(err_to_exceptions)?;
         Ok(())
     }
+
+    pub fn add_trial(&self, trial: &Bound<'_, PyPersistedTrial>) -> PyResult<()> {
+        // Extract the underlying PersistedTrial
+        let persisted_trial = trial.borrow().with_trial(|t| Ok(t.clone()))?;
+
+        // Call the core implementation
+        self.study
+            .add_trial(persisted_trial)
+            .map_err(err_to_exceptions)?;
+
+        Ok(())
+    }
+
     #[pyo3(signature = (key, value))]
-    pub fn set_user_attr(&mut self, key: String, value: String) -> PyResult<()> {
+    pub fn set_user_attr(&self, key: String, value: String) -> PyResult<()> {
         let mut attrs = rustuna_core::attr::Attrs::new();
         attrs.insert(AttrKey::User(key.into()), value);
         let mut guard = self
@@ -360,7 +536,7 @@ impl PyStudy {
     }
 
     #[getter]
-    pub fn best_trial(&mut self) -> PyResult<PyPersistedTrial> {
+    pub fn best_trial(&self) -> PyResult<PyPersistedTrial> {
         let trial_number = get_best_trial(&self.study).map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to get the best trial: {:?}", e.kind))
         })?;
@@ -383,7 +559,7 @@ impl PyStudy {
     }
 
     #[getter(trials)]
-    pub fn py_trials(&mut self) -> PyResult<Vec<PyPersistedTrial>> {
+    pub fn py_trials(&self) -> PyResult<Vec<PyPersistedTrial>> {
         let mut guard = self
             .study
             .storage
@@ -401,7 +577,7 @@ impl PyStudy {
 
     #[pyo3(name = "get_trials", signature = (*, states = None))]
     pub fn py_get_trials(
-        &mut self,
+        &self,
         states: Option<Vec<PyTrialState>>,
     ) -> PyResult<Vec<PyPersistedTrial>> {
         let mut guard = self
@@ -427,7 +603,7 @@ impl PyStudy {
     }
 
     #[getter]
-    pub fn user_attrs(&mut self) -> PyResult<HashMap<String, String>> {
+    pub fn user_attrs(&self) -> PyResult<HashMap<String, String>> {
         let mut guard = self
             .study
             .storage
@@ -466,6 +642,11 @@ impl PyStudy {
     }
 
     #[getter]
+    pub fn trial_queue<'py>(&self, py: Python<'py>) -> Py<PyAny> {
+        self.trial_queue_pyobj.clone_ref(py)
+    }
+
+    #[getter]
     pub fn directions(&self) -> Vec<PyDirection> {
         self.study
             .directions
@@ -475,7 +656,7 @@ impl PyStudy {
     }
 
     #[getter]
-    pub fn best_trials(&mut self) -> PyResult<Vec<PyPersistedTrial>> {
+    pub fn best_trials(&self) -> PyResult<Vec<PyPersistedTrial>> {
         let pareto_front_numbers = get_pareto_front(&self.study).map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to get the pareto front: {:?}", e.kind))
         })?;
@@ -571,6 +752,79 @@ fn convert_directions(
         None => Ok(vec![direction]),
     }?;
     Ok(directions)
+}
+
+fn resolve_storage(storage: Py<PyAny>) -> PyResult<(SharedStorage, Py<PyAny>)> {
+    Python::attach(|py| {
+        let storage_pyobj = storage.clone_ref(py);
+        let storage_ref = storage.bind(py);
+        if storage_ref.is_instance_of::<PyStorage>() {
+            let storage = storage_ref.extract::<PyStorage>().map_err(|e| {
+                PyValueError::new_err(format!("Failed to extract PyStorage: {e:?}"))
+            })?;
+            Ok::<_, PyErr>((storage.storage, storage_pyobj))
+        } else {
+            let mut wrapped = PyObjectStorage::new(storage);
+            wrapped.sync_studies(true).map_err(err_to_exceptions)?;
+            let wrapped: SharedStorage = Arc::new(RwLock::new(wrapped));
+            Ok((wrapped, storage_pyobj))
+        }
+    })
+}
+
+#[pyfunction]
+#[pyo3(name = "copy_study", signature = (*, from_study_name, from_storage, to_storage, to_study_name = None))]
+pub fn py_copy_study(
+    from_study_name: String,
+    from_storage: Py<PyAny>,
+    to_storage: Py<PyAny>,
+    to_study_name: Option<String>,
+) -> PyResult<()> {
+    let (from_storage_arc, _) = resolve_storage(from_storage)?;
+    let (from_directions, from_attrs, trials) = {
+        let mut guard = from_storage_arc
+            .write()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+        let from_study_id = guard
+            .get_studies()
+            .map_err(err_to_exceptions)?
+            .iter()
+            .find(|s| s.name == from_study_name)
+            .map(|s| s.id)
+            .ok_or(PyRuntimeError::new_err(format!(
+                "Study {from_study_name} not found"
+            )))?;
+        let study = guard
+            .get_study(from_study_id)
+            .map_err(err_to_exceptions)?
+            .clone();
+        let trials = guard
+            .get_trials(from_study_id)
+            .map_err(err_to_exceptions)?
+            .clone();
+        (study.directions, study.attrs, trials)
+    };
+
+    let copied_study_name = to_study_name.unwrap_or(from_study_name);
+    let (to_storage_arc, _) = resolve_storage(to_storage)?;
+    let mut guard = to_storage_arc
+        .write()
+        .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+    let to_study_id = guard
+        .create_new_study(&copied_study_name, from_directions)
+        .map_err(err_to_exceptions)?
+        .id;
+    if !from_attrs.is_empty() {
+        guard
+            .set_study_attrs(to_study_id, from_attrs, false)
+            .map_err(err_to_exceptions)?;
+    }
+    for trial in trials {
+        guard
+            .create_new_trial_from_template(to_study_id, &trial)
+            .map_err(err_to_exceptions)?;
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone)]

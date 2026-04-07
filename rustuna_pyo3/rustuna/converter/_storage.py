@@ -38,15 +38,10 @@ logger = optuna.logging.get_logger(__name__)
 
 
 class ToRustunaStorage:
-    def __init__(self, storage: BaseStorage, is_distributed: bool = False) -> None:
+    def __init__(self, storage: BaseStorage) -> None:
         self._storage = storage
-        self._is_distributed = is_distributed
         self._trial_id_to_study_id: dict[int, int] = {}
         self._lock = threading.Lock()
-
-    @property
-    def is_distributed(self) -> bool:
-        return self._is_distributed
 
     def create_new_study(
         self, study_name: str, directions: list[rustuna.StudyDirection]
@@ -61,8 +56,18 @@ class ToRustunaStorage:
             system_attrs={},
         )
 
-    def create_new_trial(self, study_id: int) -> rustuna.PersistedTrial:
-        trial_id = self._storage.create_new_trial(study_id)
+    def create_new_trial(
+        self,
+        study_id: int,
+        template_trial: rustuna.PersistedTrial | None = None,
+    ) -> rustuna.PersistedTrial:
+        if template_trial is None:
+            trial_id = self._storage.create_new_trial(study_id)
+        else:
+            frozen_trial = to_frozen_trial(template_trial)
+            trial_id = self._storage.create_new_trial(
+                study_id, template_trial=frozen_trial
+            )
         trial = self._storage.get_trial(trial_id)
         with self._lock:
             self._trial_id_to_study_id[trial_id] = study_id
@@ -166,9 +171,11 @@ class ToRustunaStorage:
         study_id: int,
         param_name: str,
         cardinality: int,
-    ) -> list[CategoricalChoiceType]:
+    ) -> list[CategoricalChoiceType] | None:
         key = f"optuna_category_labels:{param_name}"
         value = self._storage.get_study_system_attrs(study_id).get(key)
+        if value is None:
+            return None
         assert isinstance(value, list)
         assert len(value) == cardinality
         return typing.cast("list[CategoricalChoiceType]", value)
@@ -240,39 +247,20 @@ class ToOptunaStorage(BaseStorage):
     def create_new_trial(
         self, study_id: int, template_trial: FrozenTrial | None = None
     ) -> int:
-        trial = self._storage.create_new_trial(study_id)
-        trial_id = trial.id
-
-        if template_trial is None:
-            return trial_id
-        if template_trial.user_attrs:
-            user_attrs = {
-                k: json.dumps(v) for k, v in template_trial.user_attrs.items()
-            }
-            self._storage.set_trial_user_attrs(trial_id, user_attrs)
-        if template_trial.system_attrs:
-            system_attrs = {
-                k: json.dumps(v) for k, v in template_trial.system_attrs.items()
-            }
-            self._storage.set_trial_system_attrs(trial_id, system_attrs)
-        if template_trial.distributions and template_trial.params:
-            for param_name in template_trial.distributions:
-                optuna_distribution = template_trial.distributions[param_name]
-                distribution = to_rustuna_distribution(optuna_distribution)
-                value = optuna_distribution.to_internal_repr(
-                    template_trial.params[param_name]
-                )
-                self._storage.set_trial_param(trial_id, param_name, distribution, value)
-        if template_trial.intermediate_values:
-            for step in template_trial.intermediate_values:
-                self._storage.set_trial_intermediate_value(
-                    trial_id, step, template_trial.intermediate_values[step]
-                )
-        rustuna_state = to_rustuna_state(template_trial.state)
-        self._storage.set_trial_state_values(
-            trial_id, rustuna_state, template_trial.values
-        )
-        return trial_id
+        persisted_trial_template: rustuna.PersistedTrial | None = None
+        if template_trial is not None:
+            for param_name, distribution in template_trial.distributions.items():
+                if isinstance(
+                    distribution, optuna.distributions.CategoricalDistribution
+                ):
+                    self._storage.set_category_labels(
+                        study_id,
+                        param_name,
+                        list(distribution.choices),
+                    )
+            persisted_trial_template = to_persisted_trial(template_trial, study_id)
+        trial = self._storage.create_new_trial(study_id, persisted_trial_template)
+        return trial.id
 
     def set_trial_param(
         self,

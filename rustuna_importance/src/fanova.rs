@@ -87,7 +87,7 @@ mod tests {
         let storage = InMemoryStorage::new();
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let mut study = create_study("dummy", storage, directions).unwrap();
+        let study = create_study("dummy", storage, directions).unwrap();
 
         study
             .optimize(

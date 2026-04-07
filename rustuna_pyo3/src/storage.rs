@@ -42,7 +42,7 @@ impl PyStorage {
     }
 
     #[classmethod]
-    #[pyo3(name = "sqlite3", signature = (file_path, *, create_database = false))]
+    #[pyo3(name = "sqlite3", signature = (file_path, *, create_database = true))]
     fn sqlite3(_cls: &Bound<'_, PyType>, file_path: &str, create_database: bool) -> PyResult<Self> {
         let backend = SQLite3Storage::new(file_path).map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to open the SQLite3 file: {e:?}"))
@@ -105,14 +105,26 @@ impl PyStorage {
         Ok(())
     }
 
-    fn create_new_trial(&mut self, study_id: u32) -> PyResult<PyPersistedTrial> {
+    #[pyo3(signature = (study_id, template_trial=None))]
+    fn create_new_trial(
+        &mut self,
+        study_id: u32,
+        template_trial: Option<&Bound<'_, PyPersistedTrial>>,
+    ) -> PyResult<PyPersistedTrial> {
         let mut guard = self
             .storage
             .write()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
-        let trial = guard
-            .create_new_trial(study_id)
-            .map_err(err_to_exceptions)?;
+        let trial = if let Some(template_trial) = template_trial {
+            let template = template_trial.borrow().with_trial(|t| Ok(t.clone()))?;
+            guard
+                .create_new_trial_from_template(study_id, &template)
+                .map_err(err_to_exceptions)?
+        } else {
+            guard
+                .create_new_trial(study_id)
+                .map_err(err_to_exceptions)?
+        };
         Ok(PyPersistedTrial::from_storage(self.storage.clone(), trial))
     }
 

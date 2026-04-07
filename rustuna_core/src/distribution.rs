@@ -84,6 +84,22 @@ impl Distribution {
             Distribution::Categorical { cardinality } => *cardinality == 1,
         }
     }
+
+    pub fn contains(&self, internal_value: f64) -> bool {
+        match self {
+            Distribution::Float { low, high, .. } => {
+                // TODO(c-bata): Consider checking the step attribute.
+                *low <= internal_value && internal_value <= *high
+            }
+            Distribution::Int { low, high, .. } => {
+                // TODO(c-bata): Consider checking the step attribute.
+                *low as f64 <= internal_value && internal_value <= *high as f64
+            }
+            Distribution::Categorical { cardinality } => {
+                internal_value >= 0.0 && (internal_value as usize) < *cardinality
+            }
+        }
+    }
 }
 
 #[cfg(test)]

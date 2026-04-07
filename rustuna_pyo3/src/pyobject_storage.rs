@@ -15,7 +15,7 @@ use rustuna_core::{Error, ErrorKind};
 use crate::distribution::PyDistribution;
 use crate::exception::err_to_exceptions;
 use crate::study::{pyobject_to_persisted_study, PyDirection};
-use crate::trial::{pyobject_to_persisted_trial, PyTrialState};
+use crate::trial::{pyobject_to_persisted_trial, PyPersistedTrial, PyTrialState};
 
 // PyObjectStorage wraps an Optuna storage object and maintains an in-memory cache.
 //
@@ -27,16 +27,14 @@ use crate::trial::{pyobject_to_persisted_trial, PyTrialState};
 // returning cached data.
 pub struct PyObjectStorage {
     obj: Py<PyAny>,
-    is_distributed: bool,
     cache: InMemoryStorage,
     cache_study_to_src_study: HashMap<u32, u32>,
     src_study_to_cache_study: HashMap<u32, u32>,
 }
 impl PyObjectStorage {
-    pub fn new(obj: Py<PyAny>, is_distributed: bool) -> Self {
+    pub fn new(obj: Py<PyAny>) -> Self {
         PyObjectStorage {
             obj,
-            is_distributed,
             cache: InMemoryStorage::new(),
             cache_study_to_src_study: HashMap::new(),
             src_study_to_cache_study: HashMap::new(),
@@ -96,6 +94,21 @@ impl PyObjectStorage {
     fn obj_create_new_trial(&mut self, study_id: u32) -> PyResult<PersistedTrial> {
         Python::attach(|py| {
             let py_trial = self.obj.call_method1(py, "create_new_trial", (study_id,))?;
+            let py_trial = py_trial.bind(py);
+            pyobject_to_persisted_trial(py_trial, study_id)
+        })
+    }
+
+    fn obj_create_new_trial_from_template(
+        &mut self,
+        study_id: u32,
+        template: &PersistedTrial,
+    ) -> PyResult<PersistedTrial> {
+        Python::attach(|py| {
+            let py_template = Py::new(py, PyPersistedTrial::new(template.clone(), Attrs::new()))?;
+            let py_trial =
+                self.obj
+                    .call_method1(py, "create_new_trial", (study_id, py_template))?;
             let py_trial = py_trial.bind(py);
             pyobject_to_persisted_trial(py_trial, study_id)
         })
@@ -410,12 +423,34 @@ impl Storage for PyObjectStorage {
                 ))?;
         let src_trial = self
             .obj_create_new_trial(*src_study_id)
-            .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
+            .map_err(Self::map_pyerr)?;
         let src_trial_id = src_trial.id;
-        if self.is_distributed {
+        let cached_n_trials = self.cache.get_trials(study_id)?.len() as u32;
+        if src_trial.number != cached_n_trials {
             self.sync_trials(study_id)?;
             return self.cache.get_trial(src_trial_id);
         }
+        self.sync_trial(study_id, src_trial, Some(cached_n_trials))?;
+        self.cache.get_trial(src_trial_id)
+    }
+
+    fn create_new_trial_from_template(
+        &mut self,
+        study_id: u32,
+        template: &PersistedTrial,
+    ) -> rustuna_core::Result<&rustuna_core::trial::PersistedTrial> {
+        self.sync_study_from_id(study_id, false)?;
+        let src_study_id =
+            *self
+                .cache_study_to_src_study
+                .get(&study_id)
+                .ok_or(rustuna_core::Error::new(
+                    rustuna_core::ErrorKind::StudyNotFound,
+                ))?;
+        let src_trial = self
+            .obj_create_new_trial_from_template(src_study_id, template)
+            .map_err(Self::map_pyerr)?;
+        let src_trial_id = src_trial.id;
         let cached_n_trials = self.cache.get_trials(study_id)?.len() as u32;
         if src_trial.number != cached_n_trials {
             self.sync_trials(study_id)?;
@@ -632,10 +667,8 @@ pub struct PyPyObjectStorage {
 impl PyPyObjectStorage {
     #[new]
     fn new(storage: Py<PyAny>) -> PyResult<Self> {
-        Python::attach(|py| {
-            let storage_ref = storage.bind(py);
-            let is_distributed = storage_ref.getattr("is_distributed")?.extract::<bool>()?;
-            let mut inner = PyObjectStorage::new(storage, is_distributed);
+        Python::attach(|_py| {
+            let mut inner = PyObjectStorage::new(storage);
             inner.sync_studies(true).map_err(err_to_exceptions)?;
             Ok(PyPyObjectStorage {
                 storage: Arc::new(RwLock::new(inner)),

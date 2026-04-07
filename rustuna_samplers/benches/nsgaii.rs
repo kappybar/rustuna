@@ -17,7 +17,7 @@ mod tests {
             let directions = vec![Direction::Minimize, Direction::Minimize];
             let storage = InMemoryStorage::new();
             let sampler = Arc::new(Mutex::new(NSGAIISampler::default()));
-            let mut study = create_study("dummy", storage, directions).unwrap();
+            let study = create_study("dummy", storage, directions).unwrap();
             study
                 .optimize(
                     |mut t| {
