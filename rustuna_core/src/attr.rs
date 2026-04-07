@@ -137,6 +137,38 @@ pub fn get_category_labels(
     Some(labels)
 }
 
+pub fn system_key_fixed_param(param_name: &str) -> AttrKey {
+    AttrKey::System(format!("fixed_params:{param_name}").into())
+}
+
+pub fn fixed_params_to_attrs(params: &HashMap<String, CategoryLabel>) -> Attrs {
+    let mut attrs = Attrs::new();
+    for (name, value) in params {
+        let key = system_key_fixed_param(name);
+        attrs.insert(key, value.serialize());
+    }
+    attrs
+}
+
+pub fn get_fixed_param(attrs: &Attrs, param_name: &str) -> Option<CategoryLabel> {
+    let key = system_key_fixed_param(param_name);
+    attrs.get(&key).and_then(|s| CategoryLabel::deserialize(s))
+}
+
+pub fn extract_fixed_params(attrs: &Attrs) -> HashMap<String, CategoryLabel> {
+    let mut params = HashMap::new();
+    for (key, value) in attrs {
+        if let AttrKey::System(s) = key {
+            if let Some(param_name) = s.as_str().strip_prefix("fixed_params:") {
+                if let Some(label) = CategoryLabel::deserialize(value) {
+                    params.insert(param_name.to_string(), label);
+                }
+            }
+        }
+    }
+    params
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

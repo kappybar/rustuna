@@ -8,6 +8,7 @@ pub mod storage;
 pub mod study;
 pub mod study_cache;
 pub mod trial;
+pub mod trial_queue;
 
 mod error;
 

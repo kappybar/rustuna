@@ -18,13 +18,16 @@ use rustuna_core::trial::TrialStateValues;
 use rustuna_samplers::tpe::TpeSampler;
 
 use crate::attrs::pyobj_to_attrs;
+use crate::attrs::{convert_pydict_to_fixed_params, pyobj_to_attrs_with_kind, AttrKind};
 use crate::exception::err_to_exceptions;
 use crate::pyobject_storage::PyObjectStorage;
 use crate::sampler::{PyObjectSampler, PySampler};
 use crate::storage::PyStorage;
 use crate::trial::{PyPersistedTrial, PyTrial, PyTrialState};
+use crate::trial_queue::PyTrialQueue;
 
 type SharedStorage = Arc<RwLock<dyn Storage>>;
+type SharedTrialQueue = Arc<RwLock<dyn rustuna_core::trial_queue::TrialQueue>>;
 
 mod py_exceptions {
     pyo3::import_exception!(rustuna.exceptions, TrialPruned);
@@ -85,8 +88,31 @@ fn matches_any_exception(py: Python<'_>, err: &PyErr, catch: &[Py<PyAny>]) -> Py
     Ok(false)
 }
 
+fn into_trial_queue_pyobj(
+    py: Python<'_>,
+    trial_queue: Option<PyTrialQueue>,
+) -> PyResult<(SharedTrialQueue, Py<PyAny>)> {
+    match trial_queue {
+        Some(trial_queue) => {
+            let queue = trial_queue.queue.clone();
+            let py_trial_queue = Py::new(py, trial_queue)?.into_any();
+            Ok((queue, py_trial_queue))
+        }
+        None => {
+            let trial_queue = PyTrialQueue {
+                queue: Arc::new(RwLock::new(
+                    rustuna_core::trial_queue::InMemoryTrialQueue::new(),
+                )),
+            };
+            let queue = trial_queue.queue.clone();
+            let py_trial_queue = Py::new(py, trial_queue)?.into_any();
+            Ok((queue, py_trial_queue))
+        }
+    }
+}
+
 #[pyfunction]
-#[pyo3(name = "create_study", signature = (*, study_name = None, storage = None, sampler = None, direction = None, directions = None, load_if_exists = false))]
+#[pyo3(name = "create_study", signature = (*, study_name = None, storage = None, sampler = None, direction = None, directions = None, load_if_exists = false, trial_queue = None))]
 pub fn py_create_study(
     study_name: Option<String>,
     storage: Option<Py<PyAny>>,
@@ -94,6 +120,7 @@ pub fn py_create_study(
     direction: Option<String>,
     directions: Option<Vec<String>>,
     load_if_exists: bool,
+    trial_queue: Option<PyTrialQueue>,
 ) -> PyResult<PyStudy> {
     let study_name = match study_name {
         Some(s) => s,
@@ -156,6 +183,15 @@ pub fn py_create_study(
             )
         }
     };
+    let (trial_queue_arc, trial_queue_pyobj) =
+        Python::attach(|py| into_trial_queue_pyobj(py, trial_queue))?;
+    let study = Study::with_queue(
+        study.id,
+        study.name,
+        study.directions,
+        study.storage,
+        trial_queue_arc,
+    );
     let is_multi_objective = study.directions.len() > 1;
     let (sampler_arc, sampler_pyobj): (Arc<Mutex<dyn Sampler>>, Py<PyAny>) = match sampler {
         Some(sampler_obj) => Python::attach(|py| {
@@ -193,15 +229,17 @@ pub fn py_create_study(
         sampler: sampler_arc,
         storage_pyobj,
         sampler_pyobj,
+        trial_queue_pyobj,
     })
 }
 
 #[pyfunction]
-#[pyo3(name = "load_study", signature = (study_name, storage, *, sampler = None))]
+#[pyo3(name = "load_study", signature = (study_name, storage, *, sampler = None, trial_queue = None))]
 pub fn py_load_study(
     study_name: String,
     storage: Py<PyAny>,
     sampler: Option<Py<PyAny>>,
+    trial_queue: Option<PyTrialQueue>,
 ) -> PyResult<PyStudy> {
     let storage_pyobj = Python::attach(|py| storage.clone_ref(py));
     let storage: PyResult<Arc<RwLock<dyn Storage>>> = Python::attach(|py| {
@@ -234,7 +272,9 @@ pub fn py_load_study(
         )))?;
     drop(guard);
     let is_multi_objective = directions.len() > 1;
-    let study = Study::new(study_id, study_name, directions, storage);
+    let (trial_queue_arc, trial_queue_pyobj) =
+        Python::attach(|py| into_trial_queue_pyobj(py, trial_queue))?;
+    let study = Study::with_queue(study_id, study_name, directions, storage, trial_queue_arc);
     let (sampler_arc, sampler_pyobj): (Arc<Mutex<dyn Sampler>>, Py<PyAny>) = match sampler {
         Some(sampler_obj) => Python::attach(|py| {
             let sampler_pyobj = sampler_obj.clone_ref(py);
@@ -271,6 +311,7 @@ pub fn py_load_study(
         sampler: sampler_arc,
         storage_pyobj,
         sampler_pyobj,
+        trial_queue_pyobj,
     })
 }
 
@@ -281,6 +322,7 @@ pub struct PyStudy {
     sampler: Arc<Mutex<dyn Sampler>>,
     storage_pyobj: Py<PyAny>,
     sampler_pyobj: Py<PyAny>,
+    trial_queue_pyobj: Py<PyAny>,
 }
 #[allow(non_local_definitions)]
 #[pymethods]
@@ -301,12 +343,22 @@ impl PyStudy {
         let sampler_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
             Ok(Py::new(py, sampler.clone())?.into_any())
         })?;
-        let study = Study::new(study_id, name, directions, storage.storage);
+        let trial_queue = PyTrialQueue {
+            queue: Arc::new(RwLock::new(
+                rustuna_core::trial_queue::InMemoryTrialQueue::new(),
+            )),
+        };
+        let trial_queue_arc = trial_queue.queue.clone();
+        let trial_queue_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
+            Ok(Py::new(py, trial_queue)?.into_any())
+        })?;
+        let study = Study::with_queue(study_id, name, directions, storage.storage, trial_queue_arc);
         Ok(PyStudy {
             study,
             sampler: sampler.sampler,
             storage_pyobj,
             sampler_pyobj,
+            trial_queue_pyobj,
         })
     }
 
@@ -438,13 +490,34 @@ impl PyStudy {
         ))
     }
 
-    pub fn add_trial(&mut self, trial: &Bound<'_, PyPersistedTrial>) -> PyResult<()> {
-        let persisted_trial = trial.borrow().with_trial(|t| Ok(t.clone()))?;
+    #[pyo3(signature = (params, user_attrs = None))]
+    pub fn enqueue_trial(
+        &mut self,
+        params: &Bound<'_, PyDict>,
+        user_attrs: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<()> {
+        let fixed_params = convert_pydict_to_fixed_params(params)?;
+        let user_attrs_opt = user_attrs
+            .map(|d| pyobj_to_attrs_with_kind(d.as_any(), AttrKind::User))
+            .transpose()?;
         self.study
-            .add_trial(persisted_trial)
+            .enqueue_trial(fixed_params, user_attrs_opt)
             .map_err(err_to_exceptions)?;
         Ok(())
     }
+
+    pub fn add_trial(&mut self, trial: &Bound<'_, PyPersistedTrial>) -> PyResult<()> {
+        // Extract the underlying PersistedTrial
+        let persisted_trial = trial.borrow().with_trial(|t| Ok(t.clone()))?;
+
+        // Call the core implementation
+        self.study
+            .add_trial(persisted_trial)
+            .map_err(err_to_exceptions)?;
+
+        Ok(())
+    }
+
     #[pyo3(signature = (key, value))]
     pub fn set_user_attr(&mut self, key: String, value: String) -> PyResult<()> {
         let mut attrs = rustuna_core::attr::Attrs::new();
@@ -463,7 +536,7 @@ impl PyStudy {
     }
 
     #[getter]
-    pub fn best_trial(&mut self) -> PyResult<PyPersistedTrial> {
+    pub fn best_trial(&self) -> PyResult<PyPersistedTrial> {
         let trial_number = get_best_trial(&self.study).map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to get the best trial: {:?}", e.kind))
         })?;
@@ -486,7 +559,7 @@ impl PyStudy {
     }
 
     #[getter(trials)]
-    pub fn py_trials(&mut self) -> PyResult<Vec<PyPersistedTrial>> {
+    pub fn py_trials(&self) -> PyResult<Vec<PyPersistedTrial>> {
         let mut guard = self
             .study
             .storage
@@ -504,7 +577,7 @@ impl PyStudy {
 
     #[pyo3(name = "get_trials", signature = (*, states = None))]
     pub fn py_get_trials(
-        &mut self,
+        &self,
         states: Option<Vec<PyTrialState>>,
     ) -> PyResult<Vec<PyPersistedTrial>> {
         let mut guard = self
@@ -530,7 +603,7 @@ impl PyStudy {
     }
 
     #[getter]
-    pub fn user_attrs(&mut self) -> PyResult<HashMap<String, String>> {
+    pub fn user_attrs(&self) -> PyResult<HashMap<String, String>> {
         let mut guard = self
             .study
             .storage
@@ -569,6 +642,11 @@ impl PyStudy {
     }
 
     #[getter]
+    pub fn trial_queue<'py>(&self, py: Python<'py>) -> Py<PyAny> {
+        self.trial_queue_pyobj.clone_ref(py)
+    }
+
+    #[getter]
     pub fn directions(&self) -> Vec<PyDirection> {
         self.study
             .directions
@@ -578,7 +656,7 @@ impl PyStudy {
     }
 
     #[getter]
-    pub fn best_trials(&mut self) -> PyResult<Vec<PyPersistedTrial>> {
+    pub fn best_trials(&self) -> PyResult<Vec<PyPersistedTrial>> {
         let pareto_front_numbers = get_pareto_front(&self.study).map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to get the pareto front: {:?}", e.kind))
         })?;

@@ -11,6 +11,7 @@ mod sampler;
 mod storage;
 mod study;
 mod trial;
+mod trial_queue;
 
 /// A Python module implemented in Rust.
 #[pymodule]
@@ -42,5 +43,7 @@ fn rustuna(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
         importance::py_get_param_importance_from_list,
         m
     )?)?;
+    // trial_queue
+    m.add_class::<trial_queue::PyTrialQueue>()?;
     Ok(())
 }

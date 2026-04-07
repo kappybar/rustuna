@@ -19,6 +19,7 @@ pub struct Trial {
     storage: Arc<RwLock<dyn Storage>>,
     sampler: Arc<Mutex<dyn Sampler>>,
     joint_params: HashMap<String, (Distribution, f64)>,
+    fixed_params: HashMap<String, CategoryLabel>,
     cached_trial: PersistedTrial,
 }
 impl Trial {
@@ -33,6 +34,7 @@ impl Trial {
         storage: Arc<RwLock<dyn Storage>>,
         sampler: Arc<Mutex<dyn Sampler>>,
         joint_params: HashMap<String, (Distribution, f64)>,
+        fixed_params: HashMap<String, CategoryLabel>,
     ) -> Self {
         let mut cached_trial = PersistedTrial::new(trial_id, study_id, number);
         cached_trial.datetime_start = datetime_start.clone();
@@ -47,11 +49,61 @@ impl Trial {
             storage,
             sampler,
             joint_params,
+            fixed_params,
             cached_trial,
         }
     }
 
     pub fn suggest(&mut self, name: &str, distribution: &Distribution) -> Result<f64> {
+        if let Some(fixed_value) = self.fixed_params.get(name) {
+            let result = if let Distribution::Categorical { cardinality } = distribution {
+                // CategoricalDistribution
+                let mut storage_guard = self
+                    .storage
+                    .write()
+                    .map_err(|_| Error::new(ErrorKind::StorageError))?;
+                let labels =
+                    storage_guard.get_category_labels(self.study_id, name, *cardinality)?;
+                drop(storage_guard);
+
+                labels.and_then(|labels| {
+                    labels
+                        .iter()
+                        .position(|l| l == fixed_value)
+                        .map(|index| index as f64)
+                })
+            } else {
+                // IntDistribution and FloatDistribution
+                // Note: step and log validation are intentionally omitted, matching Optuna's behavior.
+                match (fixed_value, distribution) {
+                    (CategoryLabel::Float(f), Distribution::Float { .. }) => Some(*f),
+                    (CategoryLabel::Int(i), Distribution::Float { .. }) => Some(*i as f64),
+                    (CategoryLabel::Int(i), Distribution::Int { .. }) => Some(*i as f64),
+                    (CategoryLabel::Float(f), Distribution::Int { .. }) => Some(*f as i64 as f64),
+                    _ => None,
+                }
+                .filter(|&v| distribution.contains(v))
+            };
+
+            if let Some(internal_value) = result {
+                let mut storage_guard = self
+                    .storage
+                    .write()
+                    .map_err(|_| Error::new(ErrorKind::StorageError))?;
+                storage_guard.set_trial_param(self.id, name, distribution, internal_value)?;
+                drop(storage_guard);
+
+                self.cached_trial
+                    .internal_params
+                    .insert(name.to_string(), internal_value);
+                self.cached_trial
+                    .distributions
+                    .insert(name.to_string(), distribution.clone());
+
+                return Ok(internal_value);
+            }
+        }
+
         if let Some((d, val)) = self.joint_params.get(name) {
             if *d == *distribution {
                 let param_value = *val;
@@ -128,15 +180,17 @@ impl Trial {
     ) -> Result<&'a CategoryLabel> {
         let study_id = self.study_id;
         let storage = self.storage.clone();
-        let c = self.suggest_categorical(name, choices)?;
 
-        // TODO(c-bata): Avoid to overwrite the labels multiple times.
-        // Save labels in the study system attr.
+        // Save labels in the study system attr before calling suggest(),
+        // so that fixed_params can look up category labels during suggest().
         let category_labels = category_labels_to_attrs(name, choices);
         let mut guard = storage
             .write()
             .map_err(|_| Error::new(ErrorKind::Unexpected))?;
         guard.set_study_attrs(study_id, category_labels, false)?;
+        drop(guard);
+
+        let c = self.suggest_categorical(name, choices)?;
         Ok(c)
     }
 
@@ -288,6 +342,100 @@ mod tests {
     use crate::sampler::RandomSampler;
     use crate::storage::InMemoryStorage;
     use crate::study::create_study_with_arc;
+
+    #[test]
+    fn test_enqueue_and_suggest_float() -> Result<()> {
+        let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
+        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
+        let directions = vec![Direction::Minimize];
+        let mut study = create_study_with_arc("dummy", storage.clone(), directions)?;
+
+        let mut params = HashMap::new();
+        params.insert("x".to_string(), CategoryLabel::Float(5.0));
+        study.enqueue_trial(params, None)?;
+
+        let mut trial = study.ask(sampler.clone())?;
+        let value = trial.suggest_float("x", 0.0, 10.0)?;
+        assert_eq!(value, 5.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_enqueue_and_suggest_int() -> Result<()> {
+        let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
+        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
+        let directions = vec![Direction::Minimize];
+        let mut study = create_study_with_arc("dummy", storage.clone(), directions)?;
+
+        let mut params = HashMap::new();
+        params.insert("x".to_string(), CategoryLabel::Int(7));
+        study.enqueue_trial(params, None)?;
+
+        let mut trial = study.ask(sampler.clone())?;
+        let value = trial.suggest_int("x", 0, 10)?;
+        assert_eq!(value, 7);
+        Ok(())
+    }
+
+    #[test]
+    fn test_enqueue_fallback_on_out_of_range() -> Result<()> {
+        let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
+        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
+        let directions = vec![Direction::Minimize];
+        let mut study = create_study_with_arc("dummy", storage.clone(), directions)?;
+
+        let mut params = HashMap::new();
+        params.insert("x".to_string(), CategoryLabel::Float(100.0));
+        study.enqueue_trial(params, None)?;
+
+        let mut trial = study.ask(sampler.clone())?;
+        let value = trial.suggest_float("x", 0.0, 10.0)?;
+        assert!((0.0..=10.0).contains(&value));
+        Ok(())
+    }
+
+    #[test]
+    fn test_enqueue_mixed_with_normal_ask() -> Result<()> {
+        let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
+        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
+        let directions = vec![Direction::Minimize];
+        let mut study = create_study_with_arc("dummy", storage.clone(), directions)?;
+
+        let mut params = HashMap::new();
+        params.insert("x".to_string(), CategoryLabel::Float(5.0));
+        study.enqueue_trial(params, None)?;
+
+        // First ask should use enqueued trial
+        let mut trial1 = study.ask(sampler.clone())?;
+        assert_eq!(trial1.suggest_float("x", 0.0, 10.0)?, 5.0);
+
+        // Second ask should create a new trial (sampled)
+        let mut trial2 = study.ask(sampler.clone())?;
+        let value = trial2.suggest_float("x", 0.0, 10.0)?;
+        assert!((0.0..=10.0).contains(&value));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_enqueue_unspecified_param_sampled() -> Result<()> {
+        let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
+        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
+        let directions = vec![Direction::Minimize];
+        let mut study = create_study_with_arc("dummy", storage.clone(), directions)?;
+
+        let mut params = HashMap::new();
+        params.insert("x".to_string(), CategoryLabel::Float(5.0));
+        study.enqueue_trial(params, None)?;
+
+        let mut trial = study.ask(sampler.clone())?;
+        assert_eq!(trial.suggest_float("x", 0.0, 10.0)?, 5.0);
+        // "y" is not in fixed_params, so it should be sampled
+        let y = trial.suggest_float("y", 0.0, 10.0)?;
+        assert!((0.0..=10.0).contains(&y));
+
+        Ok(())
+    }
 
     #[test]
     fn test_trial_user_attr() -> Result<()> {
