@@ -273,6 +273,17 @@ def test_suggest_categorical():
     study.optimize(objective, n_trials=10)
 
 
+def test_integer_objective_value():
+    study = rustuna.create_study()
+
+    def objective(trial):
+        x = trial.suggest_int("x", 0, 10)
+
+        return x
+
+    study.optimize(objective, n_trials=10)
+
+
 def test_fanova():
     study = rustuna.create_study()
 
