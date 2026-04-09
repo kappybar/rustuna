@@ -358,7 +358,7 @@ class Study:
     def tell(
         self,
         number: int,
-        values: float | Sequence[float] | None = None,
+        values: int | float | Sequence[int | float] | None = None,
         state: TrialState | None = None,
     ) -> PersistedTrial:
         """Finish a trial created with :func:`~Study.ask`.
@@ -1028,10 +1028,3 @@ class TrialQueue:
         Raises:
             Exception: If the queue is empty.
         """
-
-# Private APIs for rustuna.optuna package.
-def _get_param_importance_from_list(
-    features: list[list[float]],
-    targets: list[float],
-    n_trees: int,
-) -> list[float]: ...

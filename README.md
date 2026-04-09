@@ -29,44 +29,6 @@ study.optimize(objective, n_trials=1000)
 print(study.best_trial)
 ```
 
-<details>
-<summary>Optuna compatible interfaces</summary>
-
-Though Rustuna offers Optuna-like APIs, full compatibility with Optuna isn't guaranteed.
-Nevertheless, the `rustuna.optuna` subpackage provides an Optuna compatible interface.
-The following code is an example of calculating the importance of hyperparameters with Rustuna.
-
-```python
-import optuna
-from rustuna.optuna.importance import FanovaImportanceEvaluator
-
-
-def objective(trial: optuna.Trial) -> float:
-    ...
-
-storage = optuna.storages.InMemoryStorage()
-sampler = optuna.samplers.TPESampler()
-study = optuna.create_study(sampler=sampler, storage=storage)
-
-importance = optuna.importance.get_param_importances(
-    study, evaluator=FanovaImportanceEvaluator()
-)
-print(importance)
-```
-
-We also offer a monkey patch for users who wish to speed up programs while preserving the original code.
-Despite Rustuna being in its early development stages, if unforeseeable circumstances arise halting its development, you can easily revert back to Optuna simply by removing this code.
-
-```python
-from rustuna.optuna import monkey
-monkey.patch_all()  # Replace optuna's fanova with rustuna's fanova
-
-from optuna.importance import FanovaImportanceEvaluator
-...
-```
-
-</details>
-
 ### JavaScript
 
 ```
