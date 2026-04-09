@@ -1028,10 +1028,3 @@ class TrialQueue:
         Raises:
             Exception: If the queue is empty.
         """
-
-# Private APIs for rustuna.optuna package.
-def _get_param_importance_from_list(
-    features: list[list[float]],
-    targets: list[float],
-    n_trees: int,
-) -> list[float]: ...
