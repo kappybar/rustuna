@@ -616,17 +616,17 @@ impl PyStudy {
         Ok(user_attrs)
     }
 
-    #[getter]
+    #[getter(_study_id)]
     pub fn id(&self) -> u32 {
         self.study.id
     }
 
-    #[getter]
+    #[getter(study_name)]
     pub fn name(&self) -> &str {
         &self.study.name
     }
 
-    #[getter]
+    #[getter(_storage)]
     pub fn storage<'py>(&self, py: Python<'py>) -> Py<PyAny> {
         self.storage_pyobj.clone_ref(py)
     }

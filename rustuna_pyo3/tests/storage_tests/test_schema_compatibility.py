@@ -124,8 +124,8 @@ def test_rustuna_api_resume_with_compat_storage(
         # TODO: Uncomment following line to align Rustuna Study to Optuna behavior.
         # assert len(first_study.trials) == len(second_study.trials) == 20
         assert (
-            len(first_storage.get_trials(study_id=first_study.id))
-            == len(second_storage.get_trials(study_id=first_study.id))
+            len(first_storage.get_trials(study_id=first_study._study_id))
+            == len(second_storage.get_trials(study_id=first_study._study_id))
             == 20
         )
 
