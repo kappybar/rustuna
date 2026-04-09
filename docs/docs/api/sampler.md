@@ -1,4 +1,4 @@
-# Samplers API
+# Sampler API
 
 ::: rustuna.Sampler
 
