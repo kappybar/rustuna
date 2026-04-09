@@ -169,13 +169,30 @@ impl PyTrial {
     }
     #[pyo3(signature = (key, value))]
     pub fn set_user_attr(&mut self, key: &str, value: String) -> PyResult<()> {
-        let mut cache = self.cached_user_attrs.write().map_err(|_| {
-            PyRuntimeError::new_err("Failed to acquire write lock for cached_user_attrs")
-        })?;
         self.trial.set_user_attr(key, value.clone()).map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to set user attr: {:?}", e.kind))
         })?;
+
+        let mut cache = self.cached_user_attrs.write().map_err(|_| {
+            PyRuntimeError::new_err("Failed to acquire write lock for cached_user_attrs")
+        })?;
         cache.insert(key.to_string(), value);
+        Ok(())
+    }
+
+    fn set_user_attrs(&mut self, attrs: Py<PyAny>) -> PyResult<()> {
+        let user_attrs: HashMap<String, String> = Python::attach(|py| attrs.bind(py).extract())?;
+
+        self.trial.set_user_attrs(user_attrs.clone()).map_err(|e| {
+            PyRuntimeError::new_err(format!("Failed to set user attrs: {:?}", e.kind))
+        })?;
+
+        let mut cache = self.cached_user_attrs.write().map_err(|e| {
+            PyRuntimeError::new_err(format!(
+                "Failed to acquire write lock for cached_user_attrs: {e:?}"
+            ))
+        })?;
+        cache.extend(user_attrs);
         Ok(())
     }
 

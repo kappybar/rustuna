@@ -228,6 +228,26 @@ impl Trial {
         self.cached_trial.attrs.insert(key, value);
         Ok(())
     }
+
+    pub fn set_user_attrs(&mut self, user_attrs: HashMap<String, String>) -> Result<()> {
+        let mut attrs = Attrs::with_capacity(user_attrs.len());
+        for (key, value) in &user_attrs {
+            attrs.insert(AttrKey::User(key.as_str().into()), value.clone());
+        }
+        let mut guard = self
+            .storage
+            .write()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
+        guard.set_trial_attrs(self.id, attrs, false)?;
+        drop(guard);
+
+        for (key, value) in user_attrs {
+            self.cached_trial
+                .attrs
+                .insert(AttrKey::User(key.into()), value);
+        }
+        Ok(())
+    }
 }
 
 /// PersistedTrial is a struct that represents a trial that has been persisted to storage.

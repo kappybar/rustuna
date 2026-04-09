@@ -52,8 +52,10 @@ def test_optimize():
         assert -5.0 <= x <= 5.0
         assert 0 <= y <= 10
         assert z in ["foo", "bar"]
-        trial.set_user_attr("key", "value")
-        assert trial.user_attrs == {"key": "value"}
+        trial.set_user_attr("key1", "value1")
+        assert trial.user_attrs == {"key1": "value1"}
+        trial.set_user_attrs({"key1": "updated", "key2": "value2"})
+        assert trial.user_attrs == {"key1": "updated", "key2": "value2"}
         return x * 2 + y
 
     study.optimize(objective, n_trials=10)
@@ -168,8 +170,10 @@ def test_study():
 
     assert study.study_name == "example"
 
-    study.set_user_attr("key", "value")
-    assert study.user_attrs == {"key": "value"}
+    study.set_user_attr("key1", "value1")
+    assert study.user_attrs == {"key1": "value1"}
+    study.set_user_attrs({"key1": "updated", "key2": "value2"})
+    assert study.user_attrs == {"key1": "updated", "key2": "value2"}
 
     assert len(study._storage.get_studies()) == 1
 
