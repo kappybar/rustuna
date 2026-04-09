@@ -46,6 +46,7 @@ nav:
       - rustuna.Distribution: api/distribution.md
 
 markdown_extensions:
+  - attr_list
   - admonition
   - pymdownx.arithmatex:
       generic: true
@@ -62,4 +63,3 @@ markdown_extensions:
 extra_javascript:
   - javascripts/mathjax.js
   - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
-  - attr_list
