@@ -54,3 +54,4 @@ markdown_extensions:
       alternate_style: true
   - toc:
       permalink: true
+  - attr_list
