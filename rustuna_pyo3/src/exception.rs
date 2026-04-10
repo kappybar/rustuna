@@ -17,7 +17,11 @@ pub fn err_to_exceptions(e: rustuna_core::Error) -> PyErr {
             exceptions::UpdateFinishedTrialError::new_err("Trial already finished")
         }
         rustuna_core::ErrorKind::StorageError => {
-            exceptions::StorageInternalError::new_err("storage internal error")
+            exceptions::StorageInternalError::new_err(if e.reason.is_empty() {
+                "storage internal error".to_string()
+            } else {
+                format!("storage internal error: {}", e.reason)
+            })
         }
         rustuna_core::ErrorKind::DuplicatedStudy => {
             exceptions::DuplicatedStudyError::new_err("Duplicate study name")
