@@ -176,9 +176,21 @@ class Trial:
     def set_user_attr(self, key: str, value: str) -> None:
         """Set a user attribute to the trial.
 
+        .. note::
+            Unlike Optuna, Rustuna accepts only str values for user attributes.
+
         Args:
             key: A key string of the attribute.
             value: A value of the attribute. The value should be JSON serializable.
+        """
+    def set_user_attrs(self, attrs: dict[str, str]) -> None:
+        """Set user attributes to the trial.
+
+        .. note::
+            Unlike Optuna, Rustuna accepts only str values for user attributes.
+
+        Args:
+            attrs: A dictionary object.
         """
 
 class AttrsDictView(Mapping[str, str]):
@@ -410,7 +422,7 @@ class Study:
         key: str,
         value: str,
     ) -> None:
-        """Set user attributes to the study.
+        """Set a user attribute to the study.
 
         .. note::
             Unlike Optuna, Rustuna accepts only str values for user attributes.
@@ -424,13 +436,34 @@ class Study:
 
                 import rustuna
 
-                def objective(trial):
-                    x = trial.suggest_float("x", 0, 1)
-                    y = trial.suggest_float("y", 0, 1)
-                    return x**2 + y**2
-
                 study = rustuna.create_study()
                 study.set_user_attr("objective function", "quadratic function")
+
+                assert study.user_attrs == {
+                    "objective function": "quadratic function",
+                }
+        """
+    def set_user_attrs(
+        self,
+        attrs: dict[str, str],
+    ) -> None:
+        """Set user attributes to the study.
+
+        .. note::
+            Unlike Optuna, Rustuna accepts only str values for user attributes.
+
+        Args:
+            attrs: A dictionary object.
+
+        Example:
+            .. code-block:: python
+
+                import rustuna
+
+                study = rustuna.create_study()
+                study.set_user_attrs({
+                    "objective function", "quadratic function"
+                })
 
                 assert study.user_attrs == {
                     "objective function": "quadratic function",

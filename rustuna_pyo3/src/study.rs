@@ -517,16 +517,26 @@ impl PyStudy {
     pub fn set_user_attr(&self, key: String, value: String) -> PyResult<()> {
         let mut attrs = rustuna_core::attr::Attrs::new();
         attrs.insert(AttrKey::User(key.into()), value);
-        let mut guard = self
-            .study
-            .storage
-            .write()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+        let mut guard = self.study.storage.write().map_err(|e| {
+            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
+        })?;
         guard
             .set_study_attrs(self.study.id, attrs, false)
-            .map_err(|e| {
-                PyRuntimeError::new_err(format!("Failed to set user attrs: {:?}", e.kind))
-            })?;
+            .map_err(err_to_exceptions)?;
+        Ok(())
+    }
+
+    fn set_user_attrs(&mut self, attrs: Py<PyAny>) -> PyResult<()> {
+        let user_attrs = Python::attach(|py| {
+            let attrs = attrs.bind(py);
+            pyobj_to_attrs_with_kind(attrs, AttrKind::User)
+        })?;
+        let mut guard = self.study.storage.write().map_err(|e| {
+            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
+        })?;
+        guard
+            .set_study_attrs(self.study.id, user_attrs, false)
+            .map_err(err_to_exceptions)?;
         Ok(())
     }
 
