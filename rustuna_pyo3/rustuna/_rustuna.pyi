@@ -227,11 +227,9 @@ class TrialState(enum.IntEnum):
 class PersistedTrial:
     """Status and results of a Trial.
 
-    This object has the same methods as :class:`Trial`, but is not associated with,
-    nor has any references to a :class:`Study`.
-
     Attributes:
         number: Unique and consecutive number of Trial for each Study.
+        study_id: An associated study's id.
         state: TrialState of the Trial.
         values: Sequence of objective values of the Trial.
         value: An objective value of the Trial (only available when single objective optimization).
@@ -258,8 +256,6 @@ class PersistedTrial:
         datetime_start: datetime.datetime | None = None,
         datetime_complete: datetime.datetime | None = None,
     ) -> None: ...
-    @property
-    def id(self) -> int: ...
     @property
     def _trial_id(self) -> int: ...
     @property
