@@ -364,14 +364,16 @@ impl rustuna_core::storage::Storage for CachedStorage {
     }
 
     fn get_study(&mut self, study_id: u32) -> Result<&PersistedStudy> {
-        let loaded = self.backend.get_studies()?;
-        self.studies = loaded;
-        let study = self
-            .studies
+        let loaded = self.backend.get_study(study_id)?;
+        if let Some(study) = self.studies.iter_mut().find(|s| s.id == study_id) {
+            *study = loaded;
+        } else {
+            self.studies.push(loaded);
+        }
+        self.studies
             .iter()
             .find(|s| s.id == study_id)
-            .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))?;
-        Ok(study)
+            .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))
     }
 
     fn get_trials(&mut self, study_id: u32) -> Result<&Vec<PersistedTrial>> {
