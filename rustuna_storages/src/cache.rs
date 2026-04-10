@@ -159,6 +159,13 @@ impl CachedStorage {
             .insert(trial_id, (study_id, trial_number));
         Ok((study_id, trial_number))
     }
+
+    fn is_trial_finished_in_cache(&self, study_id: u32, trial_number: u32) -> bool {
+        self.trials
+            .get(&study_id)
+            .and_then(|trials| trials.get(&trial_number))
+            .is_some_and(|trial| trial.is_finished())
+    }
 }
 
 impl rustuna_core::storage::Storage for CachedStorage {
@@ -265,6 +272,9 @@ impl rustuna_core::storage::Storage for CachedStorage {
         value: f64,
     ) -> Result<()> {
         let (study_id, trial_number) = self.resolve_trial_location(trial_id)?;
+        if self.is_trial_finished_in_cache(study_id, trial_number) {
+            return Err(Error::new(ErrorKind::TrialAlreadyFinished));
+        }
         self.refresh_trials(study_id)?;
         if let Some(trials) = self.trials.get(&study_id) {
             if let Some(trial) = trials.get(&trial_number) {
@@ -354,14 +364,16 @@ impl rustuna_core::storage::Storage for CachedStorage {
     }
 
     fn get_study(&mut self, study_id: u32) -> Result<&PersistedStudy> {
-        let loaded = self.backend.get_studies()?;
-        self.studies = loaded;
-        let study = self
-            .studies
+        let loaded = self.backend.get_study(study_id)?;
+        if let Some(study) = self.studies.iter_mut().find(|s| s.id == study_id) {
+            *study = loaded;
+        } else {
+            self.studies.push(loaded);
+        }
+        self.studies
             .iter()
             .find(|s| s.id == study_id)
-            .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))?;
-        Ok(study)
+            .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))
     }
 
     fn get_trials(&mut self, study_id: u32) -> Result<&Vec<PersistedTrial>> {
@@ -382,8 +394,10 @@ impl rustuna_core::storage::Storage for CachedStorage {
     }
 
     fn get_trial(&mut self, trial_id: u32) -> Result<&PersistedTrial> {
-        let (study_id, _number) = self.resolve_trial_location(trial_id)?;
-        self.refresh_trials(study_id)?;
+        let (study_id, trial_number) = self.resolve_trial_location(trial_id)?;
+        if !self.is_trial_finished_in_cache(study_id, trial_number) {
+            self.refresh_trials(study_id)?;
+        }
         self.get_cached_trial(trial_id)
     }
 
@@ -477,6 +491,9 @@ impl rustuna_core::storage::Storage for CachedStorage {
         error_on_overwrite: bool,
     ) -> Result<()> {
         let (study_id, trial_number) = self.resolve_trial_location(trial_id)?;
+        if self.is_trial_finished_in_cache(study_id, trial_number) {
+            return Err(Error::new(ErrorKind::TrialAlreadyFinished));
+        }
         self.refresh_trials(study_id)?;
         {
             let trials = self
