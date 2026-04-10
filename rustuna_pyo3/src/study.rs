@@ -550,9 +550,7 @@ impl PyStudy {
     ) -> PyResult<Py<PyAny>> {
         let result = {
             let mut guard = self.study.storage.write().map_err(|e| {
-                PyRuntimeError::new_err(format!(
-                    "Failed to acquire the storage guard: {e:?}"
-                ))
+                PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
             })?;
             guard.get_study_attr(self.study.id, AttrKey::User(key.into()))
         };
@@ -566,7 +564,10 @@ impl PyStudy {
                     Ok(PyString::new(py, &value).into_any().unbind())
                 }
             }
-            Err(_) => Ok(default.unwrap_or_else(|| py.None())),
+            Err(e) if matches!(e.kind, ErrorKind::AttrNotFound) => {
+                Ok(default.unwrap_or_else(|| py.None()))
+            }
+            Err(e) => Err(err_to_exceptions(e)),
         }
     }
 

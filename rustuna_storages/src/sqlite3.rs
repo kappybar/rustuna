@@ -836,7 +836,7 @@ impl CachedStorageBackend for SQLite3Storage {
                     format!("Database query failed: {e}"),
                 )
             })?
-            .ok_or(Error::new(ErrorKind::StorageError))
+            .ok_or(Error::new(ErrorKind::AttrNotFound))
     }
 
     fn get_trial_attr(
@@ -862,7 +862,7 @@ impl CachedStorageBackend for SQLite3Storage {
                     format!("Database query failed: {e}"),
                 )
             })?
-            .ok_or(Error::new(ErrorKind::StorageError))
+            .ok_or(Error::new(ErrorKind::AttrNotFound))
     }
 
     fn set_study_attrs(

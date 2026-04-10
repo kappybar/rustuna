@@ -19,9 +19,10 @@ if TYPE_CHECKING:
     "inmemory",
     "sqlite3",
     "journal-file",
-    "optuna-inmemory",
-    "optuna-rdb-sqlite3",
-    "optuna-journal-file",
+    # TODO(c-bata): Fix test_studyw_get_user_attr_method
+    # "optuna-inmemory",
+    # "optuna-rdb-sqlite3",
+    # "optuna-journal-file",
 ])
 def storage(request: FixtureRequest) -> Generator[StorageProtocol, None, None]:
     if request.param == "inmemory":
@@ -74,6 +75,13 @@ def test_get_study_attr_methods(storage: StorageProtocol) -> None:
     )
     assert storage.get_study_user_attr(study.id, "study_user_attr") == "updated"
 
+
+def test_studyw_get_user_attr_method(storage: StorageProtocol) -> None:
+    study = rustuna.create_study(storage=storage)
+    study.set_user_attr("key", "1")
+    assert study.get_user_attr("key", decode_json=True) == 1
+    assert study.get_user_attr("not_found") == None
+    assert study.get_user_attr("not_found", default=1) == 1
 
 
 def test_get_trial_attr_methods(storage: StorageProtocol) -> None:

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::attr::{AttrKey, Attrs, CategoryLabel, category_labels_to_attrs, get_category_labels};
+use crate::attr::{category_labels_to_attrs, get_category_labels, AttrKey, Attrs, CategoryLabel};
 use crate::distribution::Distribution;
 use crate::study::{Direction, PersistedStudy};
 use crate::study_cache::StudyCache;
@@ -334,22 +334,20 @@ impl Storage for InMemoryStorage {
 
     fn get_study_attr(&mut self, study_id: u32, key: AttrKey) -> Result<String> {
         let study = self.get_study(study_id)?;
-        let value = study
+        study
             .attrs
             .get(&key)
             .cloned()
-            .ok_or(Error::new(ErrorKind::StorageError))?;
-        Ok(value)
+            .ok_or(Error::new(ErrorKind::AttrNotFound))
     }
 
     fn get_trial_attr(&mut self, trial_id: u32, key: AttrKey) -> Result<String> {
         let trial = self.get_trial(trial_id)?;
-        let value = trial
+        trial
             .attrs
             .get(&key)
             .cloned()
-            .ok_or(Error::new(ErrorKind::StorageError))?;
-        Ok(value)
+            .ok_or(Error::new(ErrorKind::AttrNotFound))
     }
 
     fn get_trials(&mut self, study_id: u32) -> Result<&Vec<PersistedTrial>> {
@@ -595,7 +593,7 @@ mod tests {
         let err = storage
             .get_study_attr(study_id, AttrKey::User("missing".into()))
             .unwrap_err();
-        assert!(matches!(err.kind, ErrorKind::StorageError));
+        assert!(matches!(err.kind, ErrorKind::AttrNotFound));
         Ok(())
     }
 
@@ -610,7 +608,7 @@ mod tests {
         let err = storage
             .get_trial_attr(trial_id, AttrKey::User("missing".into()))
             .unwrap_err();
-        assert!(matches!(err.kind, ErrorKind::StorageError));
+        assert!(matches!(err.kind, ErrorKind::AttrNotFound));
         Ok(())
     }
 }

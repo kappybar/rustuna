@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use rustuna_core::attr::{category_labels_to_attrs, get_category_labels, Attrs, AttrKey, CategoryLabel};
+use rustuna_core::attr::{
+    category_labels_to_attrs, get_category_labels, AttrKey, Attrs, CategoryLabel,
+};
 use rustuna_core::distribution::Distribution;
 use rustuna_core::study::{Direction, PersistedStudy};
 use rustuna_core::study_cache::StudyCache;
@@ -413,7 +415,7 @@ impl rustuna_core::storage::Storage for CachedStorage {
                 .attrs
                 .get(&key)
                 .cloned()
-                .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))
+                .ok_or_else(|| Error::new(ErrorKind::AttrNotFound))
         } else {
             self.backend.get_trial_attr(trial_id, key)
         }

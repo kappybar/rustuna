@@ -12,6 +12,7 @@ pub fn err_to_exceptions(e: rustuna_core::Error) -> PyErr {
     match e.kind {
         rustuna_core::ErrorKind::TrialNotFound => PyKeyError::new_err("Trial not found"),
         rustuna_core::ErrorKind::StudyNotFound => PyKeyError::new_err("Study not found"),
+        rustuna_core::ErrorKind::AttrNotFound => PyKeyError::new_err("Attribute not found"),
         rustuna_core::ErrorKind::TrialAlreadyFinished => {
             exceptions::UpdateFinishedTrialError::new_err("Trial already finished")
         }

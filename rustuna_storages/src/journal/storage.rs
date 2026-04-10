@@ -467,7 +467,7 @@ impl Storage for JournalStorage {
             .attrs
             .get(&key)
             .cloned()
-            .ok_or(Error::new(ErrorKind::StorageError))
+            .ok_or(Error::new(ErrorKind::AttrNotFound))
     }
 
     fn get_trial_attr(&mut self, trial_id: u32, key: AttrKey) -> Result<String> {
@@ -476,7 +476,7 @@ impl Storage for JournalStorage {
             .attrs
             .get(&key)
             .cloned()
-            .ok_or(Error::new(ErrorKind::StorageError))
+            .ok_or(Error::new(ErrorKind::AttrNotFound))
     }
 
     fn get_cached_trial(&self, trial_id: u32) -> Result<&PersistedTrial> {
@@ -2300,16 +2300,16 @@ mod tests {
             .id;
 
         let mut template = PersistedTrial::new(100, study_id, 0);
-        template.attrs.insert(
-            AttrKey::User("plain".into()),
-            "abc.json".to_string(),
-        );
-        template.attrs.insert(
-            AttrKey::User("json".into()),
-            "\"abc.json\"".to_string(),
-        );
+        template
+            .attrs
+            .insert(AttrKey::User("plain".into()), "abc.json".to_string());
+        template
+            .attrs
+            .insert(AttrKey::User("json".into()), "\"abc.json\"".to_string());
 
-        let trial_id = storage.create_new_trial_from_template(study_id, &template)?.id;
+        let trial_id = storage
+            .create_new_trial_from_template(study_id, &template)?
+            .id;
         let trial = storage.get_trial(trial_id)?;
 
         assert_eq!(
