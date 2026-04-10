@@ -5,7 +5,9 @@ from typing import TYPE_CHECKING
 import pytest
 from pytest import FixtureRequest
 
+import optuna
 import rustuna
+from rustuna.converter._storage import ToRustunaStorage
 
 
 if TYPE_CHECKING:
@@ -13,15 +15,36 @@ if TYPE_CHECKING:
     from rustuna import StorageProtocol
 
 
-@pytest.fixture(params=["in_memory", "sqlite3", "journal-file"])
+@pytest.fixture(params=[
+    "inmemory",
+    "sqlite3",
+    "journal-file",
+    "optuna-inmemory",
+    "optuna-rdb-sqlite3",
+    "optuna-journal-file",
+])
 def storage(request: FixtureRequest) -> Generator[StorageProtocol, None, None]:
-    if request.param == "in_memory":
+    if request.param == "inmemory":
         yield rustuna.Storage.in_memory()
+        return
+    if request.param == "optuna-inmemory":
+        yield ToRustunaStorage(optuna.storages.InMemoryStorage())
+        return
+    if request.param == "optuna-rdb-sqlite3":
+        yield ToRustunaStorage(optuna.storages.RDBStorage("sqlite://"))
+        return
 
     with tempfile.TemporaryDirectory() as workdir:
         if request.param == "sqlite3":
             file_path = f"{workdir}/test.db"
             yield rustuna.Storage.sqlite3(file_path, create_database=True)
+        elif request.param == "optuna-journal-file":
+            file_path = f"{workdir}/test.journal"
+            yield ToRustunaStorage(
+                optuna.storages.JournalStorage(
+                    optuna.storages.journal.JournalFileBackend(file_path)
+                )
+            )
         else:
             file_path = f"{workdir}/test.journal"
             yield rustuna.Storage.journal_file(file_path)

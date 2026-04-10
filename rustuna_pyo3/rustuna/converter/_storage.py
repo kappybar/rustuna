@@ -152,6 +152,24 @@ class ToRustunaStorage:
         for key, value in attrs.items():
             self._storage.set_trial_user_attr(trial_id, key, value)
 
+    def get_study_user_attr(self, study_id: int, key: str) -> str:
+        value = self._storage.get_study_user_attrs(study_id)[key]
+        return json.dumps(value) if not isinstance(value, str) else value
+
+    def get_study_system_attr(self, study_id: int, key: str) -> str:
+        value = self._storage.get_study_system_attrs(study_id)[key]
+        return json.dumps(value) if not isinstance(value, str) else value
+
+    def get_trial_user_attr(self, trial_id: int, key: str) -> str:
+        trial = self._storage.get_trial(trial_id)
+        value = trial.user_attrs[key]
+        return json.dumps(value) if not isinstance(value, str) else value
+
+    def get_trial_system_attr(self, trial_id: int, key: str) -> str:
+        trial = self._storage.get_trial(trial_id)
+        value = trial.system_attrs[key]
+        return json.dumps(value) if not isinstance(value, str) else value
+
     def set_category_labels(
         self,
         study_id: int,
