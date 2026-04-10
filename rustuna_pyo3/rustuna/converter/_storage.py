@@ -255,7 +255,7 @@ class ToOptunaStorage(BaseStorage):
                     )
             persisted_trial_template = to_persisted_trial(template_trial, study_id)
         trial = self._storage.create_new_trial(study_id, persisted_trial_template)
-        return trial.id
+        return trial._trial_id
 
     def set_trial_param(
         self,
@@ -338,13 +338,13 @@ class ToOptunaStorage(BaseStorage):
         for t in rustuna_trials:
             if rustuna_states is not None and t.state not in rustuna_states:
                 continue
-            cached = self._trial_cache.get(t.id)
+            cached = self._trial_cache.get(t._trial_id)
             if cached is not None:
                 trials.append(cached)
             else:
                 frozen = FrozenTrialLike(t)
                 if t.state.is_finished():
-                    self._trial_cache[t.id] = frozen
+                    self._trial_cache[t._trial_id] = frozen
                 trials.append(frozen)
         if deepcopy:
             return copy.deepcopy(trials)
