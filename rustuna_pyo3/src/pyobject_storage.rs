@@ -540,6 +540,16 @@ impl Storage for PyObjectStorage {
         self.cache.get_trial(trial_id)
     }
 
+    fn get_study_attr(&mut self, study_id: u32, key: AttrKey) -> rustuna_core::Result<String> {
+        self.sync_study_from_id(study_id, true)?;
+        self.cache.get_study_attr(study_id, key)
+    }
+    
+    fn get_trial_attr(&mut self, trial_id: u32, key: AttrKey) -> rustuna_core::Result<String> {
+        self.sync_all_trials()?;
+        self.cache.get_trial_attr(trial_id, key)
+    }
+
     fn get_cached_trial(
         &self,
         trial_id: u32,
