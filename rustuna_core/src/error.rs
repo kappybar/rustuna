@@ -51,6 +51,7 @@ pub enum ErrorKind {
     DuplicatedStudy,
     StudyNotFound,
     TrialNotFound,
+    AttrNotFound,
     TrialQueueEmpty,
     AttrOverwriteNotAllowed,
     InvalidObjectiveValues,

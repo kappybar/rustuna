@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyFloat, PyInt, PyIterator, PyType};
+use pyo3::types::{PyDict, PyFloat, PyInt, PyIterator, PyString, PyType};
 use pyo3::{PyTypeInfo, Python};
 
 use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
@@ -538,6 +538,35 @@ impl PyStudy {
             .set_study_attrs(self.study.id, user_attrs, false)
             .map_err(err_to_exceptions)?;
         Ok(())
+    }
+
+    #[pyo3(name = "get_user_attr", signature = (key, *, decoder = None, default = None))]
+    pub fn get_user_attr<'py>(
+        &self,
+        py: Python<'py>,
+        key: String,
+        decoder: Option<Py<PyAny>>,
+        default: Option<Py<PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
+        let result = {
+            let mut guard = self.study.storage.write().map_err(|e| {
+                PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
+            })?;
+            guard.get_study_attr(self.study.id, AttrKey::User(key.into()))
+        };
+        match result {
+            Ok(value) => match decoder {
+                Some(decoder) => {
+                    let decoded = decoder.call1(py, (&value,))?;
+                    Ok(decoded)
+                }
+                None => Ok(PyString::new(py, &value).into_any().unbind()),
+            },
+            Err(e) if matches!(e.kind, ErrorKind::AttrNotFound) => {
+                Ok(default.unwrap_or_else(|| py.None()))
+            }
+            Err(e) => Err(err_to_exceptions(e)),
+        }
     }
 
     #[getter]

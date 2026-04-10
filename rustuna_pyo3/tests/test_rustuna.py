@@ -178,6 +178,28 @@ def test_study():
     assert len(study._storage.get_studies()) == 1
 
 
+def test_study_get_user_attr():
+    study = rustuna.create_study(study_name="test_get_user_attr")
+
+    study.set_user_attr("name", "alice")
+    assert study.get_user_attr("name") == "alice"
+
+    assert study.get_user_attr("missing") is None
+    assert study.get_user_attr("missing", default=False) is False
+    assert study.get_user_attr("missing", default="fallback") == "fallback"
+
+    import json
+
+    study.set_user_attr("flag", json.dumps(True))
+    assert study.get_user_attr("flag") == "true"
+    assert study.get_user_attr("flag", decoder=json.loads) is True
+
+    study.set_user_attr("config", json.dumps({"lr": 0.01}))
+    assert study.get_user_attr("config", decoder=json.loads) == {"lr": 0.01}
+
+    assert study.get_user_attr("no_key", decoder=json.loads, default=False) is False
+
+
 def test_create_study_load_if_exists_true():
     storage = rustuna.Storage.in_memory()
     first = rustuna.create_study(

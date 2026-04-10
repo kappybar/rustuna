@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use rustuna_core::attr::{category_labels_to_attrs, get_category_labels, Attrs, CategoryLabel};
+use rustuna_core::attr::{
+    category_labels_to_attrs, get_category_labels, AttrKey, Attrs, CategoryLabel,
+};
 use rustuna_core::distribution::Distribution;
 use rustuna_core::study::{Direction, PersistedStudy};
 use rustuna_core::study_cache::StudyCache;
@@ -42,6 +44,8 @@ pub trait CachedStorageBackend: Send + Sync {
     fn get_studies(&mut self) -> Result<Vec<PersistedStudy>>;
     fn get_study(&mut self, study_id: u32) -> Result<PersistedStudy>;
     fn get_trial(&mut self, trial_id: u32) -> Result<PersistedTrial>;
+    fn get_study_attr(&mut self, study_id: u32, key: AttrKey) -> Result<String>;
+    fn get_trial_attr(&mut self, trial_id: u32, key: AttrKey) -> Result<String>;
     fn set_study_attrs(
         &mut self,
         study_id: u32,
@@ -401,6 +405,22 @@ impl rustuna_core::storage::Storage for CachedStorage {
         self.get_cached_trial(trial_id)
     }
 
+    fn get_study_attr(&mut self, study_id: u32, key: AttrKey) -> Result<String> {
+        self.backend.get_study_attr(study_id, key)
+    }
+
+    fn get_trial_attr(&mut self, trial_id: u32, key: AttrKey) -> Result<String> {
+        if self.trial_id_to_study_number.contains_key(&trial_id) {
+            self.get_cached_trial(trial_id)?
+                .attrs
+                .get(&key)
+                .cloned()
+                .ok_or_else(|| Error::new(ErrorKind::AttrNotFound))
+        } else {
+            self.backend.get_trial_attr(trial_id, key)
+        }
+    }
+
     fn get_cached_trial(&self, trial_id: u32) -> Result<&PersistedTrial> {
         let (study_id, trial_number) = self
             .trial_id_to_study_number
@@ -649,6 +669,14 @@ mod tests {
 
         fn get_trial(&mut self, trial_id: u32) -> Result<PersistedTrial> {
             Ok(self.inner.get_trial(trial_id)?.clone())
+        }
+
+        fn get_study_attr(&mut self, study_id: u32, key: AttrKey) -> Result<String> {
+            self.inner.get_study_attr(study_id, key)
+        }
+
+        fn get_trial_attr(&mut self, trial_id: u32, key: AttrKey) -> Result<String> {
+            self.inner.get_trial_attr(trial_id, key)
         }
 
         fn set_study_attrs(
