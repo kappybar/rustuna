@@ -288,26 +288,6 @@ impl PersistedTrial {
 
     pub fn validate(&self) -> Result<()> {
         // TODO(c-bata): Consider introducing ErrorKind::TrialInvalid.
-        if !matches!(self.state_values, TrialStateValues::Waiting) && self.datetime_start.is_none()
-        {
-            return Err(Error::with_reason(
-                ErrorKind::StorageError,
-                "datetime_start is supposed to be set when the trial state is not waiting."
-                    .to_string(),
-            ));
-        }
-        if self.is_finished() && self.datetime_complete.is_none() {
-            return Err(Error::with_reason(
-                ErrorKind::StorageError,
-                "datetime_complete is supposed to be set for a finished trial.".to_string(),
-            ));
-        }
-        if !self.is_finished() && self.datetime_complete.is_some() {
-            return Err(Error::with_reason(
-                ErrorKind::StorageError,
-                "datetime_complete is supposed to be None for an unfinished trial.".to_string(),
-            ));
-        }
         if let TrialStateValues::Complete(values) = &self.state_values {
             if values.iter().any(|v| v.is_nan()) {
                 return Err(Error::with_reason(
