@@ -3,8 +3,9 @@ from __future__ import annotations
 import tempfile
 from typing import TYPE_CHECKING
 
-import optuna
 import pytest
+from optuna.storages import InMemoryStorage, JournalStorage, RDBStorage
+from optuna.storages.journal import JournalFileBackend
 from pytest import FixtureRequest
 
 import rustuna
@@ -32,10 +33,10 @@ def storage(request: FixtureRequest) -> Generator[StorageProtocol, None, None]:
         yield rustuna.Storage.in_memory()
         return
     if request.param == "optuna-inmemory":
-        yield ToRustunaStorage(optuna.storages.InMemoryStorage())
+        yield ToRustunaStorage(InMemoryStorage())
         return
     if request.param == "optuna-rdb-sqlite3":
-        yield ToRustunaStorage(optuna.storages.RDBStorage("sqlite://"))
+        yield ToRustunaStorage(RDBStorage("sqlite://"))
         return
 
     with tempfile.TemporaryDirectory() as workdir:
@@ -44,11 +45,7 @@ def storage(request: FixtureRequest) -> Generator[StorageProtocol, None, None]:
             yield rustuna.Storage.sqlite3(file_path, create_database=True)
         elif request.param == "optuna-journal-file":
             file_path = f"{workdir}/test.journal"
-            yield ToRustunaStorage(
-                optuna.storages.JournalStorage(
-                    optuna.storages.journal.JournalFileBackend(file_path)
-                )
-            )
+            yield ToRustunaStorage(JournalStorage(JournalFileBackend(file_path)))
         else:
             file_path = f"{workdir}/test.journal"
             yield rustuna.Storage.journal_file(file_path)
@@ -85,7 +82,7 @@ def test_get_study_attr_methods(storage: StorageProtocol) -> None:
 def test_study_get_user_attr_method(storage: StorageProtocol) -> None:
     study = rustuna.create_study(storage=storage)
     study.set_user_attr("key", "1")
-    assert study.get_user_attr("key", decode_json=True) == 1
+    assert study.get_user_attr("key", decoder=int) == 1
     assert study.get_user_attr("not_found") is None
     assert study.get_user_attr("not_found", default=1) == 1
 
@@ -127,6 +124,6 @@ def test_trial_get_user_attr_method(storage: StorageProtocol) -> None:
     trial = study.ask()
     trial.set_user_attr("key", "1")
     persisted = study.tell(trial.number, 0.0)
-    assert persisted.get_user_attr("key", decode_json=True) == 1
+    assert persisted.get_user_attr("key", decoder=int) == 1
     assert persisted.get_user_attr("not_found") is None
     assert persisted.get_user_attr("not_found", default=1) == 1

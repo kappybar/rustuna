@@ -192,12 +192,12 @@ def test_study_get_user_attr():
 
     study.set_user_attr("flag", json.dumps(True))
     assert study.get_user_attr("flag") == "true"
-    assert study.get_user_attr("flag", decode_json=True) is True
+    assert study.get_user_attr("flag", decoder=json.loads) is True
 
     study.set_user_attr("config", json.dumps({"lr": 0.01}))
-    assert study.get_user_attr("config", decode_json=True) == {"lr": 0.01}
+    assert study.get_user_attr("config", decoder=json.loads) == {"lr": 0.01}
 
-    assert study.get_user_attr("no_key", decode_json=True, default=False) is False
+    assert study.get_user_attr("no_key", decoder=json.loads, default=False) is False
 
 
 def test_create_study_load_if_exists_true():

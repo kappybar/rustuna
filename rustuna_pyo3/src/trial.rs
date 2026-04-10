@@ -6,10 +6,10 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString};
 use rustuna_core::attr::{get_category_labels, AttrKey, Attrs, CategoryLabel};
-use rustuna_core::ErrorKind;
 use rustuna_core::distribution::Distribution;
 use rustuna_core::storage::Storage;
 use rustuna_core::trial::{PersistedTrial, Trial, TrialStateValues};
+use rustuna_core::ErrorKind;
 
 use crate::attrs::{pyobj_to_attrs, AttrKind, AttrsDictView};
 use crate::distribution::{
@@ -530,41 +530,37 @@ impl PyPersistedTrial {
         }
     }
 
-    #[pyo3(name = "get_user_attr", signature = (key, *, decode_json = false, default = None))]
+    #[pyo3(name = "get_user_attr", signature = (key, *, decoder = None, default = None))]
     pub fn get_user_attr<'py>(
         &self,
         py: Python<'py>,
         key: String,
-        decode_json: bool,
+        decoder: Option<Py<PyAny>>,
         default: Option<Py<PyAny>>,
     ) -> PyResult<Py<PyAny>> {
         let result = match &self.source {
-            PyPersistedTrialSource::Owned(trial) => {
-                trial.attrs.get(&AttrKey::User(key.into())).cloned().ok_or(
-                    rustuna_core::Error::new(ErrorKind::AttrNotFound),
-                )
-            }
+            PyPersistedTrialSource::Owned(trial) => trial
+                .attrs
+                .get(&AttrKey::User(key.into()))
+                .cloned()
+                .ok_or(rustuna_core::Error::new(ErrorKind::AttrNotFound)),
             PyPersistedTrialSource::StorageBacked {
                 storage, trial_id, ..
             } => {
                 let mut guard = storage.write().map_err(|e| {
-                    PyRuntimeError::new_err(format!(
-                        "Failed to acquire the storage guard: {e:?}"
-                    ))
+                    PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
                 })?;
                 guard.get_trial_attr(*trial_id, AttrKey::User(key.into()))
             }
         };
         match result {
-            Ok(value) => {
-                if decode_json {
-                    let json = py.import("json")?;
-                    let parsed = json.call_method1("loads", (&value,))?;
-                    Ok(parsed.unbind())
-                } else {
-                    Ok(PyString::new(py, &value).into_any().unbind())
+            Ok(value) => match decoder {
+                Some(decoder) => {
+                    let decoded = decoder.call1(py, (&value,))?;
+                    Ok(decoded)
                 }
-            }
+                None => Ok(PyString::new(py, &value).into_any().unbind()),
+            },
             Err(e) if matches!(e.kind, ErrorKind::AttrNotFound) => {
                 Ok(default.unwrap_or_else(|| py.None()))
             }

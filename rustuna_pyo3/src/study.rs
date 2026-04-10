@@ -540,12 +540,12 @@ impl PyStudy {
         Ok(())
     }
 
-    #[pyo3(name = "get_user_attr", signature = (key, *, decode_json = false, default = None))]
+    #[pyo3(name = "get_user_attr", signature = (key, *, decoder = None, default = None))]
     pub fn get_user_attr<'py>(
         &self,
         py: Python<'py>,
         key: String,
-        decode_json: bool,
+        decoder: Option<Py<PyAny>>,
         default: Option<Py<PyAny>>,
     ) -> PyResult<Py<PyAny>> {
         let result = {
@@ -555,15 +555,13 @@ impl PyStudy {
             guard.get_study_attr(self.study.id, AttrKey::User(key.into()))
         };
         match result {
-            Ok(value) => {
-                if decode_json {
-                    let json = py.import("json")?;
-                    let parsed = json.call_method1("loads", (&value,))?;
-                    Ok(parsed.unbind())
-                } else {
-                    Ok(PyString::new(py, &value).into_any().unbind())
+            Ok(value) => match decoder {
+                Some(decoder) => {
+                    let decoded = decoder.call1(py, (&value,))?;
+                    Ok(decoded)
                 }
-            }
+                None => Ok(PyString::new(py, &value).into_any().unbind()),
+            },
             Err(e) if matches!(e.kind, ErrorKind::AttrNotFound) => {
                 Ok(default.unwrap_or_else(|| py.None()))
             }

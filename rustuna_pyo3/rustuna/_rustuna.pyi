@@ -286,7 +286,7 @@ class PersistedTrial:
         self,
         key: str,
         *,
-        decode_json: bool = False,
+        decoder: Callable[[str], Any] | None = None,
         default: Any = None,
     ) -> Any:
         """Get a single user attribute value by key.
@@ -297,19 +297,20 @@ class PersistedTrial:
         retrieves only the requested key, which is both faster and uses less
         memory when you need just one attribute.
 
-        It also provides built-in JSON decoding and a default value for missing
+        It also provides a decoder callable and a default value for missing
         keys, simplifying a common migration pattern from Optuna.
 
         Args:
             key: The attribute key to look up.
-            decode_json: If True, the stored string value is decoded via
-                ``json.loads`` before being returned.
+            decoder: An optional callable to transform the stored string value
+                (e.g. ``int``, ``float``, ``json.loads``).  When ``None``, the
+                raw string is returned.
             default: Value to return when the key does not exist.
                 Defaults to None.
 
         Returns:
-            The attribute value (decoded if *decode_json* is True), or *default*
-            if the key is not found.
+            The attribute value (transformed by *decoder* if provided), or
+            *default* if the key is not found.
         """
 
 # Study
@@ -498,26 +499,27 @@ class Study:
         self,
         key: str,
         *,
-        decode_json: bool = False,
+        decoder: Callable[[str], Any] | None = None,
         default: Any = None,
     ) -> Any:
         """Get a single user attribute value by key.
 
         This method fetches only the specified attribute from the storage backend,
         avoiding the overhead of loading all user attributes via ``study.user_attrs``.
-        It also provides built-in JSON decoding and a default value for missing keys,
+        It also provides a decoder callable and a default value for missing keys,
         simplifying a common migration pattern from Optuna.
 
         Args:
             key: The attribute key to look up.
-            decode_json: If True, the stored string value is decoded via
-                ``json.loads`` before being returned.
+            decoder: An optional callable to transform the stored string value
+                (e.g. ``int``, ``float``, ``json.loads``).  When ``None``, the
+                raw string is returned.
             default: Value to return when the key does not exist.
                 Defaults to None.
 
         Returns:
-            The attribute value (decoded if *decode_json* is True), or *default*
-            if the key is not found.
+            The attribute value (transformed by *decoder* if provided), or
+            *default* if the key is not found.
         """
     def get_trials(
         self,
