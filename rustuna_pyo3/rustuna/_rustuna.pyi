@@ -113,7 +113,7 @@ class Trial:
     instantiation of this object.
     """
 
-    id: int
+    _trial_id: int
     number: int
     study_id: int
 
@@ -443,10 +443,10 @@ class Study:
     ) -> list[PersistedTrial]:
         """Return trials in the study filtered by states if specified."""
     @property
-    def id(self) -> int:
+    def _study_id(self) -> int:
         """Return the study ID."""
     @property
-    def name(self) -> str:
+    def study_name(self) -> str:
         """Return the study name."""
     @property
     def directions(self) -> list[StudyDirection]:
@@ -465,7 +465,7 @@ class Study:
     def best_trials(self) -> list[PersistedTrial]:
         """Return the Pareto front trials in the multi-objective study."""
     @property
-    def storage(self) -> StorageProtocol:
+    def _storage(self) -> StorageProtocol:
         """Return the storage object."""
     @property
     def sampler(self) -> SamplerProtocol:

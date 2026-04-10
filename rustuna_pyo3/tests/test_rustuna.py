@@ -9,15 +9,15 @@ def test_load_study_with_trial_queue():
 
     template = rustuna.PersistedTrial(
         trial_id=0,
-        study_id=created.id,
+        study_id=created._study_id,
         number=0,
         state=rustuna.TrialState.WAITING,
         system_attrs={"fixed_params:x": "f:0x4014000000000000"},
     )
-    trial = storage.create_new_trial(created.id, template)
+    trial = storage.create_new_trial(created._study_id, template)
 
     queue = rustuna.TrialQueue.in_memory()
-    queue.push(trial.id)
+    queue.push(trial._trial_id)
 
     loaded = rustuna.load_study(
         study_name="queued-study",
@@ -166,12 +166,12 @@ def test_optimize_multi_objective():
 def test_study():
     study = rustuna.create_study(study_name="example")
 
-    assert study.name == "example"
+    assert study.study_name == "example"
 
     study.set_user_attr("key", "value")
     assert study.user_attrs == {"key": "value"}
 
-    assert len(study.storage.get_studies()) == 1
+    assert len(study._storage.get_studies()) == 1
 
 
 def test_create_study_load_if_exists_true():
@@ -188,7 +188,7 @@ def test_create_study_load_if_exists_true():
         load_if_exists=True,
     )
 
-    assert first.id == second.id
+    assert first._study_id == second._study_id
     assert second.directions == [rustuna.StudyDirection.MINIMIZE]
 
 
@@ -212,7 +212,7 @@ def test_copy_study():
         study_name="copy-source",
         directions=["maximize", "minimize"],
     )
-    from_study.storage.set_study_system_attrs(from_study.id, {"sys": "value"})
+    from_study._storage.set_study_system_attrs(from_study._study_id, {"sys": "value"})
     from_study.set_user_attr("user", "value")
     from_study.optimize(
         lambda trial: (
@@ -229,12 +229,12 @@ def test_copy_study():
     )
     to_study = rustuna.load_study(study_name="copy-source", storage=to_storage)
 
-    assert to_study.name == from_study.name
+    assert to_study.study_name == from_study.study_name
     assert to_study.directions == from_study.directions
     assert to_study.user_attrs == from_study.user_attrs
     assert (
-        to_study.storage.get_study(to_study.id).system_attrs
-        == from_study.storage.get_study(from_study.id).system_attrs
+        to_study._storage.get_study(to_study._study_id).system_attrs
+        == from_study._storage.get_study(from_study._study_id).system_attrs
     )
     assert len(to_study.trials) == len(from_study.trials)
 
@@ -355,9 +355,9 @@ def test_sample():
         study = rustuna.create_study(sampler=sampler, storage=storage)
         trial = study.ask()
         ctx = rustuna.SamplerContext(
-            study_id=study.id,
+            study_id=study._study_id,
             trial_number=trial.number,
-            trial_id=trial.id,
+            trial_id=trial._trial_id,
             directions=study.directions,
         )
         value = sampler.sample_independent(

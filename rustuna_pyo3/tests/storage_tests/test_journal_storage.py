@@ -18,7 +18,7 @@ def test_reading_trials_after_late_user_attr_write_keeps_trials_readable() -> No
 
         trial = study.ask()
         storage.set_trial_user_attrs(
-            trial.id,
+            trial._trial_id,
             {
                 "x": "1",
                 "y": "2",
@@ -28,7 +28,7 @@ def test_reading_trials_after_late_user_attr_write_keeps_trials_readable() -> No
 
         with pytest.raises(rustuna.exceptions.UpdateFinishedTrialError):
             storage.set_trial_user_attrs(
-                trial.id,
+                trial._trial_id,
                 {
                     "x": "1",
                     "y": "2",

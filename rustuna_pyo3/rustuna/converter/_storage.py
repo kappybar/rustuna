@@ -57,17 +57,12 @@ class ToRustunaStorage:
         )
 
     def create_new_trial(
-        self,
-        study_id: int,
-        template_trial: rustuna.PersistedTrial | None = None,
+        self, study_id: int, template_trial: rustuna.PersistedTrial | None = None
     ) -> rustuna.PersistedTrial:
-        if template_trial is None:
-            trial_id = self._storage.create_new_trial(study_id)
-        else:
-            frozen_trial = to_frozen_trial(template_trial)
-            trial_id = self._storage.create_new_trial(
-                study_id, template_trial=frozen_trial
-            )
+        template_frozen = to_frozen_trial(template_trial) if template_trial else None
+        trial_id = self._storage.create_new_trial(
+            study_id, template_trial=template_frozen
+        )
         trial = self._storage.get_trial(trial_id)
         with self._lock:
             self._trial_id_to_study_id[trial_id] = study_id

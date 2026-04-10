@@ -77,7 +77,7 @@ impl PyTrial {
 }
 #[pymethods]
 impl PyTrial {
-    #[getter]
+    #[getter(_trial_id)]
     pub fn id(&self) -> PyResult<u32> {
         Ok(self.trial.id)
     }
