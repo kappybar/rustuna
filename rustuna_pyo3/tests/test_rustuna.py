@@ -189,6 +189,7 @@ def test_study_get_user_attr():
     assert study.get_user_attr("missing", default="fallback") == "fallback"
 
     import json
+
     study.set_user_attr("flag", json.dumps(True))
     assert study.get_user_attr("flag") == "true"
     assert study.get_user_attr("flag", decode_json=True) is True

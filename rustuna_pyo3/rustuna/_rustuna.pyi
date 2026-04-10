@@ -282,6 +282,35 @@ class PersistedTrial:
     def datetime_start(self) -> datetime.datetime | None: ...
     @property
     def datetime_complete(self) -> datetime.datetime | None: ...
+    def get_user_attr(
+        self,
+        key: str,
+        *,
+        decode_json: bool = False,
+        default: Any = None,
+    ) -> Any:
+        """Get a single user attribute value by key.
+
+        ``PersistedTrial`` internally may hold a reference to the storage backend
+        rather than a copy of all attribute data.  Accessing ``trial.user_attrs``
+        therefore triggers a full attribute fetch from the storage.  This method
+        retrieves only the requested key, which is both faster and uses less
+        memory when you need just one attribute.
+
+        It also provides built-in JSON decoding and a default value for missing
+        keys, simplifying a common migration pattern from Optuna.
+
+        Args:
+            key: The attribute key to look up.
+            decode_json: If True, the stored string value is decoded via
+                ``json.loads`` before being returned.
+            default: Value to return when the key does not exist.
+                Defaults to None.
+
+        Returns:
+            The attribute value (decoded if *decode_json* is True), or *default*
+            if the key is not found.
+        """
 
 # Study
 ObjectiveFuncType = Callable[[Trial], float | tuple[float, ...]]
