@@ -568,7 +568,7 @@ impl Storage for PyObjectStorage {
     fn get_trials(
         &mut self,
         study_id: u32,
-    ) -> rustuna_core::Result<&Vec<rustuna_core::trial::PersistedTrial>> {
+    ) -> rustuna_core::Result<&Vec<Option<rustuna_core::trial::PersistedTrial>>> {
         // Ensure study mapping exists before sync_trials, which requires cache_study_to_src_study.
         self.sync_study_from_id(study_id, false)?;
         self.sync_trials(study_id)?;

@@ -172,12 +172,15 @@ impl Storage for JournalStorage {
                 format!("Failed to find trials for study: study_id={study_id}"),
             )
         })?;
-        trials.get(trial_number as usize).ok_or_else(|| {
-            Error::with_reason(
-                ErrorKind::TrialNotFound,
-                format!("Failed to find trial at given number: trial_number={trial_number}"),
-            )
-        })
+        trials
+            .get(trial_number as usize)
+            .and_then(|trial| trial.as_ref())
+            .ok_or_else(|| {
+                Error::with_reason(
+                    ErrorKind::TrialNotFound,
+                    format!("Failed to find trial at given number: trial_number={trial_number}"),
+                )
+            })
     }
 
     fn create_new_trial_from_template(
@@ -295,12 +298,15 @@ impl Storage for JournalStorage {
                 format!("Failed to find trials for study: study_id={study_id}"),
             )
         })?;
-        trials.get(trial_number as usize).ok_or_else(|| {
-            Error::with_reason(
-                ErrorKind::TrialNotFound,
-                format!("Failed to find trial at given number: trial_number={trial_number}"),
-            )
-        })
+        trials
+            .get(trial_number as usize)
+            .and_then(|trial| trial.as_ref())
+            .ok_or_else(|| {
+                Error::with_reason(
+                    ErrorKind::TrialNotFound,
+                    format!("Failed to find trial at given number: trial_number={trial_number}"),
+                )
+            })
     }
 
     fn set_trial_param(
@@ -452,15 +458,14 @@ impl Storage for JournalStorage {
         })
     }
 
-    fn get_trials(&mut self, study_id: u32) -> Result<&Vec<PersistedTrial>> {
+    fn get_trials(&mut self, study_id: u32) -> Result<&Vec<Option<PersistedTrial>>> {
         self.sync_with_backend()?;
-        let trials = self.replay.trials_by_study.get(&study_id).ok_or_else(|| {
+        self.replay.trials_by_study.get(&study_id).ok_or_else(|| {
             Error::with_reason(
                 ErrorKind::StudyNotFound,
                 format!("Failed to get trials for study: study_id={study_id}"),
             )
-        })?;
-        Ok(trials)
+        })
     }
 
     fn get_trial(&mut self, trial_id: u32) -> Result<&PersistedTrial> {
@@ -495,16 +500,19 @@ impl Storage for JournalStorage {
                 format!("Failed to get trials for study: study_id={study_id}"),
             )
         })?;
-        trials.get(trial_number as usize).ok_or_else(|| {
-            Error::with_reason(
-                ErrorKind::TrialNotFound,
-                format!(
-                    "Trial number out of bounds: trial_number={}, num_trials={}",
-                    trial_number,
-                    trials.len()
-                ),
-            )
-        })
+        trials
+            .get(trial_number as usize)
+            .and_then(|trial| trial.as_ref())
+            .ok_or_else(|| {
+                Error::with_reason(
+                    ErrorKind::TrialDiscarded,
+                    format!(
+                        "Trial number out of bounds or discarded: trial_number={}, num_trials={}",
+                        trial_number,
+                        trials.len()
+                    ),
+                )
+            })
     }
 
     fn get_category_labels(
@@ -650,8 +658,9 @@ impl Storage for JournalStorage {
                 format!("Failed to get trials for study: study_id={study_id}"),
             )
         })?;
+        let visible_trials = trials.iter().flatten().cloned().collect::<Vec<_>>();
         let cache = self.replay.study_caches.entry(study_id).or_default();
-        cache.update(trials);
+        cache.update(&visible_trials);
         Ok(cache.get_joint_search_space())
     }
 }
@@ -660,7 +669,7 @@ struct JournalReplayState {
     log_number_read: usize,
     worker_id_prefix: String,
     studies: HashMap<u32, PersistedStudy>,
-    trials_by_study: HashMap<u32, Vec<PersistedTrial>>,
+    trials_by_study: HashMap<u32, Vec<Option<PersistedTrial>>>,
     trial_id_to_study_number: HashMap<u32, (u32, u32)>,
     trial_id_to_study_id: HashMap<u32, u32>,
     study_id_to_trial_ids: HashMap<u32, Vec<u32>>,
@@ -760,9 +769,10 @@ impl JournalReplayState {
             .trials_by_study
             .get(&study_id)
             .and_then(|trials| trials.get(trial_number as usize))
+            .and_then(|trial| trial.as_ref())
             .ok_or_else(|| {
                 Error::with_reason(
-                    ErrorKind::TrialNotFound,
+                    ErrorKind::TrialDiscarded,
                     format!("Trial not found at position: trial_number={trial_number}"),
                 )
             })?;
@@ -963,7 +973,7 @@ impl JournalReplayState {
         self.trials_by_study
             .entry(study_id)
             .or_default()
-            .push(trial);
+            .push(Some(trial));
         self.study_id_to_trial_ids
             .entry(study_id)
             .or_default()
@@ -1038,6 +1048,12 @@ impl JournalReplayState {
                 ),
             )
         })?;
+        let trial = trial.as_mut().ok_or_else(|| {
+            Error::with_reason(
+                ErrorKind::TrialDiscarded,
+                format!("Trial discarded during set param: trial_number={trial_number}"),
+            )
+        })?;
         trial
             .internal_params
             .insert(param_name.clone(), param_value);
@@ -1089,6 +1105,12 @@ impl JournalReplayState {
                 format!(
                     "Trial not found at position during set state: trial_number={trial_number}"
                 ),
+            )
+        })?;
+        let trial = trial.as_mut().ok_or_else(|| {
+            Error::with_reason(
+                ErrorKind::TrialDiscarded,
+                format!("Trial discarded during set state: trial_number={trial_number}"),
             )
         })?;
 
@@ -1164,6 +1186,14 @@ impl JournalReplayState {
                 ),
             )
         })?;
+        let trial = trial.as_mut().ok_or_else(|| {
+            Error::with_reason(
+                ErrorKind::TrialDiscarded,
+                format!(
+                    "Trial discarded during set intermediate value: trial_number={trial_number}"
+                ),
+            )
+        })?;
         trial.intermediate_values.insert(step, value);
         Ok(())
     }
@@ -1196,6 +1226,12 @@ impl JournalReplayState {
                 format!(
                     "Trial not found at position during set user attr: trial_number={trial_number}"
                 ),
+            )
+        })?;
+        let trial = trial.as_mut().ok_or_else(|| {
+            Error::with_reason(
+                ErrorKind::TrialDiscarded,
+                format!("Trial discarded during set user attr: trial_number={trial_number}"),
             )
         })?;
         for (key, value) in attrs {
@@ -1232,6 +1268,12 @@ impl JournalReplayState {
                 format!(
                     "Trial not found at position during set system attr: trial_number={trial_number}"
                 ),
+            )
+        })?;
+        let trial = trial.as_mut().ok_or_else(|| {
+            Error::with_reason(
+                ErrorKind::TrialDiscarded,
+                format!("Trial discarded during set system attr: trial_number={trial_number}"),
             )
         })?;
         let is_finished = trial.is_finished();
@@ -1273,9 +1315,10 @@ impl JournalReplayState {
         self.trials_by_study
             .get(&study_id)
             .and_then(|trials| trials.get(trial_number as usize))
+            .and_then(|trial| trial.as_ref())
             .ok_or_else(|| {
                 Error::with_reason(
-                    ErrorKind::TrialNotFound,
+                    ErrorKind::TrialDiscarded,
                     format!(
                         "Trial not found at position: study_id={study_id}, trial_number={trial_number}"
                     ),
@@ -1298,9 +1341,10 @@ impl JournalReplayState {
             .trials_by_study
             .get(&study_id)
             .and_then(|trials| trials.get(trial_number as usize))
+            .and_then(|trial| trial.as_ref())
             .ok_or_else(|| {
                 Error::with_reason(
-                    ErrorKind::TrialNotFound,
+                    ErrorKind::TrialDiscarded,
                     format!(
                         "Trial not found at position during updatable check: trial_number={trial_number}"
                     ),
@@ -1336,8 +1380,10 @@ impl JournalReplayState {
     fn existing_distribution(&self, study_id: u32, param_name: &str) -> Option<&Distribution> {
         let trials = self.trials_by_study.get(&study_id)?;
         for trial in trials {
-            if let Some(dist) = trial.distributions.get(param_name) {
-                return Some(dist);
+            if let Some(trial) = trial.as_ref() {
+                if let Some(dist) = trial.distributions.get(param_name) {
+                    return Some(dist);
+                }
             }
         }
         None
@@ -2260,7 +2306,7 @@ mod tests {
 
         let trials = storage.get_trials(study_id)?;
         assert_eq!(trials.len(), 1);
-        assert_eq!(trials[0].id, trial_id);
+        assert_eq!(trials[0].as_ref().unwrap().id, trial_id);
         Ok(())
     }
 
@@ -2276,7 +2322,7 @@ mod tests {
             step: None,
             log: false,
         };
-        let trial_id = storage.get_trials(study_id)?[0].id;
+        let trial_id = storage.get_trials(study_id)?[0].as_ref().unwrap().id;
         storage.set_trial_param(trial_id, "x", &dist, 0.5)?;
 
         let trial = storage.get_trial(trial_id)?;

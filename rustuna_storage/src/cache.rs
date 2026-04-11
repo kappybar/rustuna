@@ -83,12 +83,11 @@ pub trait CachedStorageBackend: Send + Sync {
 /// references to callers.
 pub struct CachedStorage {
     studies: Vec<PersistedStudy>,
-    trials: HashMap<u32, HashMap<u32, PersistedTrial>>,
+    trials: HashMap<u32, Vec<Option<PersistedTrial>>>,
     trial_id_to_study_number: HashMap<u32, (u32, u32)>,
     study_caches: HashMap<u32, StudyCache>,
     unfinished_trials: HashMap<u32, Vec<u32>>,
     last_finished_trial_number: HashMap<u32, i32>,
-    trials_sorted_buffer: Vec<PersistedTrial>,
     // Cache for category labels: (study_id, param_name) -> labels
     // Since category labels cannot be overwritten once set, this cache never needs invalidation.
     category_labels_cache: HashMap<(u32, String), Vec<CategoryLabel>>,
@@ -106,7 +105,6 @@ impl CachedStorage {
             study_caches: HashMap::new(),
             unfinished_trials: HashMap::new(),
             last_finished_trial_number: HashMap::new(),
-            trials_sorted_buffer: Vec::new(),
             category_labels_cache: HashMap::new(),
             backend,
         }
@@ -135,17 +133,20 @@ impl CachedStorage {
         for trial in loaded {
             self.trial_id_to_study_number
                 .insert(trial.id, (study_id, trial.number));
-            trials.insert(trial.number, trial);
+            let trial_number = trial.number as usize;
+            if trials.len() <= trial_number {
+                trials.resize(trial_number + 1, None);
+            }
+            trials[trial_number] = Some(trial);
         }
 
         let study_cache = self.study_caches.entry(study_id).or_default();
-        let mut trials_vec: Vec<_> = trials.values().cloned().collect();
-        trials_vec.sort_by_key(|t| t.number);
+        let trials_vec: Vec<_> = trials.iter().flatten().cloned().collect();
         study_cache.update(&trials_vec);
 
         let mut unfinished_next = vec![];
         let mut last_finished_next = last_finished;
-        for trial in trials.values() {
+        for trial in trials.iter().flatten() {
             if trial.is_finished() {
                 last_finished_next = last_finished_next.max(trial.number as i32);
             } else {
@@ -166,10 +167,12 @@ impl CachedStorage {
         let trial = self.backend.get_trial(trial_id)?;
         let study_id = trial.study_id;
         let trial_number = trial.number;
-        self.trials
-            .entry(study_id)
-            .or_default()
-            .insert(trial_number, trial);
+        let trials = self.trials.entry(study_id).or_default();
+        let trial_index = trial_number as usize;
+        if trials.len() <= trial_index {
+            trials.resize(trial_index + 1, None);
+        }
+        trials[trial_index] = Some(trial);
         self.trial_id_to_study_number
             .insert(trial_id, (study_id, trial_number));
         Ok((study_id, trial_number))
@@ -178,7 +181,8 @@ impl CachedStorage {
     fn is_trial_finished_in_cache(&self, study_id: u32, trial_number: u32) -> bool {
         self.trials
             .get(&study_id)
-            .and_then(|trials| trials.get(&trial_number))
+            .and_then(|trials| trials.get(trial_number as usize))
+            .and_then(|trial| trial.as_ref())
             .is_some_and(|trial| trial.is_finished())
     }
 }
@@ -192,7 +196,7 @@ impl rustuna_core::storage::Storage for CachedStorage {
         let study = self.backend.create_new_study(study_name, directions)?;
         let study_id = study.id;
         self.studies.push(study);
-        self.trials.insert(study_id, HashMap::new());
+        self.trials.insert(study_id, Vec::new());
         self.study_caches.insert(study_id, StudyCache::new());
         self.unfinished_trials.insert(study_id, vec![]);
         self.last_finished_trial_number.insert(study_id, -1);
@@ -206,7 +210,7 @@ impl rustuna_core::storage::Storage for CachedStorage {
 
         self.studies.retain(|s| s.id != study_id);
         if let Some(trials) = self.trials.remove(&study_id) {
-            for trial in trials.values() {
+            for trial in trials.into_iter().flatten() {
                 self.trial_id_to_study_number.remove(&trial.id);
             }
         }
@@ -219,18 +223,22 @@ impl rustuna_core::storage::Storage for CachedStorage {
 
     fn create_new_trial(&mut self, study_id: u32) -> Result<&PersistedTrial> {
         let trial = self.backend.create_new_trial(study_id)?;
-        let trials = self.trials.entry(study_id).or_default();
         let number = trial.number;
         self.trial_id_to_study_number
             .insert(trial.id, (study_id, number));
-        trials.insert(number, trial);
+        let trials = self.trials.entry(study_id).or_default();
+        let trial_index = number as usize;
+        if trials.len() <= trial_index {
+            trials.resize(trial_index + 1, None);
+        }
+        trials[trial_index] = Some(trial);
         let trial_ref = trials
-            .get(&number)
+            .get(trial_index)
+            .and_then(|trial| trial.as_ref())
             .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
 
         let study_cache = self.study_caches.entry(study_id).or_default();
-        let mut trials_vec: Vec<_> = trials.values().cloned().collect();
-        trials_vec.sort_by_key(|t| t.number);
+        let trials_vec: Vec<_> = trials.iter().flatten().cloned().collect();
         study_cache.update(&trials_vec);
         self.unfinished_trials
             .entry(study_id)
@@ -247,20 +255,22 @@ impl rustuna_core::storage::Storage for CachedStorage {
         let trial = self
             .backend
             .create_new_trial_from_template(study_id, template)?;
-        let trials = self.trials.entry(study_id).or_default();
         let number = trial.number;
         self.trial_id_to_study_number
             .insert(trial.id, (study_id, number));
-        trials.insert(number, trial);
+        let trials = self.trials.entry(study_id).or_default();
+        let trial_index = number as usize;
+        if trials.len() <= trial_index {
+            trials.resize(trial_index + 1, None);
+        }
+        trials[trial_index] = Some(trial);
         let trial_ref = trials
-            .get(&number)
+            .get(trial_index)
+            .and_then(|trial| trial.as_ref())
             .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
 
         let study_cache = self.study_caches.entry(study_id).or_default();
-        // TODO(c-bata): Avoid cloning trials before study_cache.trial_number_cursor,
-        // since study_cache.update only processes trials from that index onward.
-        let mut trials_vec: Vec<_> = trials.values().cloned().collect();
-        trials_vec.sort_by_key(|t| t.number);
+        let trials_vec: Vec<_> = trials.iter().flatten().cloned().collect();
         study_cache.update(&trials_vec);
         if !trial_ref.is_finished() {
             self.unfinished_trials
@@ -292,7 +302,10 @@ impl rustuna_core::storage::Storage for CachedStorage {
         }
         self.refresh_trials(study_id)?;
         if let Some(trials) = self.trials.get(&study_id) {
-            if let Some(trial) = trials.get(&trial_number) {
+            if let Some(trial) = trials
+                .get(trial_number as usize)
+                .and_then(|trial| trial.as_ref())
+            {
                 if trial.is_finished() {
                     return Err(Error::new(ErrorKind::TrialAlreadyFinished));
                 }
@@ -322,15 +335,15 @@ impl rustuna_core::storage::Storage for CachedStorage {
             .get_mut(&study_id)
             .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))?;
         let trial = trials
-            .get_mut(&trial_number)
-            .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
+            .get_mut(trial_number as usize)
+            .and_then(|trial| trial.as_mut())
+            .ok_or_else(|| Error::new(ErrorKind::TrialDiscarded))?;
         trial
             .distributions
             .insert(name.to_string(), distribution.clone());
         trial.internal_params.insert(name.to_string(), value);
 
-        let mut trials_vec: Vec<_> = trials.values().cloned().collect();
-        trials_vec.sort_by_key(|t| t.number);
+        let trials_vec: Vec<_> = trials.iter().flatten().cloned().collect();
         let study_cache = self.study_caches.entry(study_id).or_default();
         study_cache
             .param_distribution
@@ -359,12 +372,12 @@ impl rustuna_core::storage::Storage for CachedStorage {
             .get_mut(&study_id)
             .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))?;
         let trial = trials
-            .get_mut(&trial_number)
-            .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
+            .get_mut(trial_number as usize)
+            .and_then(|trial| trial.as_mut())
+            .ok_or_else(|| Error::new(ErrorKind::TrialDiscarded))?;
         trial.state_values = state_values;
 
-        let mut trials_vec: Vec<_> = trials.values().cloned().collect();
-        trials_vec.sort_by_key(|t| t.number);
+        let trials_vec: Vec<_> = trials.iter().flatten().cloned().collect();
         self.study_caches
             .entry(study_id)
             .or_default()
@@ -395,8 +408,9 @@ impl rustuna_core::storage::Storage for CachedStorage {
             .get_mut(&study_id)
             .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))?;
         let trial = trials
-            .get_mut(&trial_number)
-            .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
+            .get_mut(trial_number as usize)
+            .and_then(|trial| trial.as_mut())
+            .ok_or_else(|| Error::new(ErrorKind::TrialDiscarded))?;
         trial.intermediate_values.extend(intermediate_values);
         Ok(())
     }
@@ -420,21 +434,18 @@ impl rustuna_core::storage::Storage for CachedStorage {
             .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))
     }
 
-    fn get_trials(&mut self, study_id: u32) -> Result<&Vec<PersistedTrial>> {
+    fn get_trials(&mut self, study_id: u32) -> Result<&Vec<Option<PersistedTrial>>> {
         self.refresh_trials(study_id)?;
-        let trials_map = self
+        let trials = self
             .trials
             .get(&study_id)
             .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))?;
-        let mut trials_vec: Vec<_> = trials_map.values().cloned().collect();
-        trials_vec.sort_by_key(|t| t.number);
-        self.trials_sorted_buffer.clear();
-        self.trials_sorted_buffer.extend(trials_vec);
+        let trials_vec: Vec<_> = trials.iter().flatten().cloned().collect();
         self.study_caches
             .entry(study_id)
             .or_default()
-            .update(&self.trials_sorted_buffer);
-        Ok(&self.trials_sorted_buffer)
+            .update(&trials_vec);
+        Ok(trials)
     }
 
     fn get_trial(&mut self, trial_id: u32) -> Result<&PersistedTrial> {
@@ -460,8 +471,9 @@ impl rustuna_core::storage::Storage for CachedStorage {
             .get(&study_id)
             .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))?;
         let trial = trials
-            .get(&trial_number)
-            .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
+            .get(trial_number as usize)
+            .and_then(|trial| trial.as_ref())
+            .ok_or_else(|| Error::new(ErrorKind::TrialDiscarded))?;
         Ok(trial)
     }
 
@@ -507,8 +519,9 @@ impl rustuna_core::storage::Storage for CachedStorage {
             .get(&study_id)
             .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))?;
         let trial = trials
-            .get(&trial_number)
-            .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
+            .get(trial_number as usize)
+            .and_then(|trial| trial.as_ref())
+            .ok_or_else(|| Error::new(ErrorKind::TrialDiscarded))?;
         Ok(trial.id)
     }
 
@@ -549,8 +562,9 @@ impl rustuna_core::storage::Storage for CachedStorage {
                 .get(&study_id)
                 .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))?;
             let trial = trials
-                .get(&trial_number)
-                .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
+                .get(trial_number as usize)
+                .and_then(|trial| trial.as_ref())
+                .ok_or_else(|| Error::new(ErrorKind::TrialDiscarded))?;
             if trial.is_finished() {
                 return Err(Error::new(ErrorKind::TrialAlreadyFinished));
             }
@@ -563,8 +577,9 @@ impl rustuna_core::storage::Storage for CachedStorage {
             .get_mut(&study_id)
             .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))?;
         let trial = trials
-            .get_mut(&trial_number)
-            .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
+            .get_mut(trial_number as usize)
+            .and_then(|trial| trial.as_mut())
+            .ok_or_else(|| Error::new(ErrorKind::TrialDiscarded))?;
         for (k, v) in attrs {
             trial.attrs.insert(k, v);
         }
@@ -574,7 +589,7 @@ impl rustuna_core::storage::Storage for CachedStorage {
     fn get_joint_search_space(&mut self, study_id: u32) -> Result<HashMap<String, Distribution>> {
         let trials_vec = {
             let trials = self.get_trials(study_id)?;
-            let mut v = trials.clone();
+            let mut v = trials.iter().flatten().cloned().collect::<Vec<_>>();
             v.sort_by_key(|t| t.number);
             v
         };
@@ -679,7 +694,7 @@ mod tests {
         ) -> Result<Vec<PersistedTrial>> {
             let all = self.inner.get_trials(study_id)?.clone();
             let mut trials = Vec::new();
-            for t in all {
+            for t in all.into_iter().flatten() {
                 if included_numbers.contains(&t.number)
                     || (t.number as i32) > trial_number_greater_than
                 {
@@ -961,7 +976,7 @@ mod tests {
             step: None,
             log: false,
         };
-        let trial_id = storage.get_trials(study_id)?[0].id;
+        let trial_id = storage.get_trials(study_id)?[0].as_ref().unwrap().id;
         storage.set_trial_param(trial_id, "x", &dist, 0.5)?;
 
         let trial = storage.get_trial(trial_id)?;
