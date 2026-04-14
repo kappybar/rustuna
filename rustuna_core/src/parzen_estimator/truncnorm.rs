@@ -4,6 +4,25 @@ use statrs::distribution::{ContinuousCDF, Normal};
 /// -0.5 * ln(2π)
 const NEG_HALF_LOG_2PI: f64 = -0.9189385332046727;
 
+/// Standard normal CDF Φ(x) via Abramowitz & Stegun formula 7.1.28.
+/// Maximum absolute error: ~1.5e-7.
+#[inline]
+fn norm_cdf(x: f64) -> f64 {
+    let z = x.abs() * std::f64::consts::FRAC_1_SQRT_2;
+    let t = 1.0 / (1.0 + 0.3275911 * z);
+    let poly = t * (0.254829592
+        + t * (-0.284496736
+        + t * (1.421413741
+        + t * (-1.453152027
+        + t * 1.061405429))));
+    let erfc_approx = poly * (-z * z).exp();
+    if x >= 0.0 {
+        1.0 - 0.5 * erfc_approx
+    } else {
+        0.5 * erfc_approx
+    }
+}
+
 #[derive(Debug)]
 pub enum TruncNormError {
     #[allow(dead_code)]
@@ -21,9 +40,8 @@ fn log_diff_cdf(a: f64, b: f64) -> Result<f64, TruncNormError> {
         return Err(TruncNormError::InvalidBounds(a, b));
     }
 
-    let std_normal = Normal::new(0.0, 1.0).unwrap();
-    let fa = std_normal.cdf(a);
-    let fb = std_normal.cdf(b);
+    let fa = norm_cdf(a);
+    let fb = norm_cdf(b);
 
     // Require positive mass
     if fb <= fa {
@@ -71,9 +89,8 @@ pub fn rvs<R: Rng + ?Sized>(
         return Err(TruncNormError::InvalidBounds(a, b));
     }
 
-    let std_normal = Normal::new(0.0, 1.0).unwrap();
-    let fa = std_normal.cdf(a); // Φ(a)
-    let fb = std_normal.cdf(b); // Φ(b)
+    let fa = norm_cdf(a); // Φ(a)
+    let fb = norm_cdf(b); // Φ(b)
 
     let mass = fb - fa;
     if mass <= 0.0 {
@@ -83,7 +100,7 @@ pub fn rvs<R: Rng + ?Sized>(
     // Sample p directly in [fa, fb) in a numerically safe way.
     // gen_range returns value in [fa, fb), avoiding exact 0 or 1 when fa==0 or fb==1.
     let p = rng.gen_range(fa..fb); // p ~ U(Φ(a), Φ(b))
-    let z = std_normal.inverse_cdf(p); // z ~ N(0,1) truncated to [a, b]
+    let z = Normal::new(0.0, 1.0).unwrap().inverse_cdf(p); // z ~ N(0,1) truncated to [a, b]
     Ok(loc + scale * z) // X = μ + σ * Z (converted to original scale)
 }
 
@@ -218,11 +235,43 @@ mod tests {
         let expected = numer.ln() - denom.ln();
 
         let got = log_mass_interval(a, b, a_tr, b_tr).unwrap();
-        assert!((got - expected).abs() <= 1e-12);
+        assert!((got - expected).abs() <= 1e-6);
 
         // Empty observed interval -> -inf
         let got_empty = log_mass_interval(1.0, 0.0, a_tr, b_tr).unwrap();
         assert_eq!(got_empty, f64::NEG_INFINITY);
+    }
+
+    #[test]
+    fn test_norm_cdf_accuracy() {
+        let std = Normal::new(0.0, 1.0).unwrap();
+        // Test points covering typical TPE argument range
+        let xs = [
+            -6.0, -5.0, -4.0, -3.0, -2.0, -1.5, -1.0, -0.5,
+            0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0,
+        ];
+        for &x in &xs {
+            let approx = norm_cdf(x);
+            let exact = std.cdf(x);
+            let abs_err = (approx - exact).abs();
+            assert!(
+                abs_err < 2e-7,
+                "norm_cdf({x}) = {approx}, exact = {exact}, abs_err = {abs_err}"
+            );
+        }
+        // Monotonicity
+        let mut prev = norm_cdf(-8.0);
+        for i in -79..=80 {
+            let x = i as f64 * 0.1;
+            let cur = norm_cdf(x);
+            assert!(cur >= prev, "norm_cdf not monotone at x={x}");
+            prev = cur;
+        }
+        // Symmetry: Φ(x) + Φ(-x) = 1
+        for &x in &xs {
+            let sum = norm_cdf(x) + norm_cdf(-x);
+            assert!((sum - 1.0).abs() < 2e-7, "symmetry failed at x={x}: sum={sum}");
+        }
     }
 
     #[test]
