@@ -55,6 +55,7 @@ pub enum TruncNormError {
     NanBounds(f64, f64),
 }
 
+#[inline]
 fn log_diff_cdf(a: f64, b: f64) -> Result<f64, TruncNormError> {
     if a > b {
         return Err(TruncNormError::InvalidBounds(a, b));
@@ -68,8 +69,17 @@ fn log_diff_cdf(a: f64, b: f64) -> Result<f64, TruncNormError> {
         return Err(TruncNormError::TinyProbabilityMass(a, b));
     }
 
-    // Difference relatively large -> safe to take ln directly
     let diff = fb - fa;
+
+    // Fast path: when [a, b] covers almost all mass, diff ≈ 1.
+    // Use log(1-t) ≈ -t - t²/2 to avoid the log() call entirely.
+    // Error ≤ t³/3 < 4e-11 for t < 5e-4, well within our 1.5e-7 target.
+    let tail_mass = 1.0 - diff; // = Φ(a) + (1-Φ(b)), total outside mass
+    if tail_mass < 5e-4 {
+        return Ok(-tail_mass - 0.5 * tail_mass * tail_mass);
+    }
+
+    // Common path: difference is large enough for direct log
     if diff > 1e-12 * fb {
         return Ok(diff.ln());
     }
@@ -79,13 +89,12 @@ fn log_diff_cdf(a: f64, b: f64) -> Result<f64, TruncNormError> {
         return Ok(fb.ln());
     }
 
-    // General stable log-diff: ln Φ(b) + ln(1 - Φ(a)/Φ(b))
-    // Compute in log-space to avoid cancellation
-    let lfa = fa.ln(); // Finite because fa > 0
+    // Stable log-diff for near-equal CDFs (catastrophic cancellation case)
+    // ln Φ(b) + ln(1 - Φ(a)/Φ(b))
+    let lfa = fa.ln();
     let lfb = fb.ln();
     let r = (lfa - lfb).exp(); // fa / fb in (0,1)
-    let ln_one_minus_r = (-r).ln_1p(); // ln(1 - r) computed stably
-    Ok(lfb + ln_one_minus_r)
+    Ok(lfb + (-r).ln_1p())
 }
 
 /// x    : Generated sample in original scale
