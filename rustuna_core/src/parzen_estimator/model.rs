@@ -213,10 +213,18 @@ impl NumericalDistributionBuilder for DefaultNumericalDistributionBuilder {
         }
 
         match (step_opt, log) {
-            (None, false) => Distributions::TruncNorm(TruncNormDistributions::new(mus, sigmas, low, high)),
-            (None, true) => Distributions::TruncLogNorm(TruncLogNormDistributions::new(mus, sigmas, low, high)),
-            (Some(step), false) => Distributions::DiscreteTruncNorm(DiscreteTruncNormDistributions::new(mus, sigmas, low, high, step)),
-            (Some(step), true) => Distributions::DiscreteTruncLogNorm(DiscreteTruncLogNormDistributions::new(mus, sigmas, low, high, step)),
+            (None, false) => {
+                Distributions::TruncNorm(TruncNormDistributions::new(mus, sigmas, low, high))
+            }
+            (None, true) => {
+                Distributions::TruncLogNorm(TruncLogNormDistributions::new(mus, sigmas, low, high))
+            }
+            (Some(step), false) => Distributions::DiscreteTruncNorm(
+                DiscreteTruncNormDistributions::new(mus, sigmas, low, high, step),
+            ),
+            (Some(step), true) => Distributions::DiscreteTruncLogNorm(
+                DiscreteTruncLogNormDistributions::new(mus, sigmas, low, high, step),
+            ),
         }
     }
 }

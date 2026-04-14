@@ -96,20 +96,24 @@ impl<'a> NumericalDistributionBuilder for ScottNumericalDistributionBuilder<'a> 
                 low,
                 high,
             )),
-            (Some(step), false) => Distributions::DiscreteTruncNorm(DiscreteTruncNormDistributions::new(
-                mus_with_prior.collect(),
-                sigmas_with_prior.collect(),
-                low,
-                high,
-                step,
-            )),
-            (Some(step), true) => Distributions::DiscreteTruncLogNorm(DiscreteTruncLogNormDistributions::new(
-                mus_with_prior.collect(),
-                sigmas_with_prior.collect(),
-                low,
-                high,
-                step,
-            )),
+            (Some(step), false) => {
+                Distributions::DiscreteTruncNorm(DiscreteTruncNormDistributions::new(
+                    mus_with_prior.collect(),
+                    sigmas_with_prior.collect(),
+                    low,
+                    high,
+                    step,
+                ))
+            }
+            (Some(step), true) => {
+                Distributions::DiscreteTruncLogNorm(DiscreteTruncLogNormDistributions::new(
+                    mus_with_prior.collect(),
+                    sigmas_with_prior.collect(),
+                    low,
+                    high,
+                    step,
+                ))
+            }
         }
     }
 }
