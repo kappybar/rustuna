@@ -56,7 +56,7 @@ pub enum TruncNormError {
 }
 
 #[inline]
-fn log_diff_cdf(a: f64, b: f64) -> Result<f64, TruncNormError> {
+pub(crate) fn log_diff_cdf(a: f64, b: f64) -> Result<f64, TruncNormError> {
     if a > b {
         return Err(TruncNormError::InvalidBounds(a, b));
     }

@@ -84,36 +84,32 @@ impl<'a> NumericalDistributionBuilder for ScottNumericalDistributionBuilder<'a> 
         let sigmas_with_prior = sigmas.chain(std::iter::once(high - low + 1.0));
 
         match (step, log) {
-            (None, false) => Distributions::TruncNorm(TruncNormDistributions {
-                mus: mus_with_prior.collect(),
-                sigmas: sigmas_with_prior.collect(),
+            (None, false) => Distributions::TruncNorm(TruncNormDistributions::new(
+                mus_with_prior.collect(),
+                sigmas_with_prior.collect(),
                 low,
                 high,
-            }),
-            (None, true) => Distributions::TruncLogNorm(TruncLogNormDistributions {
-                mus: mus_with_prior.collect(),
-                sigmas: sigmas_with_prior.collect(),
+            )),
+            (None, true) => Distributions::TruncLogNorm(TruncLogNormDistributions::new(
+                mus_with_prior.collect(),
+                sigmas_with_prior.collect(),
                 low,
                 high,
-            }),
-            (Some(step), false) => {
-                Distributions::DiscreteTruncNorm(DiscreteTruncNormDistributions {
-                    mus: mus_with_prior.collect(),
-                    sigmas: sigmas_with_prior.collect(),
-                    low,
-                    high,
-                    step,
-                })
-            }
-            (Some(step), true) => {
-                Distributions::DiscreteTruncLogNorm(DiscreteTruncLogNormDistributions {
-                    mus: mus_with_prior.collect(),
-                    sigmas: sigmas_with_prior.collect(),
-                    low,
-                    high,
-                    step,
-                })
-            }
+            )),
+            (Some(step), false) => Distributions::DiscreteTruncNorm(DiscreteTruncNormDistributions::new(
+                mus_with_prior.collect(),
+                sigmas_with_prior.collect(),
+                low,
+                high,
+                step,
+            )),
+            (Some(step), true) => Distributions::DiscreteTruncLogNorm(DiscreteTruncLogNormDistributions::new(
+                mus_with_prior.collect(),
+                sigmas_with_prior.collect(),
+                low,
+                high,
+                step,
+            )),
         }
     }
 }

@@ -4,93 +4,138 @@ use rand::Rng;
 use rand_distr::{Distribution as RandDistribution, WeightedAliasIndex};
 use std::collections::HashMap;
 
-#[derive(Debug)]
+/// -0.5 * ln(2π)
+const NEG_HALF_LOG_2PI: f64 = -0.9189385332046727;
+
+#[derive(Debug, Clone)]
 pub(crate) struct TruncNormDistributions {
     pub mus: Vec<f64>,
     pub sigmas: Vec<f64>,
     pub low: f64,
     pub high: f64,
+    /// Precomputed: log_diff_cdf((low - mu_k) / sigma_k, (high - mu_k) / sigma_k)
+    pub ln_masses: Vec<f64>,
+    /// Precomputed: sigma_k.ln()
+    pub ln_sigmas: Vec<f64>,
 }
 
-#[derive(Debug)]
+impl TruncNormDistributions {
+    pub(crate) fn new(mus: Vec<f64>, sigmas: Vec<f64>, low: f64, high: f64) -> Self {
+        let ln_masses = mus.iter().zip(sigmas.iter())
+            .map(|(&mu, &sigma)| {
+                truncnorm::log_diff_cdf((low - mu) / sigma, (high - mu) / sigma)
+                    .unwrap_or(f64::NEG_INFINITY)
+            })
+            .collect();
+        let ln_sigmas = sigmas.iter().map(|&s| s.ln()).collect();
+        Self { mus, sigmas, low, high, ln_masses, ln_sigmas }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct TruncLogNormDistributions {
     pub mus: Vec<f64>,
     pub sigmas: Vec<f64>,
     pub low: f64,
     pub high: f64,
+    /// Precomputed: log_diff_cdf((ln(low) - mu_k) / sigma_k, (ln(high) - mu_k) / sigma_k)
+    pub ln_masses: Vec<f64>,
+    /// Precomputed: sigma_k.ln()
+    pub ln_sigmas: Vec<f64>,
 }
 
-#[derive(Debug)]
+impl TruncLogNormDistributions {
+    pub(crate) fn new(mus: Vec<f64>, sigmas: Vec<f64>, low: f64, high: f64) -> Self {
+        let ln_low = low.ln();
+        let ln_high = high.ln();
+        let ln_masses = mus.iter().zip(sigmas.iter())
+            .map(|(&mu, &sigma)| {
+                truncnorm::log_diff_cdf((ln_low - mu) / sigma, (ln_high - mu) / sigma)
+                    .unwrap_or(f64::NEG_INFINITY)
+            })
+            .collect();
+        let ln_sigmas = sigmas.iter().map(|&s| s.ln()).collect();
+        Self { mus, sigmas, low, high, ln_masses, ln_sigmas }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct DiscreteTruncNormDistributions {
     pub mus: Vec<f64>,
     pub sigmas: Vec<f64>,
     pub low: f64,
     pub high: f64,
     pub step: f64,
+    /// Precomputed: (low - mu_k) / sigma_k
+    pub a_truncs: Vec<f64>,
+    /// Precomputed: (high - mu_k) / sigma_k
+    pub b_truncs: Vec<f64>,
+    /// Precomputed: step / (2 * sigma_k)
+    pub half_steps: Vec<f64>,
+    /// Precomputed: log_diff_cdf(a_trunc_k, b_trunc_k)
+    pub ln_denoms: Vec<f64>,
 }
 
-#[derive(Debug)]
+impl DiscreteTruncNormDistributions {
+    pub(crate) fn new(mus: Vec<f64>, sigmas: Vec<f64>, low: f64, high: f64, step: f64) -> Self {
+        let a_truncs: Vec<f64> = mus.iter().zip(sigmas.iter())
+            .map(|(&mu, &sigma)| (low - mu) / sigma)
+            .collect();
+        let b_truncs: Vec<f64> = mus.iter().zip(sigmas.iter())
+            .map(|(&mu, &sigma)| (high - mu) / sigma)
+            .collect();
+        let half_steps: Vec<f64> = sigmas.iter().map(|&sigma| step / (2.0 * sigma)).collect();
+        let ln_denoms: Vec<f64> = a_truncs.iter().zip(b_truncs.iter())
+            .map(|(&a, &b)| truncnorm::log_diff_cdf(a, b).unwrap_or(f64::NEG_INFINITY))
+            .collect();
+        Self { mus, sigmas, low, high, step, a_truncs, b_truncs, half_steps, ln_denoms }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct DiscreteTruncLogNormDistributions {
     pub mus: Vec<f64>,
     pub sigmas: Vec<f64>,
     pub low: f64,
     pub high: f64,
     pub step: f64,
+    /// Precomputed: (ln(low) - mu_k) / sigma_k
+    pub a_truncs: Vec<f64>,
+    /// Precomputed: (ln(high) - mu_k) / sigma_k
+    pub b_truncs: Vec<f64>,
+    /// Precomputed: log_diff_cdf(a_trunc_k, b_trunc_k)
+    pub ln_denoms: Vec<f64>,
 }
 
-#[derive(Debug)]
+impl DiscreteTruncLogNormDistributions {
+    pub(crate) fn new(mus: Vec<f64>, sigmas: Vec<f64>, low: f64, high: f64, step: f64) -> Self {
+        let ln_low = low.ln();
+        let ln_high = high.ln();
+        let a_truncs: Vec<f64> = mus.iter().zip(sigmas.iter())
+            .map(|(&mu, &sigma)| (ln_low - mu) / sigma)
+            .collect();
+        let b_truncs: Vec<f64> = mus.iter().zip(sigmas.iter())
+            .map(|(&mu, &sigma)| (ln_high - mu) / sigma)
+            .collect();
+        let ln_denoms: Vec<f64> = a_truncs.iter().zip(b_truncs.iter())
+            .map(|(&a, &b)| truncnorm::log_diff_cdf(a, b).unwrap_or(f64::NEG_INFINITY))
+            .collect();
+        Self { mus, sigmas, low, high, step, a_truncs, b_truncs, ln_denoms }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct CategoricalDistributions {
     pub weights: Vec<Vec<f64>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) enum Distributions {
     TruncNorm(TruncNormDistributions),
     TruncLogNorm(TruncLogNormDistributions),
     DiscreteTruncNorm(DiscreteTruncNormDistributions),
     DiscreteTruncLogNorm(DiscreteTruncLogNormDistributions),
     Categorical(CategoricalDistributions),
-}
-impl Clone for Distributions {
-    fn clone(&self) -> Self {
-        match self {
-            Distributions::TruncNorm(d) => Distributions::TruncNorm(TruncNormDistributions {
-                mus: d.mus.clone(),
-                sigmas: d.sigmas.clone(),
-                low: d.low,
-                high: d.high,
-            }),
-            Distributions::TruncLogNorm(d) => {
-                Distributions::TruncLogNorm(TruncLogNormDistributions {
-                    mus: d.mus.clone(),
-                    sigmas: d.sigmas.clone(),
-                    low: d.low,
-                    high: d.high,
-                })
-            }
-            Distributions::DiscreteTruncNorm(d) => {
-                Distributions::DiscreteTruncNorm(DiscreteTruncNormDistributions {
-                    mus: d.mus.clone(),
-                    sigmas: d.sigmas.clone(),
-                    low: d.low,
-                    high: d.high,
-                    step: d.step,
-                })
-            }
-            Distributions::DiscreteTruncLogNorm(d) => {
-                Distributions::DiscreteTruncLogNorm(DiscreteTruncLogNormDistributions {
-                    mus: d.mus.clone(),
-                    sigmas: d.sigmas.clone(),
-                    low: d.low,
-                    high: d.high,
-                    step: d.step,
-                })
-            }
-            Distributions::Categorical(d) => Distributions::Categorical(CategoricalDistributions {
-                weights: d.weights.clone(),
-            }),
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -246,25 +291,25 @@ impl MixtureOfProductDistribution {
 
             match dist {
                 Distributions::TruncNorm(d) => {
+                    // Bounds are shared across all kernels: return early if x is outside
+                    if x_val < d.low || x_val > d.high {
+                        return f64::NEG_INFINITY;
+                    }
                     for (k, weight) in weighted_log_pdf.iter_mut().enumerate().take(n) {
                         if *weight == f64::NEG_INFINITY {
                             continue;
                         }
-                        let mu_k = d.mus[k];
-                        let sigma_k = d.sigmas[k];
-                        let val = truncnorm::log_pdf(
-                            x_val,
-                            (d.low - mu_k) / sigma_k,
-                            (d.high - mu_k) / sigma_k,
-                            mu_k,
-                            sigma_k,
-                        )
-                        .unwrap_or(f64::NEG_INFINITY);
-                        *weight += val;
+                        let ln_mass = d.ln_masses[k];
+                        if ln_mass == f64::NEG_INFINITY {
+                            *weight = f64::NEG_INFINITY;
+                            continue;
+                        }
+                        let z = (x_val - d.mus[k]) / d.sigmas[k];
+                        *weight += NEG_HALF_LOG_2PI - 0.5 * z * z - d.ln_sigmas[k] - ln_mass;
                     }
                 }
                 Distributions::TruncLogNorm(d) => {
-                    if x_val <= 0.0 {
+                    if x_val <= 0.0 || x_val < d.low || x_val > d.high {
                         return f64::NEG_INFINITY;
                     }
                     let ln_x = x_val.ln();
@@ -272,40 +317,42 @@ impl MixtureOfProductDistribution {
                         if *weight == f64::NEG_INFINITY {
                             continue;
                         }
-                        let mu_k = d.mus[k];
-                        let sigma_k = d.sigmas[k];
-                        let val = truncnorm::log_pdf(
-                            ln_x,
-                            (d.low.ln() - mu_k) / sigma_k,
-                            (d.high.ln() - mu_k) / sigma_k,
-                            mu_k,
-                            sigma_k,
-                        )
-                        .unwrap_or(f64::NEG_INFINITY);
-                        *weight += val - ln_x;
+                        let ln_mass = d.ln_masses[k];
+                        if ln_mass == f64::NEG_INFINITY {
+                            *weight = f64::NEG_INFINITY;
+                            continue;
+                        }
+                        let z = (ln_x - d.mus[k]) / d.sigmas[k];
+                        *weight += NEG_HALF_LOG_2PI - 0.5 * z * z - d.ln_sigmas[k] - ln_mass - ln_x;
                     }
                 }
                 Distributions::DiscreteTruncNorm(d) => {
+                    let x_is_low_edge = x_val <= d.low;
+                    let x_is_high_edge = x_val >= d.high;
                     for (k, weight) in weighted_log_pdf.iter_mut().enumerate().take(n) {
                         if *weight == f64::NEG_INFINITY {
                             continue;
                         }
-                        let mu_k = d.mus[k];
-                        let sigma_k = d.sigmas[k];
-                        let a = if x_val <= d.low {
-                            f64::NEG_INFINITY
-                        } else {
-                            (x_val - d.step / 2.0 - mu_k) / sigma_k
-                        };
-                        let b = if x_val >= d.high {
-                            f64::INFINITY
-                        } else {
-                            (x_val + d.step / 2.0 - mu_k) / sigma_k
-                        };
-                        let a_trunc = (d.low - mu_k) / sigma_k;
-                        let b_trunc = (d.high - mu_k) / sigma_k;
-                        match truncnorm::log_mass_interval(a, b, a_trunc, b_trunc) {
-                            Ok(v) => *weight += v,
+                        let ln_denom = d.ln_denoms[k];
+                        if ln_denom == f64::NEG_INFINITY {
+                            *weight = f64::NEG_INFINITY;
+                            continue;
+                        }
+                        let center = (x_val - d.mus[k]) / d.sigmas[k];
+                        let a = if x_is_low_edge { f64::NEG_INFINITY } else { center - d.half_steps[k] };
+                        let b = if x_is_high_edge { f64::INFINITY } else { center + d.half_steps[k] };
+                        if b <= d.a_truncs[k] || a >= d.b_truncs[k] {
+                            *weight = f64::NEG_INFINITY;
+                            continue;
+                        }
+                        let a_adj = a.max(d.a_truncs[k]);
+                        let b_adj = b.min(d.b_truncs[k]);
+                        if a_adj >= b_adj {
+                            *weight = f64::NEG_INFINITY;
+                            continue;
+                        }
+                        match truncnorm::log_diff_cdf(a_adj, b_adj) {
+                            Ok(ln_numer) => *weight += ln_numer - ln_denom,
                             Err(_) => *weight = f64::NEG_INFINITY,
                         }
                     }
@@ -314,28 +361,33 @@ impl MixtureOfProductDistribution {
                     if x_val <= 0.0 {
                         return f64::NEG_INFINITY;
                     }
+                    let x_is_low_edge = x_val <= d.low;
+                    let x_is_high_edge = x_val >= d.high;
                     for (k, weight) in weighted_log_pdf.iter_mut().enumerate().take(n) {
                         if *weight == f64::NEG_INFINITY {
                             continue;
                         }
-                        let mu_k = d.mus[k];
-                        let sigma_k = d.sigmas[k];
+                        let ln_denom = d.ln_denoms[k];
+                        if ln_denom == f64::NEG_INFINITY {
+                            *weight = f64::NEG_INFINITY;
+                            continue;
+                        }
                         let low_bound = (x_val - d.step / 2.0).max(f64::MIN_POSITIVE);
                         let high_bound = x_val + d.step / 2.0;
-                        let a = if x_val <= d.low {
-                            f64::NEG_INFINITY
-                        } else {
-                            (low_bound.ln() - mu_k) / sigma_k
-                        };
-                        let b = if x_val >= d.high {
-                            f64::INFINITY
-                        } else {
-                            (high_bound.ln() - mu_k) / sigma_k
-                        };
-                        let a_trunc = (d.low.ln() - mu_k) / sigma_k;
-                        let b_trunc = (d.high.ln() - mu_k) / sigma_k;
-                        match truncnorm::log_mass_interval(a, b, a_trunc, b_trunc) {
-                            Ok(v) => *weight += v,
+                        let a = if x_is_low_edge { f64::NEG_INFINITY } else { (low_bound.ln() - d.mus[k]) / d.sigmas[k] };
+                        let b = if x_is_high_edge { f64::INFINITY } else { (high_bound.ln() - d.mus[k]) / d.sigmas[k] };
+                        if b <= d.a_truncs[k] || a >= d.b_truncs[k] {
+                            *weight = f64::NEG_INFINITY;
+                            continue;
+                        }
+                        let a_adj = a.max(d.a_truncs[k]);
+                        let b_adj = b.min(d.b_truncs[k]);
+                        if a_adj >= b_adj {
+                            *weight = f64::NEG_INFINITY;
+                            continue;
+                        }
+                        match truncnorm::log_diff_cdf(a_adj, b_adj) {
+                            Ok(ln_numer) => *weight += ln_numer - ln_denom,
                             Err(_) => *weight = f64::NEG_INFINITY,
                         }
                     }
@@ -393,32 +445,32 @@ mod tests {
 
     #[test]
     fn test_mixture_of_product_distribution() {
-        let truncnorm_dist = TruncNormDistributions {
-            mus: vec![-0.5, 0.0],   // mus[-1] is prior
-            sigmas: vec![2.0, 1.0], // sigma[-1] is prior
-            low: -1.0,
-            high: 1.0,
-        };
-        let trunclognorm_dist = TruncLogNormDistributions {
-            mus: vec![2.0, 3.0],    // ditto
-            sigmas: vec![2.0, 1.0], // ditto
-            low: 1.0,
-            high: 5.0,
-        };
-        let discrete_truncnorm_dist = DiscreteTruncNormDistributions {
-            mus: vec![-0.5, 0.0],   // ditto
-            sigmas: vec![1.0, 1.0], // ditto
-            low: -1.0,
-            high: 1.0,
-            step: 1.0,
-        };
-        let discrete_trunclognorm_dist = DiscreteTruncLogNormDistributions {
-            mus: vec![2.0, 3.0],    // ditto
-            sigmas: vec![1.0, 1.0], // ditto
-            low: 1.0,
-            high: 5.0,
-            step: 1.0,
-        };
+        let truncnorm_dist = TruncNormDistributions::new(
+            vec![-0.5, 0.0], // mus[-1] is prior
+            vec![2.0, 1.0],  // sigma[-1] is prior
+            -1.0,
+            1.0,
+        );
+        let trunclognorm_dist = TruncLogNormDistributions::new(
+            vec![2.0, 3.0], // ditto
+            vec![2.0, 1.0], // ditto
+            1.0,
+            5.0,
+        );
+        let discrete_truncnorm_dist = DiscreteTruncNormDistributions::new(
+            vec![-0.5, 0.0], // ditto
+            vec![1.0, 1.0],  // ditto
+            -1.0,
+            1.0,
+            1.0,
+        );
+        let discrete_trunclognorm_dist = DiscreteTruncLogNormDistributions::new(
+            vec![2.0, 3.0], // ditto
+            vec![1.0, 1.0], // ditto
+            1.0,
+            5.0,
+            1.0,
+        );
         let categorical_dist = CategoricalDistributions {
             weights: vec![
                 vec![0.9, 0.1], // vec.len() == cardinality
