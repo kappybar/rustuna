@@ -4,23 +4,43 @@ use statrs::distribution::{ContinuousCDF, Normal};
 /// -0.5 * ln(2π)
 const NEG_HALF_LOG_2PI: f64 = -0.9189385332046727;
 
-/// Standard normal CDF Φ(x) via Abramowitz & Stegun formula 7.1.28.
+/// Fast erf approximation using piecewise strategy:
+/// - |x| ≤ 0.5: degree-11 Taylor polynomial (no exp), error < 2e-8
+/// - 0.5 < |x| < 6.0: A&S 7.1.28 erfc (one exp call), error < 1.5e-7
+/// - |x| ≥ 6.0: ±1.0 (erf saturates)
+#[inline]
+fn erf_fast(x: f64) -> f64 {
+    let ax = x.abs();
+    if ax <= 0.5 {
+        // erf(x) = x * P(x²), P is degree-5 polynomial in x²
+        // Coefficients: (2/√π) * (-1)^k / (k! * (2k+1)) for k=0..5
+        let x2 = x * x;
+        x * (1.1283791670955126
+            + x2 * (-0.37612638903183753
+            + x2 * (0.11283791670955126
+            + x2 * (-0.026866170645131252
+            + x2 * (0.0052230526254421880
+            + x2 * (-0.00085483270234500950))))))
+    } else if ax < 6.0 {
+        // A&S 7.1.28: erfc(x) ≈ poly(t) * exp(-x²), t = 1/(1 + 0.3275911*x)
+        let t = 1.0 / (1.0 + 0.3275911 * ax);
+        let poly = t * (0.254829592
+            + t * (-0.284496736
+            + t * (1.421413741
+            + t * (-1.453152027
+            + t * 1.061405429))));
+        let erfc = poly * (-ax * ax).exp();
+        if x >= 0.0 { 1.0 - erfc } else { erfc - 1.0 }
+    } else {
+        if x >= 0.0 { 1.0 } else { -1.0 }
+    }
+}
+
+/// Standard normal CDF Φ(x) = 0.5 * (1 + erf(x/√2)).
 /// Maximum absolute error: ~1.5e-7.
 #[inline]
 fn norm_cdf(x: f64) -> f64 {
-    let z = x.abs() * std::f64::consts::FRAC_1_SQRT_2;
-    let t = 1.0 / (1.0 + 0.3275911 * z);
-    let poly = t * (0.254829592
-        + t * (-0.284496736
-        + t * (1.421413741
-        + t * (-1.453152027
-        + t * 1.061405429))));
-    let erfc_approx = poly * (-z * z).exp();
-    if x >= 0.0 {
-        1.0 - 0.5 * erfc_approx
-    } else {
-        0.5 * erfc_approx
-    }
+    0.5 * (1.0 + erf_fast(x * std::f64::consts::FRAC_1_SQRT_2))
 }
 
 #[derive(Debug)]
@@ -244,15 +264,14 @@ mod tests {
 
     #[test]
     fn test_norm_cdf_accuracy() {
-        let std = Normal::new(0.0, 1.0).unwrap();
-        // Test points covering typical TPE argument range
+        let std_normal = Normal::new(0.0, 1.0).unwrap();
         let xs = [
             -6.0, -5.0, -4.0, -3.0, -2.0, -1.5, -1.0, -0.5,
             0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0,
         ];
         for &x in &xs {
             let approx = norm_cdf(x);
-            let exact = std.cdf(x);
+            let exact = std_normal.cdf(x);
             let abs_err = (approx - exact).abs();
             assert!(
                 abs_err < 2e-7,
@@ -271,6 +290,38 @@ mod tests {
         for &x in &xs {
             let sum = norm_cdf(x) + norm_cdf(-x);
             assert!((sum - 1.0).abs() < 2e-7, "symmetry failed at x={x}: sum={sum}");
+        }
+    }
+
+    #[test]
+    fn test_erf_fast_accuracy() {
+        let std_normal = Normal::new(0.0, 1.0).unwrap();
+        // erf(x) = 2*Φ(x*√2) - 1
+        let xs = [
+            -5.5, -4.0, -3.0, -2.0, -1.0, -0.7, -0.5, -0.3, -0.1,
+            0.0, 0.1, 0.3, 0.5, 0.7, 1.0, 2.0, 3.0, 4.0, 5.5,
+        ];
+        for &x in &xs {
+            let approx = erf_fast(x);
+            let exact = 2.0 * std_normal.cdf(x * std::f64::consts::SQRT_2) - 1.0;
+            let abs_err = (approx - exact).abs();
+            assert!(
+                abs_err < 2e-7,
+                "erf_fast({x}) = {approx}, exact = {exact}, abs_err = {abs_err}"
+            );
+        }
+        // Small-x path: verify Taylor branch gives better accuracy
+        for &x in &[-0.5_f64, -0.3, -0.1, 0.0, 0.1, 0.3, 0.5] {
+            let approx = erf_fast(x);
+            let exact = 2.0 * std_normal.cdf(x * std::f64::consts::SQRT_2) - 1.0;
+            assert!((approx - exact).abs() < 2e-8, "Taylor branch error too large at x={x}");
+        }
+        // Odd symmetry: erf(-x) == -erf(x)
+        for &x in &xs {
+            assert!(
+                (erf_fast(x) + erf_fast(-x)).abs() < 1e-15,
+                "odd symmetry failed at x={x}"
+            );
         }
     }
 
