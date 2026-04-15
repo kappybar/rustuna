@@ -4,8 +4,7 @@ use rand::Rng;
 use rand_distr::{Distribution as RandDistribution, WeightedAliasIndex};
 use std::collections::HashMap;
 
-/// -0.5 * ln(2π)
-const NEG_HALF_LOG_2PI: f64 = -0.9189385332046727;
+use super::truncnorm::NEG_HALF_LOG_2PI;
 
 #[derive(Debug, Clone)]
 pub(crate) struct TruncNormDistributions {
@@ -340,7 +339,6 @@ impl MixtureOfProductDistribution {
 
             match dist {
                 Distributions::TruncNorm(d) => {
-                    // Bounds are shared across all kernels: return early if x is outside
                     if x_val < d.low || x_val > d.high {
                         return f64::NEG_INFINITY;
                     }

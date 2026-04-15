@@ -2,7 +2,7 @@ use rand::Rng;
 use statrs::distribution::{ContinuousCDF, Normal};
 
 /// -0.5 * ln(2π)
-const NEG_HALF_LOG_2PI: f64 = -0.9189385332046727;
+pub(crate) const NEG_HALF_LOG_2PI: f64 = -0.9189385332046727;
 
 /// Fast erf approximation using piecewise strategy:
 /// - |x| ≤ 0.5: degree-11 Taylor polynomial (no exp), error < 2e-8
@@ -15,11 +15,11 @@ fn erf_fast(x: f64) -> f64 {
         // erf(x) = x * P(x²), P is degree-5 polynomial in x²
         // Coefficients: (2/√π) * (-1)^k / (k! * (2k+1)) for k=0..5
         let x2 = x * x;
-        x * (1.1283791670955126
+        x * (std::f64::consts::FRAC_2_SQRT_PI
             + x2 * (-0.37612638903183753
                 + x2 * (0.11283791670955126
                     + x2 * (-0.026866170645131252
-                        + x2 * (0.0052230526254421880 + x2 * (-0.00085483270234500950))))))
+                        + x2 * (0.005_223_052_625_442_188 + x2 * (-0.000_854_832_702_345_009_5))))))
     } else if ax < 6.0 {
         // A&S 7.1.28: erfc(x) ≈ poly(t) * exp(-x²), t = 1/(1 + 0.3275911*x)
         let t = 1.0 / (1.0 + 0.3275911 * ax);
@@ -32,12 +32,10 @@ fn erf_fast(x: f64) -> f64 {
         } else {
             erfc - 1.0
         }
+    } else if x >= 0.0 {
+        1.0
     } else {
-        if x >= 0.0 {
-            1.0
-        } else {
-            -1.0
-        }
+        -1.0
     }
 }
 
@@ -138,69 +136,6 @@ pub fn rvs<R: Rng + ?Sized>(
     Ok(loc + scale * z) // X = μ + σ * Z (converted to original scale)
 }
 
-/// x    : Observation in original scale
-/// a, b : Standardized bounds (a = (low - loc) / scale, b = (high - loc) / scale)
-/// loc  : Mean (location parameter)
-/// scale: Standard deviation (scale parameter)
-pub fn log_pdf(x: f64, a: f64, b: f64, loc: f64, scale: f64) -> Result<f64, TruncNormError> {
-    if !scale.is_finite() || scale <= 0.0 {
-        return Err(TruncNormError::InvalidScale(scale));
-    }
-    if a.is_nan() || b.is_nan() {
-        return Err(TruncNormError::NanBounds(a, b));
-    }
-    if a >= b {
-        return Err(TruncNormError::InvalidBounds(a, b));
-    }
-
-    let z = (x - loc) / scale;
-    if z < a || z > b {
-        return Ok(f64::NEG_INFINITY);
-    }
-
-    let ln_phi: f64 = -0.5 * z * z + NEG_HALF_LOG_2PI;
-    let ln_mass = log_diff_cdf(a, b)?;
-
-    Ok(ln_phi - scale.ln() - ln_mass)
-}
-
-/// a      : Uower bound of the observed interval (standardized)
-/// b      : Upper bound of the observed interval (standardized)
-/// a_trunc: Lower truncation bound (standardized)
-/// b_trunc: Upper truncation bound (standardized)
-pub fn log_mass_interval(
-    a: f64,
-    b: f64,
-    a_trunc: f64,
-    b_trunc: f64,
-) -> Result<f64, TruncNormError> {
-    if a.is_nan() || b.is_nan() || a_trunc.is_nan() || b_trunc.is_nan() {
-        return Err(TruncNormError::NanBounds(a, b));
-    }
-    if a_trunc >= b_trunc {
-        return Err(TruncNormError::InvalidBounds(a_trunc, b_trunc));
-    }
-    if a >= b {
-        return Ok(f64::NEG_INFINITY);
-    }
-    if b <= a_trunc || a >= b_trunc {
-        return Ok(f64::NEG_INFINITY);
-    }
-
-    // Intersection of observed interval and truncation interval
-    let a_adjusted = a.max(a_trunc);
-    let b_adjusted = b.min(b_trunc);
-    if a_adjusted >= b_adjusted {
-        return Ok(f64::NEG_INFINITY);
-    }
-
-    // compute ln(numer) = ln(Φ(hi) - Φ(lo)) robustly
-    let ln_numer = log_diff_cdf(a_adjusted, b_adjusted)?;
-    // compute ln(denom) = ln(Φ(b_trunc) - Φ(a_trunc)) robustly
-    let ln_denom = log_diff_cdf(a_trunc, b_trunc)?;
-
-    Ok(ln_numer - ln_denom)
-}
 
 #[cfg(test)]
 mod tests {
@@ -232,48 +167,6 @@ mod tests {
         // Invalid scale -> InvalidScale
         let res_scale = rvs(&mut rng, -1.0, 1.0, 0.0, 0.0);
         assert!(matches!(res_scale, Err(TruncNormError::InvalidScale(_))));
-    }
-
-    #[test]
-    fn test_truncnorm_log_pdf_basic() {
-        let loc = 0.0;
-        let scale = 1.0;
-        let a = -1.0; // Standardized lower bound
-        let b = 1.0; // Standardized upper bound
-
-        // Case: Within bounds
-        let res = log_pdf(0.0, a, b, loc, scale);
-        assert!(res.is_ok());
-        let val = res.unwrap();
-        assert!(val.is_finite());
-
-        // Case: Outside bounds must return -infinity
-        let out_low = log_pdf(-2.0, a, b, loc, scale).unwrap();
-        let out_high = log_pdf(2.0, a, b, loc, scale).unwrap();
-        assert_eq!(out_low, f64::NEG_INFINITY);
-        assert_eq!(out_high, f64::NEG_INFINITY);
-    }
-
-    #[test]
-    fn test_log_mass_interval() {
-        let a = -1.0;
-        let b = 0.5;
-        let a_tr = -2.0;
-        let b_tr = 2.0;
-
-        // Basic: ln((Φ(b)-Φ(a)) / (Φ(b_tr)-Φ(a_tr)))
-        let std = Normal::new(0.0, 1.0).unwrap();
-        let numer = std.cdf(b) - std.cdf(a);
-        let denom = std.cdf(b_tr) - std.cdf(a_tr);
-        assert!(numer > 0.0 && denom > 0.0);
-        let expected = numer.ln() - denom.ln();
-
-        let got = log_mass_interval(a, b, a_tr, b_tr).unwrap();
-        assert!((got - expected).abs() <= 1e-6);
-
-        // Empty observed interval -> -inf
-        let got_empty = log_mass_interval(1.0, 0.0, a_tr, b_tr).unwrap();
-        assert_eq!(got_empty, f64::NEG_INFINITY);
     }
 
     #[test]
@@ -347,17 +240,9 @@ mod tests {
 
     #[test]
     fn test_invalid_parameters() {
-        // Error: scale <= 0
-        let res = log_pdf(0.0, -1.0, 1.0, 0.0, 0.0);
-        assert!(matches!(res, Err(TruncNormError::InvalidScale(_))));
-
         // Error: a >= b
         let mut rng = StdRng::seed_from_u64(0);
         let res = rvs(&mut rng, 1.0, -1.0, 0.0, 1.0);
         assert!(matches!(res, Err(TruncNormError::InvalidBounds(_, _))));
-
-        // Error: NaN input
-        let res = log_pdf(0.0, f64::NAN, 1.0, 0.0, 1.0);
-        assert!(matches!(res, Err(TruncNormError::NanBounds(_, _))));
     }
 }
