@@ -445,6 +445,15 @@ impl Sampler for TpeSampler {
         let params = self.sample(ctx, storage, search_space)?;
         Ok(params)
     }
+
+    fn after_trial(
+        &mut self,
+        _ctx: &Context,
+        _storage: Arc<RwLock<dyn Storage>>,
+        _state_values: &TrialStateValues,
+    ) -> Result<()> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

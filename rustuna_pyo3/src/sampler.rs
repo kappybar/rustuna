@@ -8,6 +8,7 @@ use pyo3::{prelude::*, types::PyType};
 
 use rustuna_core::sampler::{Context as SamplerContext, RandomSampler, Sampler};
 use rustuna_core::storage::Storage;
+use rustuna_core::trial::TrialStateValues;
 use rustuna_samplers::tpe::{TpeConfig, TpeSampler};
 
 use crate::distribution::PyDistribution;
@@ -323,5 +324,14 @@ impl Sampler for PyObjectSampler {
             })?;
             Ok(py_result)
         })
+    }
+
+    fn after_trial(
+        &mut self,
+        _ctx: &SamplerContext,
+        _storage: Arc<std::sync::RwLock<dyn Storage>>,
+        _state_values: &TrialStateValues,
+    ) -> rustuna_core::Result<()> {
+        Ok(())
     }
 }
