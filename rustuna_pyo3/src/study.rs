@@ -171,43 +171,7 @@ pub fn py_create_study(
         }
     };
     let directions = convert_directions(direction, directions)?;
-    let study = match create_study_with_arc(&study_name, storage_arc.clone(), directions) {
-        Ok(study) => study,
-        Err(err) => {
-            if !load_if_exists || !matches!(err.kind, ErrorKind::DuplicatedStudy) {
-                return Err(err_to_exceptions(err));
-            }
-            let mut guard = storage_arc
-                .write()
-                .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
-            let (study_id, directions) = guard
-                .get_studies()
-                .map_err(err_to_exceptions)?
-                .iter()
-                .find(|s| s.name == study_name)
-                .map(|s| (s.id, s.directions.clone()))
-                .ok_or(PyRuntimeError::new_err(format!(
-                    "Study {study_name} not found"
-                )))?;
-            drop(guard);
-            Study::new(
-                study_id,
-                study_name.clone(),
-                directions,
-                storage_arc.clone(),
-            )
-        }
-    };
-    let (trial_queue_arc, trial_queue_pyobj) =
-        Python::attach(|py| into_trial_queue_pyobj(py, trial_queue))?;
-    let study = Study::with_queue(
-        study.id,
-        study.name,
-        study.directions,
-        study.storage,
-        trial_queue_arc,
-    );
-    let is_multi_objective = study.directions.len() > 1;
+    let is_multi_objective = directions.len() > 1;
     let (sampler_arc, sampler_pyobj): (Arc<Mutex<dyn Sampler>>, Py<PyAny>) = match sampler {
         Some(sampler_obj) => Python::attach(|py| {
             let sampler_pyobj = sampler_obj.clone_ref(py);
@@ -239,9 +203,52 @@ pub fn py_create_study(
             (arc, sampler_pyobj)
         }
     };
+    let (trial_queue_arc, trial_queue_pyobj) =
+        Python::attach(|py| into_trial_queue_pyobj(py, trial_queue))?;
+    let study = match create_study_with_arc(
+        &study_name,
+        storage_arc.clone(),
+        sampler_arc.clone(),
+        directions,
+    ) {
+        Ok(study) => study,
+        Err(err) => {
+            if !load_if_exists || !matches!(err.kind, ErrorKind::DuplicatedStudy) {
+                return Err(err_to_exceptions(err));
+            }
+            let mut guard = storage_arc
+                .write()
+                .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
+            let (study_id, directions) = guard
+                .get_studies()
+                .map_err(err_to_exceptions)?
+                .iter()
+                .find(|s| s.name == study_name)
+                .map(|s| (s.id, s.directions.clone()))
+                .ok_or(PyRuntimeError::new_err(format!(
+                    "Study {study_name} not found"
+                )))?;
+            drop(guard);
+            Study::new(
+                study_id,
+                study_name.clone(),
+                directions,
+                storage_arc.clone(),
+                sampler_arc.clone(),
+                trial_queue_arc.clone(),
+            )
+        }
+    };
+    let study = Study::new(
+        study.id,
+        study.name,
+        study.directions,
+        study.storage,
+        study.sampler,
+        trial_queue_arc,
+    );
     Ok(PyStudy {
         study,
-        sampler: sampler_arc,
         storage_pyobj,
         sampler_pyobj,
         trial_queue_pyobj,
@@ -289,7 +296,6 @@ pub fn py_load_study(
     let is_multi_objective = directions.len() > 1;
     let (trial_queue_arc, trial_queue_pyobj) =
         Python::attach(|py| into_trial_queue_pyobj(py, trial_queue))?;
-    let study = Study::with_queue(study_id, study_name, directions, storage, trial_queue_arc);
     let (sampler_arc, sampler_pyobj): (Arc<Mutex<dyn Sampler>>, Py<PyAny>) = match sampler {
         Some(sampler_obj) => Python::attach(|py| {
             let sampler_pyobj = sampler_obj.clone_ref(py);
@@ -321,9 +327,16 @@ pub fn py_load_study(
             (arc, sampler_pyobj)
         }
     };
+    let study = Study::new(
+        study_id,
+        study_name,
+        directions,
+        storage,
+        sampler_arc.clone(),
+        trial_queue_arc,
+    );
     Ok(PyStudy {
         study,
-        sampler: sampler_arc,
         storage_pyobj,
         sampler_pyobj,
         trial_queue_pyobj,
@@ -334,7 +347,6 @@ pub fn py_load_study(
 #[pyo3(module = "rustuna")]
 pub struct PyStudy {
     pub study: Study,
-    sampler: Arc<Mutex<dyn Sampler>>,
     storage_pyobj: Py<PyAny>,
     sampler_pyobj: Py<PyAny>,
     trial_queue_pyobj: Py<PyAny>,
@@ -367,10 +379,16 @@ impl PyStudy {
         let trial_queue_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
             Ok(Py::new(py, trial_queue)?.into_any())
         })?;
-        let study = Study::with_queue(study_id, name, directions, storage.storage, trial_queue_arc);
+        let study = Study::new(
+            study_id,
+            name,
+            directions,
+            storage.storage,
+            sampler.sampler.clone(),
+            trial_queue_arc,
+        );
         Ok(PyStudy {
             study,
-            sampler: sampler.sampler,
             storage_pyobj,
             sampler_pyobj,
             trial_queue_pyobj,
@@ -386,10 +404,9 @@ impl PyStudy {
     ) -> PyResult<()> {
         let catch = Python::attach(|py| normalize_catch(py, catch.as_ref().map(|c| c.bind(py))))?;
         for _ in 0..n_trials {
-            let sampler = self.sampler.clone();
             let rs_trial = self
                 .study
-                .ask(sampler)
+                .ask()
                 .map_err(|e| PyRuntimeError::new_err(format!("Failed to ask a trial {e:?}.")))?;
             let trial_number = rs_trial.number;
 
@@ -429,7 +446,7 @@ impl PyStudy {
     pub fn ask(&self) -> PyResult<PyTrial> {
         let trial = self
             .study
-            .ask(self.sampler.clone())
+            .ask()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to ask a trial: {:?}", e.kind)))?;
         let trial = Python::attach(|py| PyTrial::new(trial, self.storage_pyobj.clone_ref(py)));
         Ok(trial)

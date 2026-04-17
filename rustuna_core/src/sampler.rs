@@ -162,8 +162,6 @@ impl Sampler for RandomSampler {
 mod tests {
     use super::*;
 
-    use std::sync::Mutex;
-
     use crate::storage::InMemoryStorage;
     use crate::study::create_study;
     use crate::trial::Trial;
@@ -205,9 +203,13 @@ mod tests {
     #[test]
     fn test_joint_sampling_empty() -> Result<()> {
         let joint_params = HashMap::new();
-        let sampler = Arc::new(Mutex::new(DummyJointSampler { joint_params }));
-        let study = create_study("dummy", InMemoryStorage::new(), vec![Direction::Minimize])?;
-        study.optimize(objective, sampler, 2)?;
+        let study = create_study(
+            "dummy",
+            InMemoryStorage::new(),
+            DummyJointSampler { joint_params },
+            vec![Direction::Minimize],
+        )?;
+        study.optimize(objective, 2)?;
         Ok(())
     }
 
@@ -216,9 +218,13 @@ mod tests {
         let mut joint_params = HashMap::new();
         joint_params.insert(String::from("x"), 0.5);
 
-        let sampler = Arc::new(Mutex::new(DummyJointSampler { joint_params }));
-        let study = create_study("dummy", InMemoryStorage::new(), vec![Direction::Minimize])?;
-        study.optimize(objective, sampler, 2)?;
+        let study = create_study(
+            "dummy",
+            InMemoryStorage::new(),
+            DummyJointSampler { joint_params },
+            vec![Direction::Minimize],
+        )?;
+        study.optimize(objective, 2)?;
 
         let trials = study.get_trials()?;
         assert_eq!(trials.len(), 2);
@@ -233,9 +239,13 @@ mod tests {
         joint_params.insert(String::from("x"), 1.0);
         joint_params.insert(String::from("y"), 1.0);
 
-        let sampler = Arc::new(Mutex::new(DummyJointSampler { joint_params }));
-        let study = create_study("dummy", InMemoryStorage::new(), vec![Direction::Minimize])?;
-        study.optimize(objective, sampler, 2)?;
+        let study = create_study(
+            "dummy",
+            InMemoryStorage::new(),
+            DummyJointSampler { joint_params },
+            vec![Direction::Minimize],
+        )?;
+        study.optimize(objective, 2)?;
 
         let trials = study.get_trials()?;
         assert_eq!(trials.len(), 2);

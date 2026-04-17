@@ -453,15 +453,12 @@ mod tests {
     use rustuna_core::storage::InMemoryStorage;
     use rustuna_core::study::{create_study, Direction};
     use rustuna_core::study::{get_best_trial, get_pareto_front};
-    use std::sync::{Arc, Mutex};
-
     #[test]
     fn test_optimize() {
         let storage = InMemoryStorage::new();
         let directions = vec![Direction::Minimize];
-        let study = create_study("simple-quadratic", storage, directions).unwrap();
-
-        let sampler = Arc::new(Mutex::new(TpeSampler::new()));
+        let study =
+            create_study("simple-quadratic", storage, TpeSampler::new(), directions).unwrap();
         study
             .optimize(
                 |mut t| {
@@ -475,7 +472,6 @@ mod tests {
                     );
                     Ok(vec![value])
                 },
-                sampler,
                 50,
             )
             .unwrap();
@@ -487,9 +483,8 @@ mod tests {
     fn test_optimize_conditional() {
         let storage = InMemoryStorage::new();
         let directions = vec![Direction::Minimize];
-        let study = create_study("simple-quadratic", storage, directions).unwrap();
-
-        let sampler = Arc::new(Mutex::new(TpeSampler::new()));
+        let study =
+            create_study("simple-quadratic", storage, TpeSampler::new(), directions).unwrap();
         study
             .optimize(
                 |mut t| {
@@ -509,7 +504,6 @@ mod tests {
                     }
                     Ok(vec![value])
                 },
-                sampler,
                 50,
             )
             .unwrap();
@@ -521,9 +515,13 @@ mod tests {
     fn test_multi_objective() {
         let storage = InMemoryStorage::new();
         let directions = vec![Direction::Minimize, Direction::Minimize];
-        let study = create_study("simple-bi-objective", storage, directions).unwrap();
-
-        let sampler = Arc::new(Mutex::new(TpeSampler::new()));
+        let study = create_study(
+            "simple-bi-objective",
+            storage,
+            TpeSampler::new(),
+            directions,
+        )
+        .unwrap();
         study
             .optimize(
                 |mut t| {
@@ -536,7 +534,6 @@ mod tests {
                     println!("{:2} x: {}, y: {}, values: {:?}", t.number, x, y, values);
                     Ok(values)
                 },
-                sampler,
                 50,
             )
             .unwrap();

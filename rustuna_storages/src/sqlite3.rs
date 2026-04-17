@@ -1775,7 +1775,6 @@ mod tests {
     use crate::cache::CachedStorage;
     use rustuna_core::sampler::RandomSampler;
     use rustuna_core::study::{create_study, Direction};
-    use std::sync::Arc;
     use tempfile::tempdir;
 
     fn init_storage() -> Result<SQLite3Storage> {
@@ -2221,8 +2220,12 @@ mod tests {
         storage.create_database()?;
         let storage = CachedStorage::new(Box::new(storage));
 
-        let study = create_study("simple-quadratic", storage, vec![Direction::Minimize])?;
-        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
+        let study = create_study(
+            "simple-quadratic",
+            storage,
+            RandomSampler::new(),
+            vec![Direction::Minimize],
+        )?;
         study.optimize(
             |mut t| {
                 let x = t.suggest_float("x", 0.0, 10.0)?;
@@ -2231,7 +2234,6 @@ mod tests {
                 println!("{:2} x: {}, y: {}, value: {}", t.number, x, y, value);
                 Ok(vec![value])
             },
-            sampler,
             100,
         )?;
         assert_eq!(study.get_trials()?.len(), 100);

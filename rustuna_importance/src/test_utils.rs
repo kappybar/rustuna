@@ -4,8 +4,6 @@ use rustuna_core::storage::InMemoryStorage;
 use rustuna_core::study::{self, Direction, Study};
 use rustuna_core::trial::Trial;
 use rustuna_core::Result;
-use std::sync::{Arc, Mutex};
-
 fn single_objective(mut trial: Trial) -> Result<Vec<f64>> {
     let x1 = trial.suggest_float("x1", 0.1, 3.0)?;
     let x2 = trial.suggest(
@@ -86,15 +84,18 @@ pub(crate) fn get_study(
     } else {
         vec![direction]
     };
-    let study = study::create_study("test-study", storage, directions)?;
-    let sampler = Arc::new(Mutex::new(RandomSampler::seed_from_u64(seed)));
+    let study = study::create_study(
+        "test-study",
+        storage,
+        RandomSampler::seed_from_u64(seed),
+        directions,
+    )?;
     study.optimize(
         if is_multi_objective {
             multi_objective
         } else {
             single_objective
         },
-        sampler,
         n_trials,
     )?;
     Ok(study)
