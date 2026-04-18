@@ -15,6 +15,7 @@ use crate::distribution::PyDistribution;
 use crate::pyobject_storage::PyPyObjectStorage;
 use crate::storage::PyStorage;
 use crate::study::PyDirection;
+use crate::trial::PyTrialState;
 
 #[derive(Clone)]
 #[pyclass(name = "Sampler")]
@@ -136,6 +137,31 @@ impl PySampler {
                     .collect(),
             )
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to sample joint: {e:?}")))
+    }
+
+    #[pyo3(signature = (ctx, storage, state, values = None))]
+    fn after_trial(
+        &self,
+        ctx: &PySamplerContext,
+        storage: Py<PyAny>,
+        state: PyTrialState,
+        values: Option<Vec<f64>>,
+    ) -> PyResult<()> {
+        let arc_storage = extract_storage(storage)?;
+        let state_values = match state {
+            PyTrialState::RUNNING => TrialStateValues::Running,
+            PyTrialState::COMPLETE => TrialStateValues::Complete(values.ok_or(
+                PyRuntimeError::new_err("values must be specified when state is COMPLETE"),
+            )?),
+            PyTrialState::PRUNED => TrialStateValues::Pruned,
+            PyTrialState::WAITING => TrialStateValues::Waiting,
+            PyTrialState::FAIL => TrialStateValues::Fail,
+        };
+        self.sampler
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the sampler guard"))?
+            .after_trial(&ctx.context, arc_storage, &state_values)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to call after_trial: {e:?}")))
     }
 }
 
@@ -328,10 +354,41 @@ impl Sampler for PyObjectSampler {
 
     fn after_trial(
         &mut self,
-        _ctx: &SamplerContext,
-        _storage: Arc<std::sync::RwLock<dyn Storage>>,
-        _state_values: &TrialStateValues,
+        ctx: &SamplerContext,
+        storage: Arc<std::sync::RwLock<dyn Storage>>,
+        state_values: &TrialStateValues,
     ) -> rustuna_core::Result<()> {
-        Ok(())
+        let py_state = PyTrialState::from(state_values.clone());
+        let py_values = match state_values {
+            TrialStateValues::Complete(values) => Some(values.clone()),
+            _ => None,
+        };
+
+        Python::attach(|py| {
+            if !self.obj.bind(py).hasattr("after_trial").map_err(|e| {
+                rustuna_core::Error::with_reason(
+                    rustuna_core::ErrorKind::SamplerError,
+                    e.to_string(),
+                )
+            })? {
+                return Ok(());
+            }
+
+            let py_ctx = PySamplerContext::from(ctx.clone());
+            let py_storage = PyStorage {
+                storage: storage.clone(),
+                optuna_compatible: None,
+                kind: "unset",
+            };
+            self.obj
+                .call_method1(py, "after_trial", (py_ctx, py_storage, py_state, py_values))
+                .map_err(|e| {
+                    rustuna_core::Error::with_reason(
+                        rustuna_core::ErrorKind::SamplerError,
+                        e.to_string(),
+                    )
+                })?;
+            Ok(())
+        })
     }
 }

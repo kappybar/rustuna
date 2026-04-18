@@ -995,6 +995,13 @@ class SamplerProtocol(Protocol):
         name: str,
         distribution: Distribution,
     ) -> float: ...
+    def after_trial(
+        self,
+        ctx: SamplerContext,
+        storage: StorageProtocol,
+        state: TrialState,
+        values: list[float] | None = None,
+    ) -> None: ...
 
 class Sampler:
     """Factory class for creating sampler instances."""
@@ -1084,6 +1091,22 @@ class Sampler:
 
         Returns:
             Suggested parameter value (Optuna's internal representation).
+        """
+
+    def after_trial(
+        self,
+        ctx: SamplerContext,
+        storage: StorageProtocol,
+        state: TrialState,
+        values: list[float] | None = None,
+    ) -> None:
+        """Run sampler post-processing after a trial finishes.
+
+        Args:
+            ctx: Sampler context.
+            storage: Storage object.
+            state: Final trial state.
+            values: Final objective values. ``None`` unless the trial completed.
         """
 
 # Trial Queue
