@@ -9,24 +9,30 @@ use crate::trial::{PersistedTrial, Trial, TrialStateValues};
 use crate::trial_queue::{InMemoryTrialQueue, TrialQueue};
 use crate::{Error, ErrorKind, Result};
 
-pub fn create_study<S: Storage + Send + Sync + 'static>(
+pub fn create_study<S: Storage + Send + Sync + 'static, T: Sampler + Send + 'static>(
     study_name: &str,
     mut storage: S,
+    sampler: T,
     directions: Vec<Direction>,
 ) -> Result<Study> {
     let study_id = storage.create_new_study(study_name, directions.clone())?.id;
     let storage = Arc::new(RwLock::new(storage));
+    let sampler: Arc<Mutex<dyn Sampler>> = Arc::new(Mutex::new(sampler));
+    let queue = Arc::new(RwLock::new(InMemoryTrialQueue::new()));
     Ok(Study::new(
         study_id,
         study_name.to_string(),
         directions,
         storage,
+        sampler,
+        queue,
     ))
 }
 
 pub fn create_study_with_arc(
     study_name: &str,
     storage: Arc<RwLock<dyn Storage>>,
+    sampler: Arc<Mutex<dyn Sampler>>,
     directions: Vec<Direction>,
 ) -> Result<Study> {
     let mut guard = storage
@@ -34,11 +40,14 @@ pub fn create_study_with_arc(
         .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
     let study_id = guard.create_new_study(study_name, directions.clone())?.id;
     drop(guard);
+    let queue = Arc::new(RwLock::new(InMemoryTrialQueue::new()));
     Ok(Study::new(
         study_id,
         study_name.to_string(),
         directions,
         storage,
+        sampler,
+        queue,
     ))
 }
 
@@ -48,6 +57,7 @@ pub struct Study {
     pub name: String,
     pub directions: Vec<Direction>,
     pub storage: Arc<RwLock<dyn Storage>>,
+    pub sampler: Arc<Mutex<dyn Sampler>>,
     pub queue: Arc<RwLock<dyn TrialQueue>>,
 }
 impl Study {
@@ -56,22 +66,7 @@ impl Study {
         name: String,
         directions: Vec<Direction>,
         storage: Arc<RwLock<dyn Storage>>,
-    ) -> Self {
-        let queue = Arc::new(RwLock::new(InMemoryTrialQueue::new()));
-        Study {
-            id,
-            name,
-            directions,
-            storage,
-            queue,
-        }
-    }
-
-    pub fn with_queue(
-        id: u32,
-        name: String,
-        directions: Vec<Direction>,
-        storage: Arc<RwLock<dyn Storage>>,
+        sampler: Arc<Mutex<dyn Sampler>>,
         queue: Arc<RwLock<dyn TrialQueue>>,
     ) -> Self {
         Study {
@@ -79,11 +74,16 @@ impl Study {
             name,
             directions,
             storage,
+            sampler,
             queue,
         }
     }
 
-    pub fn from_id(id: u32, storage: Arc<RwLock<dyn Storage>>) -> Result<Self> {
+    pub fn from_id(
+        id: u32,
+        storage: Arc<RwLock<dyn Storage>>,
+        sampler: Arc<Mutex<dyn Sampler>>,
+    ) -> Result<Self> {
         let mut guard = storage.write().map_err(|e| {
             Error::with_reason(
                 ErrorKind::Unexpected,
@@ -94,10 +94,15 @@ impl Study {
         let name = study.name.clone();
         let directions = study.directions.clone();
         drop(guard);
-        Ok(Study::new(id, name, directions, storage))
+        let queue = Arc::new(RwLock::new(InMemoryTrialQueue::new()));
+        Ok(Study::new(id, name, directions, storage, sampler, queue))
     }
 
-    pub fn from_name(name: String, storage: Arc<RwLock<dyn Storage>>) -> Result<Self> {
+    pub fn from_name(
+        name: String,
+        storage: Arc<RwLock<dyn Storage>>,
+        sampler: Arc<Mutex<dyn Sampler>>,
+    ) -> Result<Self> {
         let mut guard = storage.write().map_err(|e| {
             Error::with_reason(
                 ErrorKind::Unexpected,
@@ -112,10 +117,13 @@ impl Study {
         let study_id = study.id;
         let directions = study.directions.clone();
         drop(guard);
-        Ok(Study::new(study_id, name, directions, storage))
+        let queue = Arc::new(RwLock::new(InMemoryTrialQueue::new()));
+        Ok(Study::new(
+            study_id, name, directions, storage, sampler, queue,
+        ))
     }
 
-    pub fn ask(&self, sampler: Arc<Mutex<dyn Sampler>>) -> Result<Trial> {
+    pub fn ask(&self) -> Result<Trial> {
         let queued_trial_id = {
             let mut queue_guard = self.queue.write().map_err(|e| {
                 Error::with_reason(
@@ -186,6 +194,7 @@ impl Study {
                 )
             };
 
+        let sampler = Arc::clone(&self.sampler);
         let mut guard = sampler
             .lock()
             .map_err(|_| Error::new(ErrorKind::Unexpected))?;
@@ -216,6 +225,8 @@ impl Study {
             HashMap::new()
         };
 
+        drop(guard);
+
         let trial = Trial::new(
             trial_id,
             self.id,
@@ -224,7 +235,7 @@ impl Study {
             datetime_complete,
             self.directions.clone(),
             Arc::clone(&self.storage),
-            sampler.clone(),
+            Arc::clone(&self.sampler),
             joint_params,
             fixed_params,
         );
@@ -241,19 +252,12 @@ impl Study {
         Ok(())
     }
 
-    pub fn optimize<F>(
-        &self,
-        mut objective: F,
-        // TODO(c-bata): Avoid to wrap Sampler by Arc and Mutex.
-        // Sampler does not need to be shared across threads.
-        sampler: Arc<Mutex<dyn Sampler>>,
-        n_trials: usize,
-    ) -> Result<()>
+    pub fn optimize<F>(&self, mut objective: F, n_trials: usize) -> Result<()>
     where
         F: FnMut(Trial) -> Result<Vec<f64>>,
     {
         for _ in 0..n_trials {
-            let trial = self.ask(sampler.clone())?;
+            let trial = self.ask()?;
             let trial_number = trial.number;
 
             // Call an objective function.
@@ -516,9 +520,8 @@ mod tests {
     #[test]
     fn test_optimize() -> Result<()> {
         let storage = InMemoryStorage::new();
-        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let study = create_study("dummy", storage, directions)?;
+        let study = create_study("dummy", storage, RandomSampler::new(), directions)?;
 
         study.optimize(
             |mut t| {
@@ -529,7 +532,6 @@ mod tests {
                 let value = (x - 3.0).powi(2) + (y - 5.0).powi(2) + (z as f64);
                 Ok(vec![value])
             },
-            sampler,
             100,
         )?;
         assert!(get_best_trial(&study).is_ok());
@@ -540,12 +542,11 @@ mod tests {
     fn test_optimize_parallel() -> Result<()> {
         let storage = InMemoryStorage::new();
         let directions = vec![Direction::Minimize];
-        let study = create_study("dummy-study", storage, directions)?;
+        let study = create_study("dummy-study", storage, RandomSampler::new(), directions)?;
 
         thread::scope(|s| {
-            for i in 0..4 {
+            for _i in 0..4 {
                 let study = study.clone();
-                let sampler = Arc::new(Mutex::new(RandomSampler::seed_from_u64(i)));
                 let choices = vec![String::from("foo"), String::from("bar")];
                 s.spawn(move || {
                     study
@@ -558,7 +559,6 @@ mod tests {
                                 let value = (x - 3.0).powi(2) + (y - 5.0).powi(2) + (z as f64);
                                 Ok(vec![value])
                             },
-                            sampler,
                             100,
                         )
                         .expect("Optimization failed");
@@ -573,11 +573,10 @@ mod tests {
     #[test]
     fn test_user_attr() -> Result<()> {
         let storage = InMemoryStorage::new();
-        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let study = create_study("dummy", storage, directions)?;
+        let study = create_study("dummy", storage, RandomSampler::new(), directions)?;
 
-        let mut trial = study.ask(sampler)?;
+        let mut trial = study.ask()?;
         trial.set_user_attr("key", String::from("bar"))?;
         let user_attr = trial
             .get_user_attr("key")
@@ -589,9 +588,8 @@ mod tests {
     #[test]
     fn test_get_best_trial() -> Result<()> {
         let storage = InMemoryStorage::new();
-        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let study = create_study("dummy", storage, directions)?;
+        let study = create_study("dummy", storage, RandomSampler::new(), directions)?;
 
         study.optimize(
             |mut t| {
@@ -602,7 +600,6 @@ mod tests {
                 let value = (x - 3.0).powi(2) + (y - 5.0).powi(2) + (z as f64);
                 Ok(vec![value])
             },
-            sampler,
             100,
         )?;
 
@@ -614,9 +611,8 @@ mod tests {
     #[test]
     fn test_get_pareto_front_trials() -> Result<()> {
         let storage = InMemoryStorage::new();
-        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize, Direction::Maximize];
-        let study = create_study("dummy", storage, directions)?;
+        let study = create_study("dummy", storage, RandomSampler::new(), directions)?;
 
         study.optimize(
             |mut t| {
@@ -628,7 +624,6 @@ mod tests {
                 let value1 = (x - 3.0).powi(2) + (y - 5.0).powi(2) + (z as f64) * 2.0;
                 Ok(vec![value0, value1])
             },
-            sampler,
             100,
         )?;
 
@@ -650,16 +645,14 @@ mod tests {
     #[test]
     fn test_dynamic_search_space() -> Result<()> {
         let storage = InMemoryStorage::new();
-        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let study = create_study("dummy", storage, directions)?;
+        let study = create_study("dummy", storage, RandomSampler::new(), directions)?;
 
         study.optimize(
             |mut t| {
                 t.suggest_float("x", 0.0, 10.0)?;
                 Ok(vec![0.0])
             },
-            sampler.clone(),
             5,
         )?;
         study.optimize(
@@ -667,7 +660,6 @@ mod tests {
                 t.suggest_float("x", 1.0, 10.0)?;
                 Ok(vec![0.0])
             },
-            sampler.clone(),
             5,
         )?;
         Ok(())
@@ -676,16 +668,14 @@ mod tests {
     #[test]
     fn test_invalid_dynamic_search_space() -> Result<()> {
         let storage = InMemoryStorage::new();
-        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let study = create_study("dummy", storage, directions)?;
+        let study = create_study("dummy", storage, RandomSampler::new(), directions)?;
 
         study.optimize(
             |mut t| {
                 t.suggest_float("x", 0.0, 10.0)?;
                 Ok(vec![0.0])
             },
-            sampler.clone(),
             5,
         )?;
         let error = study
@@ -694,7 +684,6 @@ mod tests {
                     t.suggest_int("x", 0, 10)?;
                     Ok(vec![0.0])
                 },
-                sampler.clone(),
                 5,
             )
             .unwrap_err();
@@ -706,7 +695,7 @@ mod tests {
     fn test_add_trial_preserves_template_fields() -> Result<()> {
         let storage = InMemoryStorage::new();
         let directions = vec![Direction::Minimize];
-        let study = create_study("dummy-add-trial", storage, directions)?;
+        let study = create_study("dummy-add-trial", storage, RandomSampler::new(), directions)?;
 
         let mut trial = PersistedTrial::new(999, 888, 777);
         trial.state_values = TrialStateValues::Complete(vec![1.23]);

@@ -1,5 +1,3 @@
-use std::sync::{Arc, Mutex};
-
 use rustuna_core::sampler::RandomSampler;
 use rustuna_core::storage::InMemoryStorage;
 use rustuna_core::study::{create_study, Direction};
@@ -9,9 +7,12 @@ use rustuna_importance::{self, PedAnovaImportanceEvaluator};
 fn main() -> Result<()> {
     let storage = InMemoryStorage::new();
     let directions = vec![Direction::Minimize];
-    let study = create_study("simple-quadratic", storage, directions)?;
-
-    let sampler = Arc::new(Mutex::new(RandomSampler::new()));
+    let study = create_study(
+        "simple-quadratic",
+        storage,
+        RandomSampler::new(),
+        directions,
+    )?;
     study.optimize(
         |mut t| {
             let x = t.suggest_float("x", 0.0, 10.0)?;
@@ -20,7 +21,6 @@ fn main() -> Result<()> {
             println!("{:2} x: {}, y: {}, value: {}", t.number, x, y, value);
             Ok(vec![value])
         },
-        sampler,
         50,
     )?;
     let evaluator = PedAnovaImportanceEvaluator::new(0.1, 1.0, true);

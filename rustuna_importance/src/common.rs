@@ -165,8 +165,6 @@ mod tests {
     use rustuna_core::trial::PersistedTrial;
     use rustuna_core::{ErrorKind, Result};
     use std::collections::HashSet;
-    use std::sync::{Arc, Mutex};
-
     #[test]
     fn test_error_multi_objective_wo_target() -> Result<()> {
         let evaluators = vec![PedAnovaImportanceEvaluator::default()];
@@ -287,6 +285,7 @@ mod tests {
         let study = study::create_study(
             "empty-study",
             InMemoryStorage::new(),
+            RandomSampler::new(),
             vec![Direction::Minimize],
         )?;
         for evaluator in evaluators {
@@ -301,6 +300,7 @@ mod tests {
         let study = study::create_study(
             "empty-search-space",
             InMemoryStorage::new(),
+            RandomSampler::new(),
             vec![Direction::Minimize],
         )?;
         study.optimize(
@@ -317,7 +317,6 @@ mod tests {
                 )?;
                 Ok(vec![x1 + x2])
             },
-            Arc::new(Mutex::new(RandomSampler::new())),
             5,
         )?;
         let evaluators = vec![PedAnovaImportanceEvaluator::default()];

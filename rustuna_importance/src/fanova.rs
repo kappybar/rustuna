@@ -74,8 +74,6 @@ pub fn get_param_importance(study: &Study) -> Result<Vec<Vec<f64>>> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
-
     use rustuna_core::sampler::RandomSampler;
     use rustuna_core::storage::InMemoryStorage;
     use rustuna_core::study::{create_study, Direction};
@@ -85,9 +83,8 @@ mod tests {
     #[test]
     fn fanova() {
         let storage = InMemoryStorage::new();
-        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let study = create_study("dummy", storage, directions).unwrap();
+        let study = create_study("dummy", storage, RandomSampler::new(), directions).unwrap();
 
         study
             .optimize(
@@ -99,7 +96,6 @@ mod tests {
                     let value = (x - 3.0).powi(2) + (y - 5.0).powi(2) + (z as f64);
                     Ok(vec![value])
                 },
-                sampler,
                 100,
             )
             .unwrap();
