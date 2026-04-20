@@ -102,8 +102,16 @@ class ToRustunaStorage:
                 return to_persisted_study(s)
         raise KeyError(f"Study {study_id} not found")
 
-    def get_trials(self, study_id: int) -> list[rustuna.PersistedTrial]:
-        frozen_trials = self._storage.get_all_trials(study_id)
+    def get_trials(
+        self,
+        study_id: int,
+        *,
+        states: list[rustuna.TrialState] | None = None,
+    ) -> list[rustuna.PersistedTrial]:
+        optuna_states = None
+        if states is not None:
+            optuna_states = tuple(to_optuna_state(state) for state in states)
+        frozen_trials = self._storage.get_all_trials(study_id, states=optuna_states)
 
         persisted_trials: list[rustuna.PersistedTrial] = []
         with self._lock:
@@ -342,7 +350,6 @@ class ToOptunaStorage(BaseStorage):
         deepcopy: bool = True,
         states: Container[TrialState] | None = None,
     ) -> list[FrozenTrial]:
-        rustuna_trials = self._storage.get_trials(study_id)
         rustuna_states: list[rustuna.TrialState] | None = None
         if states is not None:
             assert isinstance(states, Iterable), (
@@ -352,10 +359,9 @@ class ToOptunaStorage(BaseStorage):
             if not states_list:
                 return []
             rustuna_states = [to_rustuna_state(s) for s in states_list]
+        rustuna_trials = self._storage.get_trials(study_id, states=rustuna_states)
         trials: list[FrozenTrial] = []
         for t in rustuna_trials:
-            if rustuna_states is not None and t.state not in rustuna_states:
-                continue
             cached = self._trial_cache.get(t._trial_id)
             if cached is not None:
                 trials.append(cached)

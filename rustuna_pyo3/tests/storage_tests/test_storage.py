@@ -127,3 +127,35 @@ def test_trial_get_user_attr_method(storage: StorageProtocol) -> None:
     assert persisted.get_user_attr("key", decoder=int) == 1
     assert persisted.get_user_attr("not_found") is None
     assert persisted.get_user_attr("not_found", default=1) == 1
+
+
+def test_get_trials_with_states_filter(storage: StorageProtocol) -> None:
+    study = rustuna.create_study(storage=storage)
+
+    completed = study.ask()
+    running = study.ask()
+    failed = study.ask()
+
+    study.tell(completed.number, 1.0)
+    study.tell(failed.number, state=rustuna.TrialState.FAIL)
+
+    completed_trials = storage.get_trials(
+        study._study_id, states=[rustuna.TrialState.COMPLETE]
+    )
+    assert len(completed_trials) == 1
+    assert completed_trials[0].number == completed.number
+
+    running_trials = storage.get_trials(
+        study._study_id, states=[rustuna.TrialState.RUNNING]
+    )
+    assert len(running_trials) == 1
+    assert running_trials[0].number == running.number
+
+    finished_trials = storage.get_trials(
+        study._study_id,
+        states=[rustuna.TrialState.COMPLETE, rustuna.TrialState.FAIL],
+    )
+    assert {trial.number for trial in finished_trials} == {
+        completed.number,
+        failed.number,
+    }

@@ -625,7 +625,9 @@ class StorageProtocol(Protocol):
     ) -> None: ...
     def get_studies(self) -> list[PersistedStudy]: ...
     def get_study(self, study_id: int) -> PersistedStudy: ...
-    def get_trials(self, study_id: int) -> list[PersistedTrial]: ...
+    def get_trials(
+        self, study_id: int, *, states: list[TrialState] | None = None
+    ) -> list[PersistedTrial]: ...
     def get_trial(self, trial_id: int) -> PersistedTrial: ...
     def get_cached_trial(self, trial_id: int) -> PersistedTrial: ...
     def get_study_user_attr(self, study_id: int, key: str) -> str: ...
@@ -788,11 +790,14 @@ class Storage:
         Returns:
             The study.
         """
-    def get_trials(self, study_id: int) -> list[PersistedTrial]:
+    def get_trials(
+        self, study_id: int, *, states: list[TrialState] | None = None
+    ) -> list[PersistedTrial]:
         """Get all trials in a study.
 
         Args:
             study_id: ID of the study.
+            states: Optional trial states to filter by.
 
         Returns:
             List of all trials in the study.

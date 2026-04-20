@@ -254,13 +254,22 @@ impl PyStorage {
         Ok(study.clone().into())
     }
 
-    fn get_trials(&mut self, study_id: u32) -> PyResult<Vec<PyPersistedTrial>> {
+    #[pyo3(signature = (study_id, *, states = None))]
+    fn get_trials(
+        &mut self,
+        study_id: u32,
+        states: Option<Vec<PyTrialState>>,
+    ) -> PyResult<Vec<PyPersistedTrial>> {
         let mut guard = self.storage.write().map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
         })?;
         let trials = guard.get_trials(study_id).map_err(err_to_exceptions)?;
         let py_trials: Vec<PyPersistedTrial> = trials
             .iter()
+            .filter(|trial| match &states {
+                Some(states) => states.contains(&PyTrialState::from(trial.state_values.clone())),
+                None => true,
+            })
             .map(|t| PyPersistedTrial::from_storage(self.storage.clone(), t))
             .collect();
         Ok(py_trials)
