@@ -367,7 +367,9 @@ def test_persisted_trial():
 
     pytest.raises(
         ValueError,
-        lambda: rustuna.PersistedTrial(2, 1, 2, state=rustuna.TrialState.COMPLETE),
+        lambda: rustuna.PersistedTrial(
+            trial_id=2, study_id=1, number=2, state=rustuna.TrialState.COMPLETE
+        ),
     )
 
 

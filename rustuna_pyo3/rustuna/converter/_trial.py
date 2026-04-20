@@ -85,14 +85,10 @@ def to_persisted_trial(
             trial.intermediate_values
         )
 
-    internal_params: dict[str, float] = {}
     distributions: dict[str, rustuna.Distribution] = {}
     for param_name in trial.distributions:
         optuna_distribution = trial.distributions[param_name]
         distributions[param_name] = to_rustuna_distribution(optuna_distribution)
-        internal_params[param_name] = optuna_distribution.to_internal_repr(
-            trial.params[param_name]
-        )
 
     return rustuna.PersistedTrial(
         trial_id=max(trial._trial_id, 0),
@@ -100,7 +96,7 @@ def to_persisted_trial(
         number=max(trial.number, 0),
         state=to_rustuna_state(trial.state),
         values=trial.values,
-        internal_params=internal_params,
+        params=trial.params,
         distributions=distributions,
         user_attrs={k: json.dumps(v) for k, v in trial.user_attrs.items()},
         system_attrs={k: json.dumps(v) for k, v in optuna_system_attrs.items()},

@@ -244,12 +244,14 @@ class PersistedTrial:
 
     def __init__(
         self,
+        *,
         trial_id: int,
         study_id: int,
         number: int,
         state: TrialState,
+        value: float | None = None,
         values: list[float] | None = None,
-        internal_params: dict[str, float] | None = None,
+        params: dict[str, CategoricalChoiceType] | None = None,
         distributions: dict[str, Distribution] | None = None,
         user_attrs: dict[str, str] | None = None,
         system_attrs: dict[str, str] | None = None,
@@ -315,6 +317,35 @@ class PersistedTrial:
 
 # Study
 ObjectiveFuncType = Callable[[Trial], float | tuple[float, ...]]
+
+def create_trial(
+    *,
+    state: TrialState = TrialState.COMPLETE,
+    value: float | None = None,
+    values: Sequence[float] | None = None,
+    params: dict[str, Any] | None = None,
+    distributions: dict[str, Distribution] | None = None,
+    user_attrs: dict[str, str] | None = None,
+    system_attrs: dict[str, str] | None = None,
+) -> PersistedTrial:
+    """Create a low-level PersistedTrial object.
+
+    This is intended to mirror Optuna's ``create_trial`` helper for preparing
+    trials that will later be passed to ``Study.add_trial``.
+
+    Args:
+        state: Trial state.
+        value: Trial objective value. Must not be specified together with ``values``.
+        values: Sequence of trial objective values. Must not be specified together
+            with ``value``.
+        params: Dictionary with suggested parameter values in external representation.
+        distributions: Dictionary with parameter distributions.
+        user_attrs: Dictionary with user attributes.
+        system_attrs: Dictionary with system attributes.
+
+    Returns:
+        A PersistedTrial object.
+    """
 
 def create_study(
     *,
