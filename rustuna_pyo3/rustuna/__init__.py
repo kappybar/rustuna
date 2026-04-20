@@ -1,7 +1,7 @@
 # See https://pyo3.rs/v0.20.0/python_typing_hints#if-you-need-other-python-files
 from typing import TYPE_CHECKING
 
-from rustuna import exceptions, trial
+from rustuna import exceptions, study, trial
 from rustuna._rustuna import (
     Distribution,
     PersistedStudy,
@@ -10,7 +10,6 @@ from rustuna._rustuna import (
     SamplerContext,
     Storage,
     Study,
-    StudyDirection,
     Trial,
     TrialQueue,
     copy_study,
@@ -32,6 +31,7 @@ if TYPE_CHECKING:
 __all__ = [
     # modules
     "exceptions",
+    "study",
     "trial",
     # functions or classes
     "Distribution",
@@ -41,7 +41,6 @@ __all__ = [
     "SamplerContext",
     "Storage",
     "Study",
-    "StudyDirection",
     "Trial",
     "TrialQueue",
     "TrialPruned",

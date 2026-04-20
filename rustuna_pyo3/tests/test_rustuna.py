@@ -215,7 +215,7 @@ def test_create_study_load_if_exists_true():
     )
 
     assert first._study_id == second._study_id
-    assert second.directions == [rustuna.StudyDirection.MINIMIZE]
+    assert second.directions == [rustuna.study.StudyDirection.MINIMIZE]
 
 
 def test_create_study_load_if_exists_false():
@@ -396,7 +396,7 @@ def test_sample():
 
 def test_storage():
     storage = rustuna.Storage.in_memory()
-    study = storage.create_new_study("example", [rustuna.StudyDirection.MINIMIZE])
+    study = storage.create_new_study("example", [rustuna.study.StudyDirection.MINIMIZE])
 
 
 def test_get_pareto_front():

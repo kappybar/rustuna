@@ -44,7 +44,7 @@ class ToRustunaStorage:
         self._lock = threading.Lock()
 
     def create_new_study(
-        self, study_name: str, directions: list[rustuna.StudyDirection]
+        self, study_name: str, directions: list[rustuna.study.StudyDirection]
     ) -> rustuna.PersistedStudy:
         optuna_directions = to_optuna_directions(directions)
         study_id = self._storage.create_new_study(optuna_directions, study_name)
@@ -210,12 +210,12 @@ class ToOptunaStorage(BaseStorage):
     def create_new_study(
         self, directions: Sequence[StudyDirection], study_name: str | None = None
     ) -> int:
-        rustuna_directions: list[rustuna.StudyDirection] = []
+        rustuna_directions: list[rustuna.study.StudyDirection] = []
         for d in directions:
             if d == StudyDirection.MINIMIZE:
-                rustuna_directions.append(rustuna.StudyDirection.MINIMIZE)
+                rustuna_directions.append(rustuna.study.StudyDirection.MINIMIZE)
             elif d == StudyDirection.MAXIMIZE:
-                rustuna_directions.append(rustuna.StudyDirection.MAXIMIZE)
+                rustuna_directions.append(rustuna.study.StudyDirection.MAXIMIZE)
             else:
                 raise ValueError("Unexpected Study Direction")
 
