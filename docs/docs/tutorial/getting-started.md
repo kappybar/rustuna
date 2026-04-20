@@ -40,7 +40,7 @@ This function returns the value of $(x-2)^2$. Our goal is to find the value of `
 
 A [Trial](../api/trial.md) object corresponds to a single execution of the objective function and is internally instantiated upon each invocation of the function.
 
-The suggest APIs (for example, [suggest_float()](../api/trial.md#rustuna.Trial.suggest_float)) are called inside the objective function to obtain parameters for a trial. [suggest_float()](../api/trial.md#rustuna.Trial.suggest_float) selects parameters uniformly within the range provided. In our example, from $−10$ to $10$.
+The suggest APIs (for example, [suggest_float()](../api/trial.md#rustuna.trial.Trial.suggest_float)) are called inside the objective function to obtain parameters for a trial. [suggest_float()](../api/trial.md#rustuna.trial.Trial.suggest_float) selects parameters uniformly within the range provided. In our example, from $−10$ to $10$.
 
 To start the optimization, we create a study object and pass the objective function to method [optimize()](../api/study.md#rustuna.Study.optimize) as follows.
 
@@ -154,9 +154,9 @@ Found x: 1.9991240057627049, (x - 2)^2: 7.673659037742573e-07
 
 For parameter sampling, Rustuna provides the following features:
 
-- [rustuna.Trial.suggest_categorical()](../api/trial.md#rustuna.Trial.suggest_categorical) for categorical parameters
-- [rustuna.Trial.suggest_int()](../api/trial.md#rustuna.Trial.suggest_int) for integer parameters
-- [rustuna.Trial.suggest_float()](../api/trial.md#rustuna.Trial.suggest_float) for floating point parameters
+- [Trial.suggest_categorical()](../api/trial.md#rustuna.trial.Trial.suggest_categorical) for categorical parameters
+- [Trial.suggest_int()](../api/trial.md#rustuna.trial.Trial.suggest_int) for integer parameters
+- [Trial.suggest_float()](../api/trial.md#rustuna.trial.Trial.suggest_float) for floating point parameters
 
 With optional arguments of `step` and `log`, we can discretize or take the logarithm of integer and floating point parameters.
 

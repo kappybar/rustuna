@@ -48,11 +48,11 @@ def test_create_new_trial_from_template_optuna_compatibility() -> None:
             storage=rustuna_storage, study_name="example"
         )
         rustuna_study.add_trial(
-            rustuna.PersistedTrial(
+            rustuna.trial.PersistedTrial(
                 trial_id=0,
                 study_id=0,
                 number=0,
-                state=rustuna.TrialState.WAITING,
+                state=rustuna.trial.TrialState.WAITING,
             )
         )
 

@@ -1,7 +1,11 @@
-# Trial API
+# rustuna.trial
 
-::: rustuna.Trial
+The `trial` module contains `Trial` related classes and functions.
 
-::: rustuna.PersistedTrial
+::: rustuna.trial.Trial
 
-::: rustuna.TrialState
+::: rustuna.trial.PersistedTrial
+
+::: rustuna.trial.TrialState
+
+::: rustuna.trial.create_trial

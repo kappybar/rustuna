@@ -33,7 +33,7 @@ class RecordingSampler:
 
     def __init__(self) -> None:
         self.after_trial_calls: list[
-            tuple[int, int, rustuna.TrialState, list[float] | None]
+            tuple[int, int, rustuna.trial.TrialState, list[float] | None]
         ] = []
 
     def sample_joint(
@@ -64,7 +64,7 @@ class RecordingSampler:
         self,
         ctx: rustuna.SamplerContext,
         storage: rustuna.StorageProtocol,
-        state: rustuna.TrialState,
+        state: rustuna.trial.TrialState,
         values: Sequence[float] | None = None,
     ) -> None:
         self.after_trial_calls.append(
@@ -82,7 +82,7 @@ class FailingAfterTrialSampler(RecordingSampler):
         self,
         ctx: rustuna.SamplerContext,
         storage: rustuna.StorageProtocol,
-        state: rustuna.TrialState,
+        state: rustuna.trial.TrialState,
         values: Sequence[float] | None = None,
     ) -> None:
         raise RuntimeError("after_trial failed")
@@ -98,7 +98,7 @@ def test_to_optuna_sampler_after_trial_is_called() -> None:
     for study_id, trial_number, state, values in sampler.after_trial_calls:
         assert study_id == study._study_id
         assert trial_number >= 0
-        assert state == rustuna.TrialState.COMPLETE
+        assert state == rustuna.trial.TrialState.COMPLETE
         assert values is not None
         assert len(values) == 1
 

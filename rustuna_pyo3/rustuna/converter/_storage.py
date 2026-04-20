@@ -57,8 +57,8 @@ class ToRustunaStorage:
         )
 
     def create_new_trial(
-        self, study_id: int, template_trial: rustuna.PersistedTrial | None = None
-    ) -> rustuna.PersistedTrial:
+        self, study_id: int, template_trial: rustuna.trial.PersistedTrial | None = None
+    ) -> rustuna.trial.PersistedTrial:
         template_frozen = to_frozen_trial(template_trial) if template_trial else None
         trial_id = self._storage.create_new_trial(
             study_id, template_trial=template_frozen
@@ -82,7 +82,7 @@ class ToRustunaStorage:
     def set_trial_state_values(
         self,
         trial_id: int,
-        state: rustuna.TrialState,
+        state: rustuna.trial.TrialState,
         values: None | list[float] = None,
     ) -> None:
         self._storage.set_trial_state_values(
@@ -106,21 +106,21 @@ class ToRustunaStorage:
         self,
         study_id: int,
         *,
-        states: list[rustuna.TrialState] | None = None,
-    ) -> list[rustuna.PersistedTrial]:
+        states: list[rustuna.trial.TrialState] | None = None,
+    ) -> list[rustuna.trial.PersistedTrial]:
         optuna_states = None
         if states is not None:
             optuna_states = tuple(to_optuna_state(state) for state in states)
         frozen_trials = self._storage.get_all_trials(study_id, states=optuna_states)
 
-        persisted_trials: list[rustuna.PersistedTrial] = []
+        persisted_trials: list[rustuna.trial.PersistedTrial] = []
         with self._lock:
             for t in frozen_trials:
                 persisted_trials.append(to_persisted_trial(t, study_id))
                 self._trial_id_to_study_id[t._trial_id] = study_id
         return persisted_trials
 
-    def get_trial(self, trial_id: int) -> rustuna.PersistedTrial:
+    def get_trial(self, trial_id: int) -> rustuna.trial.PersistedTrial:
         with self._lock:
             study_id = self._trial_id_to_study_id.get(trial_id, -1)
         if study_id == -1:
@@ -131,7 +131,7 @@ class ToRustunaStorage:
         frozen_trial = self._storage.get_trial(trial_id)
         return to_persisted_trial(frozen_trial, study_id=study_id)
 
-    def get_cached_trial(self, trial_id: int) -> rustuna.PersistedTrial:
+    def get_cached_trial(self, trial_id: int) -> rustuna.trial.PersistedTrial:
         return self.get_trial(trial_id)
 
     def delete_study(self, study_id: int) -> None:
@@ -268,7 +268,7 @@ class ToOptunaStorage(BaseStorage):
     def create_new_trial(
         self, study_id: int, template_trial: FrozenTrial | None = None
     ) -> int:
-        persisted_trial_template: rustuna.PersistedTrial | None = None
+        persisted_trial_template: rustuna.trial.PersistedTrial | None = None
         if template_trial is not None:
             for param_name, distribution in template_trial.distributions.items():
                 if isinstance(
@@ -350,7 +350,7 @@ class ToOptunaStorage(BaseStorage):
         deepcopy: bool = True,
         states: Container[TrialState] | None = None,
     ) -> list[FrozenTrial]:
-        rustuna_states: list[rustuna.TrialState] | None = None
+        rustuna_states: list[rustuna.trial.TrialState] | None = None
         if states is not None:
             assert isinstance(states, Iterable), (
                 "ToOptunaStorage assumes that states is Iterable to make this faster"
