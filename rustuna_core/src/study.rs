@@ -35,9 +35,12 @@ pub fn create_study_with_arc(
     sampler: Arc<Mutex<dyn Sampler>>,
     directions: Vec<Direction>,
 ) -> Result<Study> {
-    let mut guard = storage
-        .write()
-        .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
+    let mut guard = storage.write().map_err(|e| {
+        Error::with_reason(
+            ErrorKind::Unexpected,
+            format!("Failed to acquire a storage guard: {e}"),
+        )
+    })?;
     let study_id = guard.create_new_study(study_name, directions.clone())?.id;
     drop(guard);
     let queue = Arc::new(RwLock::new(InMemoryTrialQueue::new()));
@@ -173,7 +176,14 @@ impl Study {
                                 format!("Failed to acquire queue guard for recovery: {queue_err}"),
                             )
                         })?;
-                        let _ = queue_guard.push(trial_id);
+                        if let Err(queue_err) = queue_guard.push(trial_id) {
+                            return Err(Error::with_reason(
+                                ErrorKind::Unexpected,
+                                format!(
+                                    "Failed to restore queued trial {trial_id} after ask error: {queue_err}; original error: {e}"
+                                ),
+                            ));
+                        }
                         return Err(e);
                     }
                 }
@@ -195,14 +205,22 @@ impl Study {
             };
 
         let sampler = Arc::clone(&self.sampler);
-        let mut guard = sampler
-            .lock()
-            .map_err(|_| Error::new(ErrorKind::Unexpected))?;
+        let mut guard = sampler.lock().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::Unexpected,
+                format!("Failed to acquire a sampler guard: {e}"),
+            )
+        })?;
         let joint_params: HashMap<String, (Distribution, f64)> = if guard.support_joint_sampling() {
             let joint_search_space = self
                 .storage
                 .write()
-                .map_err(|_| Error::new(ErrorKind::Unexpected))?
+                .map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::Unexpected,
+                        format!("Failed to acquire a storage guard: {e}"),
+                    )
+                })?
                 .get_joint_search_space(self.id)?;
 
             let ctx = SamplerContext {
@@ -243,12 +261,42 @@ impl Study {
     }
 
     pub fn tell(&self, trial_number: u32, state_values: TrialStateValues) -> Result<()> {
-        let mut guard = self
-            .storage
-            .write()
-            .map_err(|_| Error::new(ErrorKind::Unexpected))?;
-        let trial_id = guard.get_trial_id_from_study_id_trial_number(self.id, trial_number)?;
-        guard.set_trial_state_values(trial_id, state_values)?;
+        let mut storage_guard = self.storage.write().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::Unexpected,
+                format!("Failed to acquire a storage guard: {e}"),
+            )
+        })?;
+        let trial_id =
+            storage_guard.get_trial_id_from_study_id_trial_number(self.id, trial_number)?;
+        drop(storage_guard);
+
+        let ctx = SamplerContext {
+            study_id: self.id,
+            directions: self.directions.clone(),
+            trial_number,
+            trial_id,
+        };
+        let after_trial_result = {
+            let mut sampler_guard = self.sampler.lock().map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::Unexpected,
+                    format!("Failed to acquire a sampler guard: {e}"),
+                )
+            })?;
+            sampler_guard.after_trial(&ctx, self.storage.clone(), &state_values)
+        };
+
+        let mut storage_guard = self.storage.write().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::Unexpected,
+                format!("Failed to acquire a storage guard: {e}"),
+            )
+        })?;
+        storage_guard.set_trial_state_values(trial_id, state_values)?;
+        drop(storage_guard);
+
+        after_trial_result?;
         Ok(())
     }
 
@@ -279,19 +327,23 @@ impl Study {
     }
 
     pub fn get_trials(&self) -> Result<Vec<PersistedTrial>> {
-        let mut guard = self
-            .storage
-            .write()
-            .map_err(|_| Error::new(ErrorKind::StorageError))?;
+        let mut guard = self.storage.write().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Failed to acquire a storage guard: {e}"),
+            )
+        })?;
         let trials = guard.get_trials(self.id)?;
         Ok(trials.clone())
     }
 
     pub fn get_user_attr(&self, key: String) -> Result<Option<String>> {
-        let mut guard = self
-            .storage
-            .write()
-            .map_err(|_| Error::new(ErrorKind::Unexpected))?;
+        let mut guard = self.storage.write().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::Unexpected,
+                format!("Failed to acquire a storage guard: {e}"),
+            )
+        })?;
         let study = guard.get_study(self.id)?;
 
         let key = AttrKey::User(key.into());
@@ -302,10 +354,12 @@ impl Study {
     }
 
     pub fn set_user_attr(&self, attrs: HashMap<String, String>) -> Result<()> {
-        let mut guard = self
-            .storage
-            .write()
-            .map_err(|_| Error::new(ErrorKind::Unexpected))?;
+        let mut guard = self.storage.write().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::Unexpected,
+                format!("Failed to acquire a storage guard: {e}"),
+            )
+        })?;
         let mut a = Attrs::new();
         for (key, value) in attrs {
             a.insert(AttrKey::User(key.into()), value);
@@ -414,10 +468,12 @@ impl PersistedStudy {
 }
 
 pub fn get_best_trial(study: &Study) -> Result<u32> {
-    let mut guard = study
-        .storage
-        .write()
-        .map_err(|_| Error::new(ErrorKind::StorageError))?;
+    let mut guard = study.storage.write().map_err(|e| {
+        Error::with_reason(
+            ErrorKind::StorageError,
+            format!("Failed to acquire a storage guard: {e}"),
+        )
+    })?;
     let trials = guard.get_trials(study.id)?;
 
     let best_trial = trials
@@ -448,10 +504,12 @@ pub fn get_best_trial(study: &Study) -> Result<u32> {
 
 // TODO(HideakiImamura): Support the faster algorithm for `len(directions) == 2`.
 pub fn get_pareto_front(study: &Study) -> Result<Vec<u32>> {
-    let mut guard = study
-        .storage
-        .write()
-        .map_err(|_| Error::new(ErrorKind::StorageError))?;
+    let mut guard = study.storage.write().map_err(|e| {
+        Error::with_reason(
+            ErrorKind::StorageError,
+            format!("Failed to acquire a storage guard: {e}"),
+        )
+    })?;
     let trials = guard
         .get_trials(study.id)?
         .iter()
@@ -510,12 +568,79 @@ mod tests {
     use super::*;
     use crate::attr::AttrKey;
     use crate::distribution::Distribution;
+    use crate::sampler::{Context as SamplerContext, Sampler};
     use std::thread;
 
     use crate::sampler::RandomSampler;
     use crate::storage::InMemoryStorage;
     use crate::study::create_study;
+    use crate::study::create_study_with_arc;
     use crate::study::get_best_trial;
+
+    struct RecordingSampler {
+        calls: Arc<Mutex<Vec<(SamplerContext, TrialStateValues)>>>,
+        fail_after_trial: bool,
+    }
+
+    impl Sampler for RecordingSampler {
+        fn sample_independent(
+            &mut self,
+            _ctx: &SamplerContext,
+            _storage: Arc<RwLock<dyn Storage>>,
+            _name: &str,
+            _distribution: &Distribution,
+        ) -> Result<f64> {
+            Ok(0.0)
+        }
+
+        fn support_joint_sampling(&self) -> bool {
+            false
+        }
+
+        fn sample_joint(
+            &mut self,
+            _ctx: &SamplerContext,
+            _storage: Arc<RwLock<dyn Storage>>,
+            _search_space: &HashMap<String, Distribution>,
+        ) -> Result<HashMap<String, f64>> {
+            unreachable!()
+        }
+
+        fn after_trial(
+            &mut self,
+            ctx: &SamplerContext,
+            storage: Arc<RwLock<dyn Storage>>,
+            state_values: &TrialStateValues,
+        ) -> Result<()> {
+            let mut storage_guard = storage.write().map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::Unexpected,
+                    format!("Failed to acquire a storage guard: {e}"),
+                )
+            })?;
+            let trial = storage_guard.get_trial(ctx.trial_id)?;
+            assert_eq!(trial.state_values, TrialStateValues::Running);
+            drop(storage_guard);
+
+            self.calls
+                .lock()
+                .map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::Unexpected,
+                        format!("Failed to acquire a calls guard: {e}"),
+                    )
+                })?
+                .push((ctx.clone(), state_values.clone()));
+
+            if self.fail_after_trial {
+                return Err(Error::with_reason(
+                    ErrorKind::SamplerError,
+                    "after_trial failed",
+                ));
+            }
+            Ok(())
+        }
+    }
 
     #[test]
     fn test_optimize() -> Result<()> {
@@ -732,6 +857,88 @@ mod tests {
         assert_eq!(
             trials[0].attrs.get(&AttrKey::User("memo".into())),
             Some(&"\"imported\"".to_string())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_tell_calls_after_trial_before_storage_update() -> Result<()> {
+        let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let sampler = Arc::new(Mutex::new(RecordingSampler {
+            calls: calls.clone(),
+            fail_after_trial: false,
+        }));
+        let study = create_study_with_arc(
+            "dummy-after-trial",
+            storage.clone(),
+            sampler,
+            vec![Direction::Minimize],
+        )?;
+
+        let trial = study.ask()?;
+        study.tell(trial.number, TrialStateValues::Complete(vec![1.5]))?;
+
+        let calls_guard = calls.lock().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::Unexpected,
+                format!("Failed to acquire a calls guard: {e}"),
+            )
+        })?;
+        assert_eq!(calls_guard.len(), 1);
+        let (ctx, state_values) = &calls_guard[0];
+        assert_eq!(ctx.study_id, study.id);
+        assert_eq!(ctx.trial_id, trial.id);
+        assert_eq!(ctx.trial_number, trial.number);
+        assert_eq!(state_values, &TrialStateValues::Complete(vec![1.5]));
+        drop(calls_guard);
+
+        let mut storage_guard = storage.write().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::Unexpected,
+                format!("Failed to acquire a storage guard: {e}"),
+            )
+        })?;
+        let persisted_trial = storage_guard.get_trial(trial.id)?;
+        assert_eq!(
+            persisted_trial.state_values,
+            TrialStateValues::Complete(vec![1.5])
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_tell_persists_trial_even_if_after_trial_fails() -> Result<()> {
+        let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let sampler = Arc::new(Mutex::new(RecordingSampler {
+            calls,
+            fail_after_trial: true,
+        }));
+        let study = create_study_with_arc(
+            "dummy-after-trial-failure",
+            storage.clone(),
+            sampler,
+            vec![Direction::Minimize],
+        )?;
+
+        let trial = study.ask()?;
+        // Optuna persists the final state in a finally block even if after_trial raises.
+        let err = study
+            .tell(trial.number, TrialStateValues::Complete(vec![2.5]))
+            .expect_err("tell must propagate after_trial error");
+        assert!(matches!(err.kind, ErrorKind::SamplerError));
+
+        let mut storage_guard = storage.write().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::Unexpected,
+                format!("Failed to acquire a storage guard: {e}"),
+            )
+        })?;
+        let persisted_trial = storage_guard.get_trial(trial.id)?;
+        assert_eq!(
+            persisted_trial.state_values,
+            TrialStateValues::Complete(vec![2.5])
         );
         Ok(())
     }

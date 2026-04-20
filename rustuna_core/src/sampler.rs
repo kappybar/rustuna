@@ -6,6 +6,7 @@ use std::sync::{Arc, RwLock};
 use crate::distribution::Distribution;
 use crate::storage::Storage;
 use crate::study::Direction;
+use crate::trial::TrialStateValues;
 use crate::Result;
 
 #[derive(Debug, Clone)]
@@ -31,6 +32,14 @@ pub trait Sampler: Send {
         storage: Arc<RwLock<dyn Storage>>,
         search_space: &HashMap<String, Distribution>,
     ) -> Result<HashMap<String, f64>>;
+    fn after_trial(
+        &mut self,
+        _ctx: &Context,
+        _storage: Arc<RwLock<dyn Storage>>,
+        _state_values: &TrialStateValues,
+    ) -> Result<()> {
+        Ok(())
+    }
 }
 
 pub struct RandomSampler {
@@ -156,6 +165,15 @@ impl Sampler for RandomSampler {
     ) -> Result<HashMap<String, f64>> {
         unreachable!()
     }
+
+    fn after_trial(
+        &mut self,
+        _ctx: &Context,
+        _storage: Arc<RwLock<dyn Storage>>,
+        _state_values: &TrialStateValues,
+    ) -> Result<()> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -191,6 +209,15 @@ mod tests {
             _search_space: &HashMap<String, Distribution>,
         ) -> Result<HashMap<String, f64>> {
             Ok(self.joint_params.clone())
+        }
+
+        fn after_trial(
+            &mut self,
+            _ctx: &Context,
+            _storage: Arc<RwLock<dyn Storage>>,
+            _state_values: &TrialStateValues,
+        ) -> Result<()> {
+            Ok(())
         }
     }
 

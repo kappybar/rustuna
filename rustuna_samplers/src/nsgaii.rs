@@ -258,6 +258,15 @@ impl Sampler for NSGAIISampler {
         }
         Ok(params)
     }
+
+    fn after_trial(
+        &mut self,
+        _ctx: &Context,
+        _storage: Arc<RwLock<dyn Storage>>,
+        _state_values: &TrialStateValues,
+    ) -> Result<()> {
+        Ok(())
+    }
 }
 
 fn fast_non_dominated_sort(
