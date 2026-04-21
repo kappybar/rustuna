@@ -1,5 +1,7 @@
 # rustuna.samplers
 
+::: rustuna.samplers.SamplerProtocol
+
 ::: rustuna.samplers.RandomSampler
 
 ::: rustuna.samplers.TPESampler

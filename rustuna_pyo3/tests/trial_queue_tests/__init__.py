@@ -10,7 +10,7 @@ import pytest
 import rustuna
 
 if TYPE_CHECKING:
-    from rustuna._rustuna import TrialQueueProtocol
+    from rustuna.trial_queue import TrialQueueProtocol
 
 TrialQueueType = Literal["in_memory", "python_in_memory", "directory", "sqlite3"]
 MultiprocessQueueType = Literal["directory", "sqlite3"]

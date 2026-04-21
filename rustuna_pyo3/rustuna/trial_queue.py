@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from rustuna._rustuna import TrialQueueProtocol
-
+from rustuna._protocols import TrialQueueProtocol
 from rustuna._rustuna import TrialQueue
 
 __all__ = [
+    "TrialQueueProtocol",
     "InMemoryTrialQueue",
     "SQLite3TrialQueue",
     "DirectoryTrialQueue",
