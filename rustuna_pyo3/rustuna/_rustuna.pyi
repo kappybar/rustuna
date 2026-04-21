@@ -53,46 +53,13 @@ class Distribution:
     @classmethod
     def float(
         cls, low: float, high: float, log: bool = False, step: float | None = None
-    ) -> Distribution:
-        """Create a float distribution.
-
-        Args:
-            low: Lower bound.
-            high: Upper bound.
-            log: If True, sample from a log scale.
-            step: Discretization step.
-
-        Returns:
-            A float distribution.
-        """
-
+    ) -> Distribution: ...
     @classmethod
     def int(
         cls, low: int, high: int, log: bool = False, step: int | None = None
-    ) -> Distribution:
-        """Create an integer distribution.
-
-        Args:
-            low: Lower bound.
-            high: Upper bound.
-            log: If True, sample from a log scale.
-            step: Discretization step.
-
-        Returns:
-            An integer distribution.
-        """
-
+    ) -> Distribution: ...
     @classmethod
-    def categorical(cls, choices: list[CategoricalChoiceType]) -> Distribution:
-        """Create a categorical distribution.
-
-        Args:
-            choices: List of candidate values.
-
-        Returns:
-            A categorical distribution.
-        """
-
+    def categorical(cls, choices: list[CategoricalChoiceType]) -> Distribution: ...
     def to_dict(self) -> DistributionDict:
         """Convert the distribution to a dictionary.
 
@@ -489,16 +456,16 @@ class Study:
             value: A value of the attribute. The value should be JSON serializable.
 
         Example:
-            .. code-block:: python
+            ```python
+            import rustuna
 
-                import rustuna
+            study = rustuna.create_study()
+            study.set_user_attr("objective function", "quadratic function")
 
-                study = rustuna.create_study()
-                study.set_user_attr("objective function", "quadratic function")
-
-                assert study.user_attrs == {
-                    "objective function": "quadratic function",
-                }
+            assert study.user_attrs == {
+                "objective function": "quadratic function",
+            }
+            ```
         """
     def set_user_attrs(
         self,
@@ -513,18 +480,18 @@ class Study:
             attrs: A dictionary object.
 
         Example:
-            .. code-block:: python
+            ```python
+            import rustuna
 
-                import rustuna
+            study = rustuna.create_study()
+            study.set_user_attrs({
+                "objective function", "quadratic function"
+            })
 
-                study = rustuna.create_study()
-                study.set_user_attrs({
-                    "objective function", "quadratic function"
-                })
-
-                assert study.user_attrs == {
-                    "objective function": "quadratic function",
-                }
+            assert study.user_attrs == {
+                "objective function": "quadratic function",
+            }
+            ```
         """
     def get_user_attr(
         self,
@@ -634,119 +601,6 @@ class StorageProtocol(Protocol):
     """
     def create_new_study(
         self, study_name: str, directions: list[StudyDirection]
-    ) -> PersistedStudy: ...
-    def delete_study(self, study_id: int) -> None: ...
-    def create_new_trial(
-        self,
-        study_id: int,
-        template_trial: PersistedTrial | None = None,
-    ) -> PersistedTrial: ...
-    def set_trial_param(
-        self,
-        trial_id: int,
-        name: str,
-        distribution: Distribution,
-        value: float,
-    ) -> None: ...
-    def set_trial_state_values(
-        self,
-        trial_id: int,
-        state: TrialState,
-        values: None | list[float] = None,
-    ) -> None: ...
-    def get_studies(self) -> list[PersistedStudy]: ...
-    def get_study(self, study_id: int) -> PersistedStudy: ...
-    def get_trials(
-        self, study_id: int, *, states: list[TrialState] | None = None
-    ) -> list[PersistedTrial]: ...
-    def get_trial(self, trial_id: int) -> PersistedTrial: ...
-    def get_cached_trial(self, trial_id: int) -> PersistedTrial: ...
-    def get_study_user_attr(self, study_id: int, key: str) -> str: ...
-    def get_study_system_attr(self, study_id: int, key: str) -> str: ...
-    def get_trial_user_attr(self, trial_id: int, key: str) -> str: ...
-    def get_trial_system_attr(self, trial_id: int, key: str) -> str: ...
-    def get_trial_id_from_study_id_trial_number(
-        self, study_id: int, trial_number: int
-    ) -> int: ...
-    def set_study_system_attrs(self, study_id: int, attrs: dict[str, str]) -> None: ...
-    def set_study_user_attrs(self, study_id: int, attrs: dict[str, str]) -> None: ...
-    def set_trial_system_attrs(self, trial_id: int, attrs: dict[str, str]) -> None: ...
-    def set_trial_user_attrs(self, trial_id: int, attrs: dict[str, str]) -> None: ...
-    def set_category_labels(
-        self,
-        study_id: int,
-        param_name: str,
-        choices: list[CategoricalChoiceType],
-    ) -> None: ...
-    def get_category_labels(
-        self,
-        study_id: int,
-        param_name: str,
-        cardinality: int,
-    ) -> list[CategoricalChoiceType] | None: ...
-
-class OptunaStorageProtocol(StorageProtocol, Protocol):
-    def set_trial_intermediate_value(
-        self, trial_id: int, step: int, intermediate_value: float
-    ) -> None: ...
-
-class PyObjectStorage(StorageProtocol):
-    """Wrapper to convert a StorageProtocol implementation to Rust Storage trait.
-
-    This class wraps a Python object implementing StorageProtocol and makes it
-    usable as a Rust Storage trait implementation.
-
-    Note:
-        This class is not intended for direct use by end users. It is used internally
-        by rustuna converters (e.g., ToOptunaSampler) to bridge Python StorageProtocol
-        implementations with Rust components.
-    """
-
-    def __init__(self, storage: StorageProtocol) -> None:
-        """Create a PyObjectStorage from a StorageProtocol instance.
-
-        Args:
-            storage: A Python object implementing StorageProtocol.
-        """
-
-class Storage:
-    """Storage for persisting optimization history."""
-
-    @classmethod
-    def in_memory(cls) -> StorageProtocol:
-        """Create an in-memory storage.
-
-        Returns:
-            An in-memory storage instance.
-        """
-    @classmethod
-    def sqlite3(
-        cls, file_path: str, *, create_database: bool = True
-    ) -> OptunaStorageProtocol:
-        """Create a SQLite3 storage.
-
-        Args:
-            file_path: Path to the SQLite3 database file.
-            create_database: If True, initialize the database when it is missing.
-
-        Returns:
-            A SQLite3 storage instance.
-        """
-    @classmethod
-    def journal_file(
-        cls,
-        file_path: str,
-    ) -> OptunaStorageProtocol:
-        """Create a Journal storage with its file backend.
-
-        Args:
-            file_path: Path to the journal log file.
-
-        Returns:
-            A Journal storage instance.
-        """
-    def create_new_study(
-        self, study_name: str, directions: list[StudyDirection]
     ) -> PersistedStudy:
         """Create a new study.
 
@@ -833,15 +687,6 @@ class Storage:
         Returns:
             List of all trials in the study.
         """
-    def get_n_trials(self, study_id: int) -> int:
-        """Get the number of trials in a study.
-
-        Args:
-            study_id: ID of the study.
-
-        Returns:
-            Number of trials.
-        """
     def get_trial(self, trial_id: int) -> PersistedTrial:
         """Get a trial by ID.
 
@@ -860,15 +705,45 @@ class Storage:
         Returns:
             The trial.
         """
-    def get_trial_by_number(self, study_id: int, trial_number: int) -> PersistedTrial:
-        """Get a trial by study ID and trial number.
+    def get_study_user_attr(self, study_id: int, key: str) -> str:
+        """Get a single user attribute of a study.
 
         Args:
             study_id: ID of the study.
-            trial_number: Number of the trial within the study.
+            key: Attribute key.
 
         Returns:
-            The trial.
+            The attribute value as a string.
+        """
+    def get_study_system_attr(self, study_id: int, key: str) -> str:
+        """Get a single system attribute of a study.
+
+        Args:
+            study_id: ID of the study.
+            key: Attribute key.
+
+        Returns:
+            The attribute value as a string.
+        """
+    def get_trial_user_attr(self, trial_id: int, key: str) -> str:
+        """Get a single user attribute of a trial.
+
+        Args:
+            trial_id: ID of the trial.
+            key: Attribute key.
+
+        Returns:
+            The attribute value as a string.
+        """
+    def get_trial_system_attr(self, trial_id: int, key: str) -> str:
+        """Get a single system attribute of a trial.
+
+        Args:
+            trial_id: ID of the trial.
+            key: Attribute key.
+
+        Returns:
+            The attribute value as a string.
         """
     def get_trial_id_from_study_id_trial_number(
         self, study_id: int, trial_number: int
@@ -939,6 +814,8 @@ class Storage:
         Returns:
             List of category labels, or None if not set.
         """
+
+class OptunaStorageProtocol(StorageProtocol, Protocol):
     def set_trial_intermediate_value(
         self, trial_id: int, step: int, intermediate_value: float
     ) -> None:
@@ -949,6 +826,95 @@ class Storage:
             step: Step at which the intermediate value is reported.
             intermediate_value: Intermediate objective value.
         """
+
+class PyObjectStorage(StorageProtocol):
+    """Wrapper to convert a StorageProtocol implementation to Rust Storage trait.
+
+    This class wraps a Python object implementing StorageProtocol and makes it
+    usable as a Rust Storage trait implementation.
+
+    Note:
+        This class is not intended for direct use by end users. It is used internally
+        by rustuna converters (e.g., ToOptunaSampler) to bridge Python StorageProtocol
+        implementations with Rust components.
+    """
+
+    def __init__(self, storage: StorageProtocol) -> None:
+        """Create a PyObjectStorage from a StorageProtocol instance.
+
+        Args:
+            storage: A Python object implementing StorageProtocol.
+        """
+
+class Storage:
+    """Storage for persisting optimization history."""
+
+    @classmethod
+    def in_memory(cls) -> StorageProtocol: ...
+    @classmethod
+    def sqlite3(
+        cls, file_path: str, *, create_database: bool = True
+    ) -> OptunaStorageProtocol: ...
+    @classmethod
+    def journal_file(
+        cls,
+        file_path: str,
+    ) -> OptunaStorageProtocol: ...
+    def create_new_study(
+        self, study_name: str, directions: list[StudyDirection]
+    ) -> PersistedStudy: ...
+    def delete_study(self, study_id: int) -> None: ...
+    def create_new_trial(
+        self,
+        study_id: int,
+        template_trial: PersistedTrial | None = None,
+    ) -> PersistedTrial: ...
+    def set_trial_param(
+        self,
+        trial_id: int,
+        name: str,
+        distribution: Distribution,
+        value: float,
+    ) -> None: ...
+    def set_trial_state_values(
+        self,
+        trial_id: int,
+        state: TrialState,
+        values: None | list[float] = None,
+    ) -> None: ...
+    def get_studies(self) -> list[PersistedStudy]: ...
+    def get_study(self, study_id: int) -> PersistedStudy: ...
+    def get_trials(
+        self, study_id: int, *, states: list[TrialState] | None = None
+    ) -> list[PersistedTrial]: ...
+    def get_trial(self, trial_id: int) -> PersistedTrial: ...
+    def get_cached_trial(self, trial_id: int) -> PersistedTrial: ...
+    def get_trial_id_from_study_id_trial_number(
+        self, study_id: int, trial_number: int
+    ) -> int: ...
+    def get_study_user_attr(self, study_id: int, key: str) -> str: ...
+    def get_study_system_attr(self, study_id: int, key: str) -> str: ...
+    def get_trial_user_attr(self, trial_id: int, key: str) -> str: ...
+    def get_trial_system_attr(self, trial_id: int, key: str) -> str: ...
+    def set_study_system_attrs(self, study_id: int, attrs: dict[str, str]) -> None: ...
+    def set_study_user_attrs(self, study_id: int, attrs: dict[str, str]) -> None: ...
+    def set_trial_system_attrs(self, trial_id: int, attrs: dict[str, str]) -> None: ...
+    def set_trial_user_attrs(self, trial_id: int, attrs: dict[str, str]) -> None: ...
+    def set_category_labels(
+        self,
+        study_id: int,
+        param_name: str,
+        choices: list[CategoricalChoiceType],
+    ) -> None: ...
+    def get_category_labels(
+        self,
+        study_id: int,
+        param_name: str,
+        cardinality: int,
+    ) -> list[CategoricalChoiceType] | None: ...
+    def set_trial_intermediate_value(
+        self, trial_id: int, step: int, intermediate_value: float
+    ) -> None: ...
 
 # Sampler
 class SamplerContext:
