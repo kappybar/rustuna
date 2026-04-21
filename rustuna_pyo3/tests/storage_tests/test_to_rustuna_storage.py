@@ -94,7 +94,7 @@ class DummyJointSampler:
 
     def sample_joint(
         self,
-        ctx: rustuna.SamplerContext,
+        ctx: rustuna.samplers.SamplerContext,
         storage: rustuna.storages.StorageProtocol,
         search_space: dict[str, rustuna.Distribution],
     ) -> dict[str, float]:
@@ -119,7 +119,7 @@ class DummyJointSampler:
 
     def sample_independent(
         self,
-        ctx: rustuna.SamplerContext,
+        ctx: rustuna.samplers.SamplerContext,
         storage: rustuna.storages.StorageProtocol,
         name: str,
         distribution: rustuna.Distribution,

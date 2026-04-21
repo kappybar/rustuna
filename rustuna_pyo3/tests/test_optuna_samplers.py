@@ -22,7 +22,7 @@ class TestTpeSampler(
     @pytest.fixture
     def sampler(self) -> Callable[[], BaseSampler]:
         return lambda: ToOptunaSampler(
-            rustuna.Sampler.tpe(n_startup_trials=0, multivariate=True)
+            rustuna.samplers.TPESampler(n_startup_trials=0, multivariate=True)
         )
 
 
@@ -38,7 +38,7 @@ class RecordingSampler:
 
     def sample_joint(
         self,
-        ctx: rustuna.SamplerContext,
+        ctx: rustuna.samplers.SamplerContext,
         storage: rustuna.storages.StorageProtocol,
         search_space: dict[str, rustuna.Distribution],
     ) -> dict[str, float]:
@@ -46,7 +46,7 @@ class RecordingSampler:
 
     def sample_independent(
         self,
-        ctx: rustuna.SamplerContext,
+        ctx: rustuna.samplers.SamplerContext,
         storage: rustuna.storages.StorageProtocol,
         name: str,
         distribution: rustuna.Distribution,
@@ -62,7 +62,7 @@ class RecordingSampler:
 
     def after_trial(
         self,
-        ctx: rustuna.SamplerContext,
+        ctx: rustuna.samplers.SamplerContext,
         storage: rustuna.storages.StorageProtocol,
         state: rustuna.trial.TrialState,
         values: Sequence[float] | None = None,
@@ -80,7 +80,7 @@ class RecordingSampler:
 class FailingAfterTrialSampler(RecordingSampler):
     def after_trial(
         self,
-        ctx: rustuna.SamplerContext,
+        ctx: rustuna.samplers.SamplerContext,
         storage: rustuna.storages.StorageProtocol,
         state: rustuna.trial.TrialState,
         values: Sequence[float] | None = None,

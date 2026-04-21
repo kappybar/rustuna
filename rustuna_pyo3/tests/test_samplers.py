@@ -15,7 +15,7 @@ class DummyIndependentSampler:
 
     def sample_joint(
         self,
-        ctx: rustuna.SamplerContext,
+        ctx: rustuna.samplers.SamplerContext,
         storage: rustuna.storages.StorageProtocol,
         search_space: dict[str, rustuna.Distribution],
     ) -> dict[str, float]:
@@ -23,7 +23,7 @@ class DummyIndependentSampler:
 
     def sample_independent(
         self,
-        ctx: rustuna.SamplerContext,
+        ctx: rustuna.samplers.SamplerContext,
         storage: rustuna.storages.StorageProtocol,
         name: str,
         distribution: rustuna.Distribution,
@@ -39,7 +39,7 @@ class DummyIndependentSampler:
 
     def after_trial(
         self,
-        ctx: rustuna.SamplerContext,
+        ctx: rustuna.samplers.SamplerContext,
         storage: rustuna.storages.StorageProtocol,
         state: rustuna.trial.TrialState,
         values: list[float] | None = None,
@@ -57,7 +57,7 @@ class DummyJointSampler:
 
     def sample_joint(
         self,
-        ctx: rustuna.SamplerContext,
+        ctx: rustuna.samplers.SamplerContext,
         storage: rustuna.storages.StorageProtocol,
         search_space: dict[str, rustuna.Distribution],
     ) -> dict[str, float]:
@@ -76,7 +76,7 @@ class DummyJointSampler:
 
     def sample_independent(
         self,
-        ctx: rustuna.SamplerContext,
+        ctx: rustuna.samplers.SamplerContext,
         storage: rustuna.storages.StorageProtocol,
         name: str,
         distribution: rustuna.Distribution,
@@ -92,7 +92,7 @@ class DummyJointSampler:
 
     def after_trial(
         self,
-        ctx: rustuna.SamplerContext,
+        ctx: rustuna.samplers.SamplerContext,
         storage: rustuna.storages.StorageProtocol,
         state: rustuna.trial.TrialState,
         values: list[float] | None = None,
@@ -108,7 +108,7 @@ class RecordingSampler(DummyIndependentSampler):
 
     def after_trial(
         self,
-        ctx: rustuna.SamplerContext,
+        ctx: rustuna.samplers.SamplerContext,
         storage: rustuna.storages.StorageProtocol,
         state: rustuna.trial.TrialState,
         values: list[float] | None = None,
@@ -119,7 +119,7 @@ class RecordingSampler(DummyIndependentSampler):
 class FailingAfterTrialSampler(DummyIndependentSampler):
     def after_trial(
         self,
-        ctx: rustuna.SamplerContext,
+        ctx: rustuna.samplers.SamplerContext,
         storage: rustuna.storages.StorageProtocol,
         state: rustuna.trial.TrialState,
         values: list[float] | None = None,
@@ -128,7 +128,7 @@ class FailingAfterTrialSampler(DummyIndependentSampler):
 
 
 @pytest.mark.parametrize("sampler", [DummyIndependentSampler(), DummyJointSampler()])
-def test_custom_sampler(sampler: rustuna.SamplerProtocol) -> None:
+def test_custom_sampler(sampler: rustuna.samplers.SamplerProtocol) -> None:
     def objective(trial: rustuna.Trial) -> float:
         x = trial.suggest_float("x", -10, 10)
         y = trial.suggest_float("y", -10, 10)
