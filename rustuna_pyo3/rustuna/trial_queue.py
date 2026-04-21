@@ -28,20 +28,20 @@ def InMemoryTrialQueue() -> TrialQueueProtocol:
 
 
 # TODO(c-bata): Replace SQLite3TrialQueue with a Python concrete class.
-def SQLite3TrialQueue(db_path: str, study_id: int) -> TrialQueueProtocol:
+def SQLite3TrialQueue(db_path: str, namespace: str) -> TrialQueueProtocol:
     """An SQLite3 based TrialQueue implementation.
 
-    This queue uses SQLite to persist trial IDs with ACID guarantees. Multiple studies
-    can share the same database file, with study_id used for isolation.
+    This queue uses SQLite to persist trial IDs with ACID guarantees. Multiple queues
+    can share the same database file, with namespace used for isolation.
 
     Args:
         db_path: Path to the SQLite database file.
-        study_id: Study ID to isolate trials for this queue.
+        namespace: Namespace to isolate trials for this queue.
 
     Returns:
         An SQLite3-based trial queue instance.
     """
-    return TrialQueue.sqlite3(db_path=db_path, study_id=study_id)
+    return TrialQueue.sqlite3(db_path=db_path, namespace=namespace)
 
 
 # TODO(c-bata): Replace SQLite3TrialQueue with a Python concrete class.

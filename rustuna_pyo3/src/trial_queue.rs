@@ -36,8 +36,8 @@ impl PyTrialQueue {
     }
 
     #[classmethod]
-    fn sqlite3(_cls: &Bound<'_, PyType>, db_path: &str, study_id: u32) -> PyResult<Self> {
-        let queue = SQLite3TrialQueue::new(db_path, study_id).map_err(|e| {
+    fn sqlite3(_cls: &Bound<'_, PyType>, db_path: &str, namespace: &str) -> PyResult<Self> {
+        let queue = SQLite3TrialQueue::new(db_path, namespace).map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to create SQLite3TrialQueue: {e:?}"))
         })?;
         Ok(PyTrialQueue {

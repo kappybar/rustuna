@@ -21,7 +21,7 @@ class TrialQueueFactory:
         self.queue_type = queue_type
         self.tmpdir: str | None = None
         self.base_path: str | None = None
-        self.study_id = 1
+        self.namespace = "study-1"
         self.queue: TrialQueueProtocol | None = None
 
     def __enter__(self) -> Self:
@@ -34,9 +34,7 @@ class TrialQueueFactory:
         elif self.queue_type == "sqlite3":
             self.tmpdir = tempfile.mkdtemp()
             self.base_path = str(Path(self.tmpdir) / "queue.db")
-            self.queue = rustuna.TrialQueue.sqlite3(
-                self.base_path, study_id=self.study_id
-            )
+            self.queue = rustuna.TrialQueue.sqlite3(self.base_path, self.namespace)
         else:
             raise ValueError(f"Unknown queue type: {self.queue_type}")
         return self
@@ -45,26 +43,26 @@ class TrialQueueFactory:
         if self.tmpdir is not None:
             shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def create_queue(self, study_id: int | None = None) -> TrialQueueProtocol:
+    def create_queue(self, namespace: str | None = None) -> TrialQueueProtocol:
         if self.queue_type == "in_memory":
             return rustuna.TrialQueue.in_memory()
         if self.base_path is None:
             raise RuntimeError(
                 "TrialQueueFactory must be entered before creating queues"
             )
-        resolved_study_id = self.study_id if study_id is None else study_id
-        return make_trial_queue(self.queue_type, self.base_path, resolved_study_id)
+        resolved_namespace = self.namespace if namespace is None else namespace
+        return make_trial_queue(self.queue_type, self.base_path, resolved_namespace)
 
 
 def make_trial_queue(
     queue_type: MultiprocessQueueType | TrialQueueType,
     base_path: str,
-    study_id: int = 1,
+    namespace: str = "study-1",
 ) -> TrialQueueProtocol:
     if queue_type == "directory":
         return rustuna.TrialQueue.directory(base_path)
     if queue_type == "sqlite3":
-        return rustuna.TrialQueue.sqlite3(base_path, study_id=study_id)
+        return rustuna.TrialQueue.sqlite3(base_path, namespace=namespace)
     if queue_type == "in_memory":
         return rustuna.TrialQueue.in_memory()
     raise ValueError(f"Unknown queue type: {queue_type}")

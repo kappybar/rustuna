@@ -6,27 +6,27 @@ use std::sync::Mutex;
 
 pub struct SQLite3TrialQueue {
     conn: Mutex<Connection>,
-    study_id: u32,
+    namespace: String,
 }
 
 impl SQLite3TrialQueue {
-    /// Creates a new SQLite3TrialQueue with the specified database path and study ID.
+    /// Creates a new SQLite3TrialQueue with the specified database path and namespace.
     ///
-    /// Multiple studies can share the same database file, with study_id used for isolation.
+    /// Multiple queues can share the same database file, with namespace used for isolation.
     /// The `trial_queue` table will be created if it doesn't exist.
     ///
     /// # Arguments
     ///
     /// * `db_path` - Path to the SQLite database file
-    /// * `study_id` - Study ID to isolate trials for this queue
+    /// * `namespace` - Namespace to isolate trials for this queue
     ///
     /// # Example
     ///
     /// ```rust,no_run
     /// use rustuna_storages::sqlite3_queue::SQLite3TrialQueue;
-    /// let queue = SQLite3TrialQueue::new("/path/to/queue.db", 1).unwrap();
+    /// let queue = SQLite3TrialQueue::new("/path/to/queue.db", "study-1").unwrap();
     /// ```
-    pub fn new(db_path: impl AsRef<Path>, study_id: u32) -> Result<Self> {
+    pub fn new(db_path: impl AsRef<Path>, namespace: impl Into<String>) -> Result<Self> {
         let conn = Connection::open(db_path).map_err(|e| {
             Error::with_reason(
                 ErrorKind::StorageError,
@@ -37,13 +37,13 @@ impl SQLite3TrialQueue {
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS trial_queue (
                 rowid INTEGER PRIMARY KEY AUTOINCREMENT,
-                study_id INTEGER NOT NULL,
+                namespace TEXT NOT NULL,
                 trial_id INTEGER NOT NULL,
                 enqueued_at INTEGER NOT NULL,
                 sequence INTEGER NOT NULL
             );
-            CREATE INDEX IF NOT EXISTS idx_trial_queue_study_order 
-                ON trial_queue(study_id, enqueued_at, sequence);",
+            CREATE INDEX IF NOT EXISTS idx_trial_queue_namespace_order 
+                ON trial_queue(namespace, enqueued_at, sequence);",
         )
         .map_err(|e| {
             Error::with_reason(
@@ -54,7 +54,7 @@ impl SQLite3TrialQueue {
 
         Ok(Self {
             conn: Mutex::new(conn),
-            study_id,
+            namespace: namespace.into(),
         })
     }
 }
@@ -77,16 +77,16 @@ impl TrialQueue for SQLite3TrialQueue {
             .query_row(
                 "SELECT COALESCE(MAX(sequence), -1) + 1 
                  FROM trial_queue 
-                 WHERE study_id = ? AND enqueued_at = ?",
-                params![self.study_id, enqueued_at],
+                 WHERE namespace = ? AND enqueued_at = ?",
+                params![self.namespace, enqueued_at],
                 |row| row.get(0),
             )
             .unwrap_or(0);
 
         conn.execute(
-            "INSERT INTO trial_queue (study_id, trial_id, enqueued_at, sequence) 
+            "INSERT INTO trial_queue (namespace, trial_id, enqueued_at, sequence) 
              VALUES (?, ?, ?, ?)",
-            params![self.study_id, trial_id, enqueued_at, sequence],
+            params![self.namespace, trial_id, enqueued_at, sequence],
         )
         .map_err(|e| {
             Error::with_reason(
@@ -118,12 +118,12 @@ impl TrialQueue for SQLite3TrialQueue {
                 "DELETE FROM trial_queue
                  WHERE rowid = (
                      SELECT rowid FROM trial_queue 
-                     WHERE study_id = ? 
+                     WHERE namespace = ? 
                      ORDER BY enqueued_at DESC, sequence DESC
                      LIMIT 1
                  )
                  RETURNING trial_id",
-                params![self.study_id],
+                params![self.namespace],
                 |row| row.get(0),
             )?;
             Ok(trial_id)
@@ -162,7 +162,7 @@ mod tests {
     #[test]
     fn test_enqueue_and_dequeue() {
         let temp_file = NamedTempFile::new().unwrap();
-        let mut queue = SQLite3TrialQueue::new(temp_file.path(), 1).unwrap();
+        let mut queue = SQLite3TrialQueue::new(temp_file.path(), "study-1").unwrap();
 
         queue.enqueue(10).unwrap();
         queue.enqueue(20).unwrap();
@@ -176,7 +176,7 @@ mod tests {
     #[test]
     fn test_dequeue_empty_queue() {
         let temp_file = NamedTempFile::new().unwrap();
-        let mut queue = SQLite3TrialQueue::new(temp_file.path(), 1).unwrap();
+        let mut queue = SQLite3TrialQueue::new(temp_file.path(), "study-1").unwrap();
 
         assert!(queue.dequeue().is_err());
     }
@@ -184,7 +184,7 @@ mod tests {
     #[test]
     fn test_lifo_ordering() {
         let temp_file = NamedTempFile::new().unwrap();
-        let mut queue = SQLite3TrialQueue::new(temp_file.path(), 1).unwrap();
+        let mut queue = SQLite3TrialQueue::new(temp_file.path(), "study-1").unwrap();
 
         for i in 1..=100 {
             queue.enqueue(i).unwrap();
@@ -196,10 +196,10 @@ mod tests {
     }
 
     #[test]
-    fn test_study_isolation() {
+    fn test_namespace_isolation() {
         let temp_file = NamedTempFile::new().unwrap();
-        let mut queue1 = SQLite3TrialQueue::new(temp_file.path(), 1).unwrap();
-        let mut queue2 = SQLite3TrialQueue::new(temp_file.path(), 2).unwrap();
+        let mut queue1 = SQLite3TrialQueue::new(temp_file.path(), "study-1").unwrap();
+        let mut queue2 = SQLite3TrialQueue::new(temp_file.path(), "study-2").unwrap();
 
         queue1.enqueue(10).unwrap();
         queue1.enqueue(20).unwrap();
@@ -218,7 +218,7 @@ mod tests {
     #[test]
     fn test_push_pop_interleaved() {
         let temp_file = NamedTempFile::new().unwrap();
-        let mut queue = SQLite3TrialQueue::new(temp_file.path(), 1).unwrap();
+        let mut queue = SQLite3TrialQueue::new(temp_file.path(), "study-1").unwrap();
 
         queue.enqueue(1).unwrap();
         queue.enqueue(2).unwrap();
@@ -237,13 +237,13 @@ mod tests {
         let db_path = temp_file.path().to_path_buf();
 
         {
-            let mut queue = SQLite3TrialQueue::new(&db_path, 1).unwrap();
+            let mut queue = SQLite3TrialQueue::new(&db_path, "study-1").unwrap();
             queue.enqueue(10).unwrap();
             queue.enqueue(20).unwrap();
         }
 
         {
-            let mut queue = SQLite3TrialQueue::new(&db_path, 1).unwrap();
+            let mut queue = SQLite3TrialQueue::new(&db_path, "study-1").unwrap();
             assert_eq!(queue.dequeue().unwrap(), 20);
             assert_eq!(queue.dequeue().unwrap(), 10);
             assert!(queue.dequeue().is_err());
