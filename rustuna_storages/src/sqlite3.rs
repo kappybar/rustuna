@@ -839,32 +839,6 @@ impl CachedStorageBackend for SQLite3Storage {
             .ok_or(Error::new(ErrorKind::AttrNotFound))
     }
 
-    fn get_trial_attr(
-        &mut self,
-        trial_id: u32,
-        key: rustuna_core::attr::AttrKey,
-    ) -> rustuna_core::Result<String> {
-        let guard = self
-            .conn
-            .lock()
-            .map_err(|_| Error::new(ErrorKind::StorageError))?;
-        let (table, key_str) = match &key {
-            AttrKey::User(k) => ("trial_user_attributes", k.as_str()),
-            AttrKey::System(k) => ("trial_system_attributes", k.as_str()),
-        };
-        let sql = format!("SELECT value_json FROM {table} WHERE trial_id = ? AND key = ?");
-        guard
-            .query_row(&sql, params![trial_id, key_str], |row| row.get(0))
-            .optional()
-            .map_err(|e| {
-                Error::with_reason(
-                    ErrorKind::StorageError,
-                    format!("Database query failed: {e}"),
-                )
-            })?
-            .ok_or(Error::new(ErrorKind::AttrNotFound))
-    }
-
     fn set_study_attrs(
         &mut self,
         study_id: u32,

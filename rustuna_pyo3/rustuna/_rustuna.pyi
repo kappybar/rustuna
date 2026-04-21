@@ -727,26 +727,6 @@ class StorageProtocol(Protocol):
         Returns:
             The attribute value as a string.
         """
-    def get_trial_user_attr(self, trial_id: int, key: str) -> str:
-        """Get a single user attribute of a trial.
-
-        Args:
-            trial_id: ID of the trial.
-            key: Attribute key.
-
-        Returns:
-            The attribute value as a string.
-        """
-    def get_trial_system_attr(self, trial_id: int, key: str) -> str:
-        """Get a single system attribute of a trial.
-
-        Args:
-            trial_id: ID of the trial.
-            key: Attribute key.
-
-        Returns:
-            The attribute value as a string.
-        """
     def get_trial_id_from_study_id_trial_number(
         self, study_id: int, trial_number: int
     ) -> int:
@@ -910,8 +890,6 @@ class Storage:
     ) -> int: ...
     def get_study_user_attr(self, study_id: int, key: str) -> str: ...
     def get_study_system_attr(self, study_id: int, key: str) -> str: ...
-    def get_trial_user_attr(self, trial_id: int, key: str) -> str: ...
-    def get_trial_system_attr(self, trial_id: int, key: str) -> str: ...
     def set_study_system_attrs(self, study_id: int, attrs: dict[str, str]) -> None: ...
     def set_study_user_attrs(self, study_id: int, attrs: dict[str, str]) -> None: ...
     def set_trial_system_attrs(self, trial_id: int, attrs: dict[str, str]) -> None: ...

@@ -89,40 +89,6 @@ def test_study_get_user_attr_method(storage: StorageProtocol) -> None:
     assert study.get_user_attr("not_found", default=1) == 1
 
 
-def test_get_trial_attr_methods(storage: StorageProtocol) -> None:
-    study = storage.create_new_study(
-        "example study", [rustuna.study.StudyDirection.MINIMIZE]
-    )
-    trial = storage.create_new_trial(study.id)
-    storage.set_trial_user_attrs(
-        trial._trial_id,
-        {
-            "trial_user_attr": "trial_user_attr",
-        },
-    )
-    storage.set_trial_system_attrs(
-        trial._trial_id,
-        {
-            "trial_system_attr": "trial_system_attr",
-        },
-    )
-    assert (
-        storage.get_trial_user_attr(trial._trial_id, "trial_user_attr")
-        == "trial_user_attr"
-    )
-    assert (
-        storage.get_trial_system_attr(trial._trial_id, "trial_system_attr")
-        == "trial_system_attr"
-    )
-    storage.set_trial_user_attrs(
-        trial._trial_id,
-        {
-            "trial_user_attr": "updated",
-        },
-    )
-    assert storage.get_trial_user_attr(trial._trial_id, "trial_user_attr") == "updated"
-
-
 def test_trial_get_user_attr_method(storage: StorageProtocol) -> None:
     study = rustuna.create_study(storage=storage)
     trial = study.ask()
