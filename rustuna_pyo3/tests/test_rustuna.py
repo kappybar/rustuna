@@ -7,11 +7,11 @@ def test_load_study_with_trial_queue():
     storage = rustuna.Storage.in_memory()
     created = rustuna.create_study(study_name="queued-study", storage=storage)
 
-    template = rustuna.PersistedTrial(
+    template = rustuna.trial.PersistedTrial(
         trial_id=0,
         study_id=created._study_id,
         number=0,
-        state=rustuna.TrialState.WAITING,
+        state=rustuna.trial.TrialState.WAITING,
         system_attrs={"fixed_params:x": "f:0x4014000000000000"},
     )
     trial = storage.create_new_trial(created._study_id, template)
@@ -82,17 +82,17 @@ def test_study_get_trials_filters_by_states():
     study = rustuna.create_study()
     failed_trial = study.ask()
     completed_trial = study.ask()
-    study.tell(failed_trial.number, state=rustuna.TrialState.FAIL)
+    study.tell(failed_trial.number, state=rustuna.trial.TrialState.FAIL)
     study.tell(completed_trial.number, values=1.0)
 
     filtered = study.get_trials(
-        states=[rustuna.TrialState.FAIL, rustuna.TrialState.COMPLETE]
+        states=[rustuna.trial.TrialState.FAIL, rustuna.trial.TrialState.COMPLETE]
     )
 
     assert len(filtered) == 2
     assert [trial.state for trial in filtered] == [
-        rustuna.TrialState.FAIL,
-        rustuna.TrialState.COMPLETE,
+        rustuna.trial.TrialState.FAIL,
+        rustuna.trial.TrialState.COMPLETE,
     ]
 
 
@@ -108,10 +108,10 @@ def test_optimize_catch_exception():
     study.optimize(objective, n_trials=2, catch=(Exception, RuntimeError))
 
     assert len(study.trials) == 4
-    assert study.trials[0].state == rustuna.TrialState.FAIL
-    assert study.trials[1].state == rustuna.TrialState.COMPLETE
-    assert study.trials[2].state == rustuna.TrialState.FAIL
-    assert study.trials[3].state == rustuna.TrialState.COMPLETE
+    assert study.trials[0].state == rustuna.trial.TrialState.FAIL
+    assert study.trials[1].state == rustuna.trial.TrialState.COMPLETE
+    assert study.trials[2].state == rustuna.trial.TrialState.FAIL
+    assert study.trials[3].state == rustuna.trial.TrialState.COMPLETE
 
 
 def test_optimize_reraises_uncaught_exception():
@@ -126,7 +126,7 @@ def test_optimize_reraises_uncaught_exception():
     with pytest.raises(ValueError):
         study.optimize(objective, n_trials=1, catch=(RuntimeError,))
 
-    assert study.trials[0].state == rustuna.TrialState.FAIL
+    assert study.trials[0].state == rustuna.trial.TrialState.FAIL
 
 
 def test_optimize_trial_pruned():
@@ -137,7 +137,7 @@ def test_optimize_trial_pruned():
 
     study.optimize(objective, n_trials=1)
 
-    assert study.trials[0].state == rustuna.TrialState.PRUNED
+    assert study.trials[0].state == rustuna.trial.TrialState.PRUNED
 
 
 def test_optimize_multi_objective():
@@ -348,16 +348,16 @@ def test_ask():
 
 
 def test_trial_state():
-    state = rustuna.TrialState.COMPLETE
+    state = rustuna.trial.TrialState.COMPLETE
     assert state.is_finished()
 
 
 def test_persisted_trial():
-    trial = rustuna.PersistedTrial(
+    trial = rustuna.trial.PersistedTrial(
         trial_id=2,
         study_id=1,
         number=2,
-        state=rustuna.TrialState.COMPLETE,
+        state=rustuna.trial.TrialState.COMPLETE,
         values=[0.5],
     )
     assert trial.study_id == 1
@@ -367,8 +367,8 @@ def test_persisted_trial():
 
     pytest.raises(
         ValueError,
-        lambda: rustuna.PersistedTrial(
-            trial_id=2, study_id=1, number=2, state=rustuna.TrialState.COMPLETE
+        lambda: rustuna.trial.PersistedTrial(
+            trial_id=2, study_id=1, number=2, state=rustuna.trial.TrialState.COMPLETE
         ),
     )
 

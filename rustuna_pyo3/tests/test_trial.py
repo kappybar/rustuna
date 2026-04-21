@@ -4,7 +4,7 @@ import rustuna
 
 
 def test_create_trial() -> None:
-    trial = rustuna.create_trial(
+    trial = rustuna.trial.create_trial(
         params={"x": 1.5, "y": "foo"},
         distributions={
             "x": rustuna.Distribution.float(0.0, 10.0),
@@ -18,7 +18,7 @@ def test_create_trial() -> None:
     assert trial._trial_id == 0
     assert trial.study_id == 0
     assert trial.number == 0
-    assert trial.state == rustuna.TrialState.COMPLETE
+    assert trial.state == rustuna.trial.TrialState.COMPLETE
     assert trial.values == [5.0]
     assert trial.params == {"x": 1.5, "y": "foo"}
     assert trial.user_attrs["user"] == "attr"
@@ -34,7 +34,7 @@ def test_create_trial() -> None:
 
 
 def test_create_trial_distributions() -> None:
-    trial = rustuna.create_trial(
+    trial = rustuna.trial.create_trial(
         params={"lr": 0.01, "n_layers": 3, "activation": "relu"},
         distributions={
             "lr": rustuna.Distribution.float(1e-5, 1e-1),
@@ -43,7 +43,7 @@ def test_create_trial_distributions() -> None:
         },
         value=0.95,
     )
-    assert trial.state == rustuna.TrialState.COMPLETE
+    assert trial.state == rustuna.trial.TrialState.COMPLETE
     assert trial.params["lr"] == pytest.approx(0.01)
     assert trial.params["n_layers"] == 3
     assert trial.params["activation"] == "relu"
@@ -54,7 +54,7 @@ def test_create_trial_distributions() -> None:
 
 def test_create_trial_unknown_param_raises() -> None:
     with pytest.raises(Exception):
-        rustuna.create_trial(
+        rustuna.trial.create_trial(
             params={"x": 1.0, "unknown": 99.0},
             distributions={"x": rustuna.Distribution.float(0.0, 10.0)},
             value=1.0,
@@ -62,11 +62,11 @@ def test_create_trial_unknown_param_raises() -> None:
 
 
 def test_persisted_trial_new_distributions() -> None:
-    trial = rustuna.PersistedTrial(
+    trial = rustuna.trial.PersistedTrial(
         trial_id=10,
         study_id=1,
         number=5,
-        state=rustuna.TrialState.COMPLETE,
+        state=rustuna.trial.TrialState.COMPLETE,
         params={"lr": 0.001, "n_layers": 2, "activation": "tanh"},
         distributions={
             "lr": rustuna.Distribution.float(1e-5, 1e-1),
@@ -93,11 +93,11 @@ def test_persisted_trial_new_distributions() -> None:
 
 def test_persisted_trial_new_value_and_values_error() -> None:
     with pytest.raises(Exception):
-        rustuna.PersistedTrial(
+        rustuna.trial.PersistedTrial(
             trial_id=0,
             study_id=0,
             number=0,
-            state=rustuna.TrialState.COMPLETE,
+            state=rustuna.trial.TrialState.COMPLETE,
             value=1.0,
             values=[1.0],
         )

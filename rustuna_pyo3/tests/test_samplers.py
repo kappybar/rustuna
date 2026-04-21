@@ -41,7 +41,7 @@ class DummyIndependentSampler:
         self,
         ctx: rustuna.SamplerContext,
         storage: rustuna.StorageProtocol,
-        state: rustuna.TrialState,
+        state: rustuna.trial.TrialState,
         values: list[float] | None = None,
     ) -> None:
         return None
@@ -94,7 +94,7 @@ class DummyJointSampler:
         self,
         ctx: rustuna.SamplerContext,
         storage: rustuna.StorageProtocol,
-        state: rustuna.TrialState,
+        state: rustuna.trial.TrialState,
         values: list[float] | None = None,
     ) -> None:
         return None
@@ -103,14 +103,14 @@ class DummyJointSampler:
 class RecordingSampler(DummyIndependentSampler):
     def __init__(self) -> None:
         self.after_trial_calls: list[
-            tuple[int, int, rustuna.TrialState, list[float] | None]
+            tuple[int, int, rustuna.trial.TrialState, list[float] | None]
         ] = []
 
     def after_trial(
         self,
         ctx: rustuna.SamplerContext,
         storage: rustuna.StorageProtocol,
-        state: rustuna.TrialState,
+        state: rustuna.trial.TrialState,
         values: list[float] | None = None,
     ) -> None:
         self.after_trial_calls.append((ctx.study_id, ctx.trial_number, state, values))
@@ -121,7 +121,7 @@ class FailingAfterTrialSampler(DummyIndependentSampler):
         self,
         ctx: rustuna.SamplerContext,
         storage: rustuna.StorageProtocol,
-        state: rustuna.TrialState,
+        state: rustuna.trial.TrialState,
         values: list[float] | None = None,
     ) -> None:
         raise RuntimeError("after_trial failed")
@@ -149,7 +149,7 @@ def test_custom_sampler_after_trial_is_called() -> None:
     for study_id, trial_number, state, values in sampler.after_trial_calls:
         assert study_id == study._study_id
         assert trial_number >= 0
-        assert state == rustuna.TrialState.COMPLETE
+        assert state == rustuna.trial.TrialState.COMPLETE
         assert values is not None
         assert len(values) == 1
 
@@ -162,5 +162,5 @@ def test_custom_sampler_after_trial_failure_still_persists_trial() -> None:
         study.tell(trial.number, 1.0)
 
     persisted = study.trials[0]
-    assert persisted.state == rustuna.TrialState.COMPLETE
+    assert persisted.state == rustuna.trial.TrialState.COMPLETE
     assert persisted.values == [1.0]

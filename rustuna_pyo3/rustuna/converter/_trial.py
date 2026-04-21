@@ -28,32 +28,32 @@ if typing.TYPE_CHECKING:
 
 
 to_rustuna_state_map = {
-    optuna.trial.TrialState.RUNNING: rustuna.TrialState.RUNNING,
-    optuna.trial.TrialState.COMPLETE: rustuna.TrialState.COMPLETE,
-    optuna.trial.TrialState.FAIL: rustuna.TrialState.FAIL,
-    optuna.trial.TrialState.PRUNED: rustuna.TrialState.PRUNED,
-    optuna.trial.TrialState.WAITING: rustuna.TrialState.WAITING,
+    optuna.trial.TrialState.RUNNING: rustuna.trial.TrialState.RUNNING,
+    optuna.trial.TrialState.COMPLETE: rustuna.trial.TrialState.COMPLETE,
+    optuna.trial.TrialState.FAIL: rustuna.trial.TrialState.FAIL,
+    optuna.trial.TrialState.PRUNED: rustuna.trial.TrialState.PRUNED,
+    optuna.trial.TrialState.WAITING: rustuna.trial.TrialState.WAITING,
 }
-# TODO(c-bata): Make rustuna.TrialState hashable.
+# TODO(c-bata): Make rustuna.trial.TrialState hashable.
 # to_optuna_state_map = {v: k for k, v in to_optuna_state_map.items()}
 
 
-def to_optuna_state(state: rustuna.TrialState) -> optuna.trial.TrialState:
-    if state == rustuna.TrialState.RUNNING:
+def to_optuna_state(state: rustuna.trial.TrialState) -> optuna.trial.TrialState:
+    if state == rustuna.trial.TrialState.RUNNING:
         return optuna.trial.TrialState.RUNNING
-    elif state == rustuna.TrialState.COMPLETE:
+    elif state == rustuna.trial.TrialState.COMPLETE:
         return optuna.trial.TrialState.COMPLETE
-    elif state == rustuna.TrialState.FAIL:
+    elif state == rustuna.trial.TrialState.FAIL:
         return optuna.trial.TrialState.FAIL
-    elif state == rustuna.TrialState.PRUNED:
+    elif state == rustuna.trial.TrialState.PRUNED:
         return optuna.trial.TrialState.PRUNED
-    elif state == rustuna.TrialState.WAITING:
+    elif state == rustuna.trial.TrialState.WAITING:
         return optuna.trial.TrialState.WAITING
     else:
         raise KeyError(f"Unknown state: {state}")
 
 
-def to_rustuna_state(state: optuna.trial.TrialState) -> rustuna.TrialState:
+def to_rustuna_state(state: optuna.trial.TrialState) -> rustuna.trial.TrialState:
     return to_rustuna_state_map[state]
 
 
@@ -78,7 +78,7 @@ def _encode_intermediate_values(
 def to_persisted_trial(
     trial: optuna.trial.FrozenTrial,
     study_id: int,
-) -> rustuna.PersistedTrial:
+) -> rustuna.trial.PersistedTrial:
     optuna_system_attrs = trial.system_attrs.copy()
     if trial.intermediate_values:
         optuna_system_attrs["intermediate_values"] = _encode_intermediate_values(
@@ -90,7 +90,7 @@ def to_persisted_trial(
         optuna_distribution = trial.distributions[param_name]
         distributions[param_name] = to_rustuna_distribution(optuna_distribution)
 
-    return rustuna.PersistedTrial(
+    return rustuna.trial.PersistedTrial(
         trial_id=max(trial._trial_id, 0),
         study_id=study_id,
         number=max(trial.number, 0),
@@ -153,7 +153,7 @@ class _LazyJSONAttrs(dict[str, typing.Any]):
 
 
 class FrozenTrialLike(FrozenTrial):
-    def __init__(self, persisted_trial: rustuna.PersistedTrial) -> None:
+    def __init__(self, persisted_trial: rustuna.trial.PersistedTrial) -> None:
         self._persisted_trial = persisted_trial
 
         # Pre-cache frequently accessed lightweight fields to avoid repeated conversions
@@ -473,7 +473,7 @@ class FrozenTrialLike(FrozenTrial):
 
 
 def to_frozen_trial(
-    persisted_trial: rustuna.PersistedTrial,
+    persisted_trial: rustuna.trial.PersistedTrial,
     *,
     use_frozen_trial_like: bool = True,
 ) -> FrozenTrial:

@@ -137,23 +137,23 @@ def test_get_trials_with_states_filter(storage: StorageProtocol) -> None:
     failed = study.ask()
 
     study.tell(completed.number, 1.0)
-    study.tell(failed.number, state=rustuna.TrialState.FAIL)
+    study.tell(failed.number, state=rustuna.trial.TrialState.FAIL)
 
     completed_trials = storage.get_trials(
-        study._study_id, states=[rustuna.TrialState.COMPLETE]
+        study._study_id, states=[rustuna.trial.TrialState.COMPLETE]
     )
     assert len(completed_trials) == 1
     assert completed_trials[0].number == completed.number
 
     running_trials = storage.get_trials(
-        study._study_id, states=[rustuna.TrialState.RUNNING]
+        study._study_id, states=[rustuna.trial.TrialState.RUNNING]
     )
     assert len(running_trials) == 1
     assert running_trials[0].number == running.number
 
     finished_trials = storage.get_trials(
         study._study_id,
-        states=[rustuna.TrialState.COMPLETE, rustuna.TrialState.FAIL],
+        states=[rustuna.trial.TrialState.COMPLETE, rustuna.trial.TrialState.FAIL],
     )
     assert {trial.number for trial in finished_trials} == {
         completed.number,
