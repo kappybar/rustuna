@@ -24,7 +24,7 @@ use crate::pyobject_storage::PyObjectStorage;
 use crate::sampler::{PyObjectSampler, PySampler};
 use crate::storage::PyStorage;
 use crate::trial::{PyPersistedTrial, PyTrial, PyTrialState};
-use crate::trial_queue::PyTrialQueue;
+use crate::trial_queue::{PyObjectTrialQueue, PyPyObjectTrialQueue, PyTrialQueue};
 
 type SharedStorage = Arc<RwLock<dyn Storage>>;
 type SharedTrialQueue = Arc<RwLock<dyn rustuna_core::trial_queue::TrialQueue>>;
@@ -105,13 +105,24 @@ fn matches_any_exception(py: Python<'_>, err: &PyErr, catch: &[Py<PyAny>]) -> Py
 
 fn into_trial_queue_pyobj(
     py: Python<'_>,
-    trial_queue: Option<PyTrialQueue>,
+    trial_queue: Option<Py<PyAny>>,
 ) -> PyResult<(SharedTrialQueue, Py<PyAny>)> {
     match trial_queue {
         Some(trial_queue) => {
-            let queue = trial_queue.queue.clone();
-            let py_trial_queue = Py::new(py, trial_queue)?.into_any();
-            Ok((queue, py_trial_queue))
+            let trial_queue_ref = trial_queue.bind(py);
+            if let Ok(py_trial_queue) = trial_queue_ref.extract::<PyTrialQueue>() {
+                Ok((py_trial_queue.queue.clone(), trial_queue.clone_ref(py)))
+            } else if let Ok(py_obj_trial_queue) = trial_queue_ref.extract::<PyPyObjectTrialQueue>()
+            {
+                Ok((
+                    py_obj_trial_queue.queue.clone() as SharedTrialQueue,
+                    trial_queue.clone_ref(py),
+                ))
+            } else {
+                let queue: SharedTrialQueue =
+                    Arc::new(RwLock::new(PyObjectTrialQueue::new(trial_queue.clone_ref(py))));
+                Ok((queue, trial_queue.clone_ref(py)))
+            }
         }
         None => {
             let trial_queue = PyTrialQueue {
@@ -135,7 +146,7 @@ pub fn py_create_study(
     direction: Option<String>,
     directions: Option<Vec<String>>,
     load_if_exists: bool,
-    trial_queue: Option<PyTrialQueue>,
+    trial_queue: Option<Py<PyAny>>,
 ) -> PyResult<PyStudy> {
     let study_name = match study_name {
         Some(s) => s,
@@ -261,7 +272,7 @@ pub fn py_load_study(
     study_name: String,
     storage: Py<PyAny>,
     sampler: Option<Py<PyAny>>,
-    trial_queue: Option<PyTrialQueue>,
+    trial_queue: Option<Py<PyAny>>,
 ) -> PyResult<PyStudy> {
     let storage_pyobj = Python::attach(|py| storage.clone_ref(py));
     let storage: PyResult<Arc<RwLock<dyn Storage>>> = Python::attach(|py| {

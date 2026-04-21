@@ -556,7 +556,7 @@ class Study:
     def sampler(self) -> SamplerProtocol:
         """Return the storage object."""
     @property
-    def trial_queue(self) -> TrialQueue:
+    def trial_queue(self) -> TrialQueueProtocol:
         """Return the trial queue object."""
 
 class StudyDirection(enum.IntEnum):
@@ -846,6 +846,20 @@ class PyObjectStorage(StorageProtocol):
 
         Args:
             storage: A Python object implementing StorageProtocol.
+        """
+
+class PyObjectTrialQueue(TrialQueueProtocol):
+    """Wrapper to convert a TrialQueueProtocol implementation to Rust TrialQueue trait.
+
+    This class wraps a Python object implementing TrialQueueProtocol and makes it
+    usable as a Rust TrialQueue trait implementation.
+    """
+
+    def __init__(self, trial_queue: TrialQueueProtocol) -> None:
+        """Create a PyObjectTrialQueue from a TrialQueueProtocol instance.
+
+        Args:
+            trial_queue: A Python object implementing TrialQueueProtocol.
         """
 
 class Storage:

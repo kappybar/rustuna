@@ -12,8 +12,21 @@ import rustuna
 if TYPE_CHECKING:
     from rustuna._rustuna import TrialQueueProtocol
 
-TrialQueueType = Literal["in_memory", "directory", "sqlite3"]
+TrialQueueType = Literal["in_memory", "python_in_memory", "directory", "sqlite3"]
 MultiprocessQueueType = Literal["directory", "sqlite3"]
+
+
+class DummyInMemoryTrialQueue:
+    def __init__(self) -> None:
+        self.queue: list[int] = []
+
+    def enqueue(self, trial_id: int) -> None:
+        self.queue.append(trial_id)
+
+    def dequeue(self) -> int:
+        if not self.queue:
+            raise RuntimeError("queue is empty")
+        return self.queue.pop()
 
 
 class TrialQueueFactory:
@@ -27,6 +40,8 @@ class TrialQueueFactory:
     def __enter__(self) -> Self:
         if self.queue_type == "in_memory":
             self.queue = rustuna.TrialQueue.in_memory()
+        elif self.queue_type == "python_in_memory":
+            self.queue = DummyInMemoryTrialQueue()
         elif self.queue_type == "directory":
             self.tmpdir = tempfile.mkdtemp()
             self.base_path = str(Path(self.tmpdir) / "queue")
@@ -46,6 +61,8 @@ class TrialQueueFactory:
     def create_queue(self, namespace: str | None = None) -> TrialQueueProtocol:
         if self.queue_type == "in_memory":
             return rustuna.TrialQueue.in_memory()
+        if self.queue_type == "python_in_memory":
+            return DummyInMemoryTrialQueue()
         if self.base_path is None:
             raise RuntimeError(
                 "TrialQueueFactory must be entered before creating queues"
@@ -65,13 +82,20 @@ def make_trial_queue(
         return rustuna.TrialQueue.sqlite3(base_path, namespace=namespace)
     if queue_type == "in_memory":
         return rustuna.TrialQueue.in_memory()
+    if queue_type == "python_in_memory":
+        return DummyInMemoryTrialQueue()
     raise ValueError(f"Unknown queue type: {queue_type}")
 
 
 parametrize_trial_queue = pytest.mark.parametrize(
     "queue_type",
-    ["in_memory", "directory", "sqlite3"],
-    ids=["InMemoryTrialQueue", "DirectoryTrialQueue", "SQLite3TrialQueue"],
+    ["in_memory", "python_in_memory", "directory", "sqlite3"],
+    ids=[
+        "InMemoryTrialQueue",
+        "DummyInMemoryTrialQueue",
+        "DirectoryTrialQueue",
+        "SQLite3TrialQueue",
+    ],
 )
 
 parametrize_multiprocess_trial_queue = pytest.mark.parametrize(
