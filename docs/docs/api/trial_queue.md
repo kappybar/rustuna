@@ -1,3 +1,7 @@
-# Trial Queue API
+# rustuna.trial_queue
 
-::: rustuna.TrialQueue
+::: rustuna.trial_queue.InMemoryTrialQueue
+
+::: rustuna.trial_queue.SQLite3TrialQueue
+
+::: rustuna.trial_queue.DirectoryTrialQueue

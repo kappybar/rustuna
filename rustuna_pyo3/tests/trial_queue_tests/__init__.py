@@ -8,6 +8,7 @@ from typing import Literal, Self
 import pytest
 
 import rustuna
+from rustuna._rustuna import TrialQueueProtocol
 
 TrialQueueType = Literal["in_memory", "directory", "sqlite3"]
 MultiprocessQueueType = Literal["directory", "sqlite3"]
@@ -19,7 +20,7 @@ class TrialQueueFactory:
         self.tmpdir: str | None = None
         self.base_path: str | None = None
         self.study_id = 1
-        self.queue: rustuna.TrialQueue | None = None
+        self.queue: TrialQueueProtocol | None = None
 
     def __enter__(self) -> Self:
         if self.queue_type == "in_memory":
@@ -42,7 +43,7 @@ class TrialQueueFactory:
         if self.tmpdir is not None:
             shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def create_queue(self, study_id: int | None = None) -> rustuna.TrialQueue:
+    def create_queue(self, study_id: int | None = None) -> TrialQueueProtocol:
         if self.queue_type == "in_memory":
             return rustuna.TrialQueue.in_memory()
         if self.base_path is None:
@@ -57,7 +58,7 @@ def make_trial_queue(
     queue_type: MultiprocessQueueType | TrialQueueType,
     base_path: str,
     study_id: int = 1,
-) -> rustuna.TrialQueue:
+) -> TrialQueueProtocol:
     if queue_type == "directory":
         return rustuna.TrialQueue.directory(base_path)
     if queue_type == "sqlite3":
