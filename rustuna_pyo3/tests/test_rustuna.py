@@ -397,7 +397,7 @@ def test_sample():
             directions=study.directions,
         )
         value = sampler.sample_independent(
-            ctx, storage, "x", rustuna.Distribution.float(0, 1)
+            ctx, storage, "x", rustuna.distributions.FloatDistribution(0, 1)
         )
         assert 0 <= value <= 1
 

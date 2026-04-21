@@ -4,12 +4,16 @@ import json
 import tempfile
 import time
 from concurrent.futures import ProcessPoolExecutor
+from typing import TYPE_CHECKING
 
 import optuna
 import pytest
 
 import rustuna
 from rustuna.converter import ToRustunaStorage
+
+if TYPE_CHECKING:
+    from rustuna._rustuna import Distribution
 
 
 def test_optimize_with_optuna_storage():
@@ -96,7 +100,7 @@ class DummyJointSampler:
         self,
         ctx: rustuna.samplers.SamplerContext,
         storage: rustuna.storages.StorageProtocol,
-        search_space: dict[str, rustuna.Distribution],
+        search_space: dict[str, Distribution],
     ) -> dict[str, float]:
         if ctx.trial_number == 0:
             # Even if search space is empty, rustuna calls sample_joint method.
@@ -122,7 +126,7 @@ class DummyJointSampler:
         ctx: rustuna.samplers.SamplerContext,
         storage: rustuna.storages.StorageProtocol,
         name: str,
-        distribution: rustuna.Distribution,
+        distribution: Distribution,
     ) -> float:
         dic = distribution.to_dict()
         if dic["type"] == "FloatDistribution":

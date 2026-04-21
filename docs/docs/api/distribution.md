@@ -1,3 +1,0 @@
-# Distribution classes
-
-::: rustuna.Distribution

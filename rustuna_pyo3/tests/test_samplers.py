@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 import rustuna
+
+if TYPE_CHECKING:
+    from rustuna._rustuna import Distribution
 
 
 class DummyIndependentSampler:
@@ -17,7 +22,7 @@ class DummyIndependentSampler:
         self,
         ctx: rustuna.samplers.SamplerContext,
         storage: rustuna.storages.StorageProtocol,
-        search_space: dict[str, rustuna.Distribution],
+        search_space: dict[str, Distribution],
     ) -> dict[str, float]:
         assert False, "Unreachable code"
 
@@ -26,7 +31,7 @@ class DummyIndependentSampler:
         ctx: rustuna.samplers.SamplerContext,
         storage: rustuna.storages.StorageProtocol,
         name: str,
-        distribution: rustuna.Distribution,
+        distribution: Distribution,
     ) -> float:
         dic = distribution.to_dict()
         if dic["type"] == "FloatDistribution":
@@ -59,7 +64,7 @@ class DummyJointSampler:
         self,
         ctx: rustuna.samplers.SamplerContext,
         storage: rustuna.storages.StorageProtocol,
-        search_space: dict[str, rustuna.Distribution],
+        search_space: dict[str, Distribution],
     ) -> dict[str, float]:
         params = {}
         for name, distribution in search_space.items():
@@ -79,7 +84,7 @@ class DummyJointSampler:
         ctx: rustuna.samplers.SamplerContext,
         storage: rustuna.storages.StorageProtocol,
         name: str,
-        distribution: rustuna.Distribution,
+        distribution: Distribution,
     ) -> float:
         dic = distribution.to_dict()
         if dic["type"] == "FloatDistribution":
