@@ -3,8 +3,8 @@ use std::collections::VecDeque;
 use crate::{Error, ErrorKind, Result};
 
 pub trait TrialQueue: Send + Sync {
-    fn push(&mut self, trial_id: u32) -> Result<()>;
-    fn pop(&mut self) -> Result<u32>;
+    fn enqueue(&mut self, trial_id: u32) -> Result<()>;
+    fn dequeue(&mut self) -> Result<u32>;
 }
 
 #[derive(Default)]
@@ -21,12 +21,12 @@ impl InMemoryTrialQueue {
 }
 
 impl TrialQueue for InMemoryTrialQueue {
-    fn push(&mut self, trial_id: u32) -> Result<()> {
+    fn enqueue(&mut self, trial_id: u32) -> Result<()> {
         self.queue.push_back(trial_id);
         Ok(())
     }
 
-    fn pop(&mut self) -> Result<u32> {
+    fn dequeue(&mut self) -> Result<u32> {
         self.queue
             .pop_back()
             .ok_or_else(|| Error::new(ErrorKind::TrialQueueEmpty))
@@ -38,21 +38,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_push_and_pop() {
+    fn test_enqueue_and_dequeue() {
         let mut queue = InMemoryTrialQueue::new();
 
-        assert!(queue.push(1).is_ok());
-        assert!(queue.push(2).is_ok());
-        assert!(queue.push(3).is_ok());
+        assert!(queue.enqueue(1).is_ok());
+        assert!(queue.enqueue(2).is_ok());
+        assert!(queue.enqueue(3).is_ok());
 
-        assert_eq!(queue.pop().unwrap(), 3);
-        assert_eq!(queue.pop().unwrap(), 2);
-        assert_eq!(queue.pop().unwrap(), 1);
+        assert_eq!(queue.dequeue().unwrap(), 3);
+        assert_eq!(queue.dequeue().unwrap(), 2);
+        assert_eq!(queue.dequeue().unwrap(), 1);
     }
 
     #[test]
-    fn test_pop_empty_queue() {
+    fn test_dequeue_empty_queue() {
         let mut queue = InMemoryTrialQueue::new();
-        assert!(queue.pop().is_err());
+        assert!(queue.dequeue().is_err());
     }
 }

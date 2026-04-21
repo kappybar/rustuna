@@ -3,7 +3,6 @@ use pyo3::types::{PyDict, PyFloat, PyInt, PyIterator, PyString, PyType};
 use pyo3::{PyTypeInfo, Python};
 
 use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
-use rustuna_core::sampler::RandomSampler;
 use rustuna_core::ErrorKind;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
@@ -24,9 +23,10 @@ use crate::pyobject_storage::PyObjectStorage;
 use crate::sampler::{PyObjectSampler, PySampler};
 use crate::storage::PyStorage;
 use crate::trial::{PyPersistedTrial, PyTrial, PyTrialState};
-use crate::trial_queue::PyTrialQueue;
+use crate::trial_queue::{PyObjectTrialQueue, PyPyObjectTrialQueue, PyTrialQueue};
 
 type SharedStorage = Arc<RwLock<dyn Storage>>;
+type SharedSampler = Arc<Mutex<dyn Sampler>>;
 type SharedTrialQueue = Arc<RwLock<dyn rustuna_core::trial_queue::TrialQueue>>;
 
 mod py_exceptions {
@@ -105,13 +105,25 @@ fn matches_any_exception(py: Python<'_>, err: &PyErr, catch: &[Py<PyAny>]) -> Py
 
 fn into_trial_queue_pyobj(
     py: Python<'_>,
-    trial_queue: Option<PyTrialQueue>,
+    trial_queue: Option<Py<PyAny>>,
 ) -> PyResult<(SharedTrialQueue, Py<PyAny>)> {
     match trial_queue {
         Some(trial_queue) => {
-            let queue = trial_queue.queue.clone();
-            let py_trial_queue = Py::new(py, trial_queue)?.into_any();
-            Ok((queue, py_trial_queue))
+            let trial_queue_ref = trial_queue.bind(py);
+            if let Ok(py_trial_queue) = trial_queue_ref.extract::<PyTrialQueue>() {
+                Ok((py_trial_queue.queue.clone(), trial_queue.clone_ref(py)))
+            } else if let Ok(py_obj_trial_queue) = trial_queue_ref.extract::<PyPyObjectTrialQueue>()
+            {
+                Ok((
+                    py_obj_trial_queue.queue.clone() as SharedTrialQueue,
+                    trial_queue.clone_ref(py),
+                ))
+            } else {
+                let queue: SharedTrialQueue = Arc::new(RwLock::new(PyObjectTrialQueue::new(
+                    trial_queue.clone_ref(py),
+                )));
+                Ok((queue, trial_queue.clone_ref(py)))
+            }
         }
         None => {
             let trial_queue = PyTrialQueue {
@@ -126,6 +138,75 @@ fn into_trial_queue_pyobj(
     }
 }
 
+fn resolve_storage_pyobj(
+    py: Python<'_>,
+    storage: Py<PyAny>,
+) -> PyResult<(SharedStorage, Py<PyAny>)> {
+    let storage_pyobj = storage.clone_ref(py);
+    let storage_ref = storage.bind(py);
+    if let Ok(py_storage) = storage_ref.extract::<PyStorage>() {
+        Ok((py_storage.storage.clone(), storage_pyobj))
+    } else {
+        let mut wrapped = PyObjectStorage::new(storage);
+        wrapped.sync_studies(true).map_err(err_to_exceptions)?;
+        let wrapped: SharedStorage = Arc::new(RwLock::new(wrapped));
+        Ok((wrapped, storage_pyobj))
+    }
+}
+
+fn into_storage_pyobj(
+    py: Python<'_>,
+    storage: Option<Py<PyAny>>,
+) -> PyResult<(SharedStorage, Py<PyAny>)> {
+    match storage {
+        Some(storage) => resolve_storage_pyobj(py, storage),
+        None => {
+            let storage = PyStorage {
+                storage: Arc::new(RwLock::new(InMemoryStorage::new())),
+                optuna_compatible: None,
+                kind: "in_memory",
+            };
+            let storage_arc = storage.storage.clone();
+            let storage_pyobj = Py::new(py, storage)?.into_any();
+            Ok((storage_arc, storage_pyobj))
+        }
+    }
+}
+
+fn resolve_sampler_pyobj(
+    py: Python<'_>,
+    sampler: Py<PyAny>,
+) -> PyResult<(SharedSampler, Py<PyAny>)> {
+    let sampler_pyobj = sampler.clone_ref(py);
+    let sampler_ref = sampler.bind(py);
+    if let Ok(py_sampler) = sampler_ref.extract::<PySampler>() {
+        Ok((py_sampler.sampler.clone(), sampler_pyobj))
+    } else {
+        let sampler: SharedSampler = Arc::new(Mutex::new(PyObjectSampler::new(sampler)));
+        Ok((sampler, sampler_pyobj))
+    }
+}
+
+fn into_sampler_pyobj(
+    py: Python<'_>,
+    sampler: Option<Py<PyAny>>,
+    _is_multi_objective: bool,
+) -> PyResult<(SharedSampler, Py<PyAny>)> {
+    match sampler {
+        Some(sampler) => resolve_sampler_pyobj(py, sampler),
+        None => {
+            let (sampler, kind): (SharedSampler, &'static str) =
+                (Arc::new(Mutex::new(TpeSampler::new())), "tpe");
+            let py_sampler = PySampler {
+                sampler: sampler.clone(),
+                kind,
+            };
+            let sampler_pyobj = Py::new(py, py_sampler)?.into_any();
+            Ok((sampler, sampler_pyobj))
+        }
+    }
+}
+
 #[pyfunction]
 #[pyo3(name = "create_study", signature = (*, study_name = None, storage = None, sampler = None, direction = None, directions = None, load_if_exists = false, trial_queue = None))]
 pub fn py_create_study(
@@ -135,74 +216,17 @@ pub fn py_create_study(
     direction: Option<String>,
     directions: Option<Vec<String>>,
     load_if_exists: bool,
-    trial_queue: Option<PyTrialQueue>,
+    trial_queue: Option<Py<PyAny>>,
 ) -> PyResult<PyStudy> {
     let study_name = match study_name {
         Some(s) => s,
         None => "default".to_string(), // TODO(c-bata): Generate random name with uuid.
     };
-    let (storage_arc, storage_pyobj): (Arc<RwLock<dyn Storage>>, Py<PyAny>) = match storage {
-        Some(storage_obj) => Python::attach(|py| {
-            let storage_pyobj = storage_obj.clone_ref(py);
-            let storage_ref = storage_obj.bind(py);
-            if storage_ref.is_instance_of::<PyStorage>() {
-                let storage = storage_ref.extract::<PyStorage>().map_err(|e| {
-                    PyValueError::new_err(format!("Failed to extract PyStorage: {e:?}"))
-                })?;
-                Ok::<_, PyErr>((storage.storage, storage_pyobj))
-            } else {
-                let mut storage = PyObjectStorage::new(storage_obj);
-                storage.sync_studies(true).map_err(err_to_exceptions)?;
-                let storage: Arc<RwLock<dyn Storage>> = Arc::new(RwLock::new(storage));
-                Ok((storage, storage_pyobj))
-            }
-        })?,
-        None => {
-            let arc: Arc<RwLock<dyn Storage>> = Arc::new(RwLock::new(InMemoryStorage::new()));
-            let py_storage = PyStorage {
-                storage: arc.clone(),
-                optuna_compatible: None,
-                kind: "in_memory",
-            };
-            let storage_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
-                Ok(Py::new(py, py_storage)?.into_any())
-            })?;
-            (arc, storage_pyobj)
-        }
-    };
+    let (storage_arc, storage_pyobj) = Python::attach(|py| into_storage_pyobj(py, storage))?;
     let directions = convert_directions(direction, directions)?;
     let is_multi_objective = directions.len() > 1;
-    let (sampler_arc, sampler_pyobj): (Arc<Mutex<dyn Sampler>>, Py<PyAny>) = match sampler {
-        Some(sampler_obj) => Python::attach(|py| {
-            let sampler_pyobj = sampler_obj.clone_ref(py);
-            let sampler_ref = sampler_obj.bind(py);
-            if sampler_ref.is_instance_of::<PySampler>() {
-                let sampler = sampler_ref.extract::<PySampler>().map_err(|e| {
-                    PyValueError::new_err(format!("Failed to extract PySampler: {e:?}"))
-                })?;
-                Ok::<_, PyErr>((sampler.sampler, sampler_pyobj))
-            } else {
-                let sampler: Arc<Mutex<dyn Sampler>> =
-                    Arc::new(Mutex::new(PyObjectSampler::new(sampler_obj)));
-                Ok((sampler, sampler_pyobj))
-            }
-        })?,
-        None => {
-            let arc: Arc<Mutex<dyn Sampler>> = if is_multi_objective {
-                Arc::new(Mutex::new(RandomSampler::new()))
-            } else {
-                Arc::new(Mutex::new(TpeSampler::new()))
-            };
-            let py_sampler = PySampler {
-                sampler: arc.clone(),
-                kind: "tpe",
-            };
-            let sampler_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
-                Ok(Py::new(py, py_sampler)?.into_any())
-            })?;
-            (arc, sampler_pyobj)
-        }
-    };
+    let (sampler_arc, sampler_pyobj) =
+        Python::attach(|py| into_sampler_pyobj(py, sampler, is_multi_objective))?;
     let (trial_queue_arc, trial_queue_pyobj) =
         Python::attach(|py| into_trial_queue_pyobj(py, trial_queue))?;
     let study = match create_study_with_arc(
@@ -261,25 +285,9 @@ pub fn py_load_study(
     study_name: String,
     storage: Py<PyAny>,
     sampler: Option<Py<PyAny>>,
-    trial_queue: Option<PyTrialQueue>,
+    trial_queue: Option<Py<PyAny>>,
 ) -> PyResult<PyStudy> {
-    let storage_pyobj = Python::attach(|py| storage.clone_ref(py));
-    let storage: PyResult<Arc<RwLock<dyn Storage>>> = Python::attach(|py| {
-        let storage_ref = storage.bind(py);
-        if storage_ref.is_instance_of::<PyStorage>() {
-            let storage = storage_ref.extract::<PyStorage>().map_err(|e| {
-                PyValueError::new_err(format!("Failed to extract PyStorage: {e:?}"))
-            })?;
-            let storage: Arc<RwLock<dyn Storage>> = storage.storage;
-            Ok(storage)
-        } else {
-            let mut storage = PyObjectStorage::new(storage);
-            storage.sync_studies(true).map_err(err_to_exceptions)?;
-            let storage: Arc<RwLock<dyn Storage>> = Arc::new(RwLock::new(storage));
-            Ok(storage)
-        }
-    });
-    let storage = storage?;
+    let (storage, storage_pyobj) = Python::attach(|py| resolve_storage_pyobj(py, storage))?;
     let mut guard = storage
         .write()
         .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
@@ -296,37 +304,8 @@ pub fn py_load_study(
     let is_multi_objective = directions.len() > 1;
     let (trial_queue_arc, trial_queue_pyobj) =
         Python::attach(|py| into_trial_queue_pyobj(py, trial_queue))?;
-    let (sampler_arc, sampler_pyobj): (Arc<Mutex<dyn Sampler>>, Py<PyAny>) = match sampler {
-        Some(sampler_obj) => Python::attach(|py| {
-            let sampler_pyobj = sampler_obj.clone_ref(py);
-            let sampler_ref = sampler_obj.bind(py);
-            if sampler_ref.is_instance_of::<PySampler>() {
-                let sampler = sampler_ref.extract::<PySampler>().map_err(|e| {
-                    PyValueError::new_err(format!("Failed to extract PySampler: {e:?}"))
-                })?;
-                Ok::<_, PyErr>((sampler.sampler, sampler_pyobj))
-            } else {
-                let sampler: Arc<Mutex<dyn Sampler>> =
-                    Arc::new(Mutex::new(PyObjectSampler::new(sampler_obj)));
-                Ok((sampler, sampler_pyobj))
-            }
-        })?,
-        None => {
-            let arc: Arc<Mutex<dyn Sampler>> = if is_multi_objective {
-                Arc::new(Mutex::new(RandomSampler::new()))
-            } else {
-                Arc::new(Mutex::new(TpeSampler::new()))
-            };
-            let py_sampler = PySampler {
-                sampler: arc.clone(),
-                kind: "tpe",
-            };
-            let sampler_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
-                Ok(Py::new(py, py_sampler)?.into_any())
-            })?;
-            (arc, sampler_pyobj)
-        }
-    };
+    let (sampler_arc, sampler_pyobj) =
+        Python::attach(|py| into_sampler_pyobj(py, sampler, is_multi_objective))?;
     let study = Study::new(
         study_id,
         study_name,
@@ -805,24 +784,6 @@ fn convert_directions(
     Ok(directions)
 }
 
-fn resolve_storage(storage: Py<PyAny>) -> PyResult<(SharedStorage, Py<PyAny>)> {
-    Python::attach(|py| {
-        let storage_pyobj = storage.clone_ref(py);
-        let storage_ref = storage.bind(py);
-        if storage_ref.is_instance_of::<PyStorage>() {
-            let storage = storage_ref.extract::<PyStorage>().map_err(|e| {
-                PyValueError::new_err(format!("Failed to extract PyStorage: {e:?}"))
-            })?;
-            Ok::<_, PyErr>((storage.storage, storage_pyobj))
-        } else {
-            let mut wrapped = PyObjectStorage::new(storage);
-            wrapped.sync_studies(true).map_err(err_to_exceptions)?;
-            let wrapped: SharedStorage = Arc::new(RwLock::new(wrapped));
-            Ok((wrapped, storage_pyobj))
-        }
-    })
-}
-
 #[pyfunction]
 #[pyo3(name = "copy_study", signature = (*, from_study_name, from_storage, to_storage, to_study_name = None))]
 pub fn py_copy_study(
@@ -831,7 +792,7 @@ pub fn py_copy_study(
     to_storage: Py<PyAny>,
     to_study_name: Option<String>,
 ) -> PyResult<()> {
-    let (from_storage_arc, _) = resolve_storage(from_storage)?;
+    let (from_storage_arc, _) = Python::attach(|py| resolve_storage_pyobj(py, from_storage))?;
     let (from_directions, from_attrs, trials) = {
         let mut guard = from_storage_arc
             .write()
@@ -857,7 +818,7 @@ pub fn py_copy_study(
     };
 
     let copied_study_name = to_study_name.unwrap_or(from_study_name);
-    let (to_storage_arc, _) = resolve_storage(to_storage)?;
+    let (to_storage_arc, _) = Python::attach(|py| resolve_storage_pyobj(py, to_storage))?;
     let mut guard = to_storage_arc
         .write()
         .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;

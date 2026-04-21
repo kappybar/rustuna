@@ -322,7 +322,7 @@ def create_study(
     direction: Literal["minimize"] | Literal["maximize"] | None = None,
     directions: list[Literal["minimize"] | Literal["maximize"]] | None = None,
     load_if_exists: bool = False,
-    trial_queue: TrialQueue | None = None,
+    trial_queue: TrialQueueProtocol | None = None,
 ) -> Study:
     """Create a new study.
 
@@ -335,7 +335,8 @@ def create_study(
         directions: Directions of optimization for multi-objective optimization.
             Cannot be specified together with ``direction``.
         load_if_exists: If True, return an existing study when ``study_name`` already exists.
-        trial_queue: TrialQueue object for managing trial execution order. If None, InMemoryTrialQueue is used.
+        trial_queue: Trial queue object for managing trial execution order. If None,
+            InMemoryTrialQueue is used.
 
     Returns:
         A Study object.
@@ -346,7 +347,7 @@ def load_study(
     study_name: str | None = None,
     storage: StorageProtocol | None = None,
     sampler: SamplerProtocol | None = None,
-    trial_queue: TrialQueue | None = None,
+    trial_queue: TrialQueueProtocol | None = None,
 ) -> Study:
     """Load an existing study.
 
@@ -354,7 +355,8 @@ def load_study(
         study_name: Study's name. If None, the most recently created study is loaded.
         storage: Storage object. If None, raises an error.
         sampler: Sampler object for parameter suggestion. If None, TPESampler is used.
-        trial_queue: TrialQueue object for managing trial execution order. If None, InMemoryTrialQueue is used.
+        trial_queue: Trial queue object for managing trial execution order. If None,
+            InMemoryTrialQueue is used.
     """
 
 def copy_study(
@@ -554,7 +556,7 @@ class Study:
     def sampler(self) -> SamplerProtocol:
         """Return the storage object."""
     @property
-    def trial_queue(self) -> TrialQueue:
+    def trial_queue(self) -> TrialQueueProtocol:
         """Return the trial queue object."""
 
 class StudyDirection(enum.IntEnum):
@@ -846,6 +848,20 @@ class PyObjectStorage(StorageProtocol):
             storage: A Python object implementing StorageProtocol.
         """
 
+class PyObjectTrialQueue(TrialQueueProtocol):
+    """Wrapper to convert a TrialQueueProtocol implementation to Rust TrialQueue trait.
+
+    This class wraps a Python object implementing TrialQueueProtocol and makes it
+    usable as a Rust TrialQueue trait implementation.
+    """
+
+    def __init__(self, trial_queue: TrialQueueProtocol) -> None:
+        """Create a PyObjectTrialQueue from a TrialQueueProtocol instance.
+
+        Args:
+            trial_queue: A Python object implementing TrialQueueProtocol.
+        """
+
 class Storage:
     """Storage for persisting optimization history."""
 
@@ -1044,6 +1060,28 @@ class Sampler:
         values: list[float] | None = None,
     ) -> None: ...
 
+class TrialQueueProtocol(Protocol):
+    """Protocol for trial queue implementations.
+
+    This protocol defines the interface implemented by trial queue objects.
+    """
+    def enqueue(self, trial_id: int) -> None:
+        """Add a trial ID to the queue.
+
+        Args:
+            trial_id: The trial ID to enqueue.
+        """
+
+    def dequeue(self) -> int:
+        """Remove and return the next trial ID from the queue.
+
+        Returns:
+            The next trial ID in LIFO order.
+
+        Raises:
+            Exception: If the queue is empty.
+        """
+
 # Trial Queue
 class TrialQueue:
     """Factory class for creating trial queue instances.
@@ -1053,61 +1091,8 @@ class TrialQueue:
     """
 
     @classmethod
-    def in_memory(cls) -> TrialQueue:
-        """Create an in-memory trial queue.
-
-        This queue stores trial IDs in memory and does not persist across process restarts.
-        Suitable for single-process optimization or when persistence is not required.
-
-        Returns:
-            An in-memory trial queue instance.
-        """
-
+    def in_memory(cls) -> TrialQueueProtocol: ...
     @classmethod
-    def directory(cls, base_dir: str) -> TrialQueue:
-        """Create a directory-based trial queue.
-
-        This queue uses the filesystem to persist trial IDs and provides multi-process
-        safety through atomic file operations. The queue is stored in two subdirectories
-        under the base directory: 'pending/' for queued trials and 'processing/' for
-        trials being processed.
-
-        Args:
-            base_dir: Base directory path for the queue. Should be study-specific
-                (e.g., '{storage_dir}/queue/{study_id}/') to ensure isolation between studies.
-
-        Returns:
-            A directory-based trial queue instance.
-        """
-
+    def directory(cls, base_dir: str) -> TrialQueueProtocol: ...
     @classmethod
-    def sqlite3(cls, db_path: str, study_id: int) -> TrialQueue:
-        """Create a SQLite3-based trial queue.
-
-        This queue uses SQLite to persist trial IDs with ACID guarantees. Multiple studies
-        can share the same database file, with study_id used for isolation.
-
-        Args:
-            db_path: Path to the SQLite database file.
-            study_id: Study ID to isolate trials for this queue.
-
-        Returns:
-            A SQLite3-based trial queue instance.
-        """
-
-    def push(self, trial_id: int) -> None:
-        """Add a trial ID to the queue.
-
-        Args:
-            trial_id: The trial ID to enqueue.
-        """
-
-    def pop(self) -> int:
-        """Remove and return the next trial ID from the queue.
-
-        Returns:
-            The next trial ID in LIFO order.
-
-        Raises:
-            Exception: If the queue is empty.
-        """
+    def sqlite3(cls, db_path: str, namespace: str) -> TrialQueueProtocol: ...

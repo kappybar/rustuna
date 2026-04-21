@@ -42,7 +42,7 @@ nav:
       - rustuna.trial: api/trial.md
       - rustuna.samplers: api/samplers.md
       - rustuna.storages: api/storages.md
-      - rustuna.TrialQueue: api/trial_queue.md
+      - rustuna.trial_queue: api/trial_queue.md
       - rustuna.distributions: api/distributions.md
 
 markdown_extensions:

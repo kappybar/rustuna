@@ -16,35 +16,35 @@ from . import (
 def _make_queue(
     queue_type: MultiprocessQueueType,
     base_path: str,
-    study_id: int,
+    namespace: str,
 ):
-    return make_trial_queue(queue_type, base_path, study_id)
+    return make_trial_queue(queue_type, base_path, namespace)
 
 
 def _worker_push(
     queue_type: MultiprocessQueueType,
     base_path: str,
-    study_id: int,
+    namespace: str,
     trial_ids: list[int],
 ) -> None:
-    queue = _make_queue(queue_type, base_path, study_id)
+    queue = _make_queue(queue_type, base_path, namespace)
     for trial_id in trial_ids:
-        queue.push(trial_id)
+        queue.enqueue(trial_id)
         time.sleep(0.001)
 
 
 def _worker_pop_exact(
     queue_type: MultiprocessQueueType,
     base_path: str,
-    study_id: int,
+    namespace: str,
     count: int,
 ) -> list[int]:
-    queue = _make_queue(queue_type, base_path, study_id)
+    queue = _make_queue(queue_type, base_path, namespace)
     popped_ids: list[int] = []
 
     while len(popped_ids) < count:
         try:
-            popped_ids.append(queue.pop())
+            popped_ids.append(queue.dequeue())
         except Exception:
             time.sleep(0.01)
     return popped_ids
@@ -53,14 +53,16 @@ def _worker_pop_exact(
 def _worker_pop_all_for_study(
     queue_type: MultiprocessQueueType,
     base_path: str,
-    study_id: int,
+    namespace: str,
     expected_count: int,
 ):
-    return study_id, _worker_pop_exact(queue_type, base_path, study_id, expected_count)
+    return namespace, _worker_pop_exact(
+        queue_type, base_path, namespace, expected_count
+    )
 
 
 @parametrize_multiprocess_trial_queue
-def test_queue_multiprocess_push_pop(
+def test_queue_multiprocess_enqueue_dequeue(
     queue_type: MultiprocessQueueType,
 ) -> None:
     with TrialQueueFactory(queue_type) as factory:
@@ -79,7 +81,7 @@ def test_queue_multiprocess_push_pop(
                     _worker_push,
                     queue_type,
                     factory.base_path,
-                    factory.study_id,
+                    factory.namespace,
                     worker_trial_ids[i],
                 )
                 for i in range(num_workers)
@@ -93,7 +95,7 @@ def test_queue_multiprocess_push_pop(
                     _worker_pop_exact,
                     queue_type,
                     factory.base_path,
-                    factory.study_id,
+                    factory.namespace,
                     trials_per_worker,
                 )
                 for _ in range(num_workers)
@@ -119,12 +121,12 @@ def test_queue_lifo_across_processes(
                 _worker_push,
                 queue_type,
                 factory.base_path,
-                factory.study_id,
+                factory.namespace,
                 trial_ids,
             ).result()
 
         queue = factory.create_queue()
-        popped_ids = [queue.pop() for _ in trial_ids]
+        popped_ids = [queue.dequeue() for _ in trial_ids]
     assert popped_ids == list(reversed(trial_ids))
 
 
@@ -137,7 +139,7 @@ def test_queue_no_duplicates(
         assert factory.base_path is not None
         num_trials = 100
         for i in range(1, num_trials + 1):
-            factory.queue.push(i)
+            factory.queue.enqueue(i)
 
         num_workers = 5
         trials_per_worker = num_trials // num_workers
@@ -147,7 +149,7 @@ def test_queue_no_duplicates(
                     _worker_pop_exact,
                     queue_type,
                     factory.base_path,
-                    factory.study_id,
+                    factory.namespace,
                     trials_per_worker,
                 )
                 for _ in range(num_workers)
@@ -174,21 +176,21 @@ def test_queue_persistence(
                 _worker_push,
                 queue_type,
                 factory.base_path,
-                factory.study_id,
+                factory.namespace,
                 trial_ids,
             ).result()
             first_batch = executor.submit(
                 _worker_pop_exact,
                 queue_type,
                 factory.base_path,
-                factory.study_id,
+                factory.namespace,
                 5,
             ).result()
             second_batch = executor.submit(
                 _worker_pop_exact,
                 queue_type,
                 factory.base_path,
-                factory.study_id,
+                factory.namespace,
                 5,
             ).result()
 
@@ -196,14 +198,16 @@ def test_queue_persistence(
 
 
 @parametrize_multiprocess_trial_queue
-def test_queue_study_isolation(
+def test_queue_namespace_isolation(
     queue_type: MultiprocessQueueType,
 ) -> None:
     if queue_type != "sqlite3":
-        pytest.skip("Study isolation is specific to SQLite3TrialQueue")
+        pytest.skip("Namespace isolation is specific to SQLite3TrialQueue")
 
     with TrialQueueFactory(queue_type) as factory:
         assert factory.base_path is not None
+        namespace1 = "study-1"
+        namespace2 = "study-2"
         study1_ids = [1, 2, 3, 4, 5]
         study2_ids = [10, 20, 30, 40, 50]
 
@@ -213,14 +217,14 @@ def test_queue_study_isolation(
                     _worker_push,
                     queue_type,
                     factory.base_path,
-                    1,
+                    namespace1,
                     study1_ids,
                 ),
                 executor.submit(
                     _worker_push,
                     queue_type,
                     factory.base_path,
-                    2,
+                    namespace2,
                     study2_ids,
                 ),
             ]
@@ -233,18 +237,18 @@ def test_queue_study_isolation(
                     _worker_pop_all_for_study,
                     queue_type,
                     factory.base_path,
-                    1,
+                    namespace1,
                     len(study1_ids),
                 ),
                 executor.submit(
                     _worker_pop_all_for_study,
                     queue_type,
                     factory.base_path,
-                    2,
+                    namespace2,
                     len(study2_ids),
                 ),
             ]
             results = dict(future.result() for future in pop_futures)
 
-        assert results[1] == list(reversed(study1_ids))
-        assert results[2] == list(reversed(study2_ids))
+        assert results[namespace1] == list(reversed(study1_ids))
+        assert results[namespace2] == list(reversed(study2_ids))

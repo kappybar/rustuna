@@ -34,15 +34,14 @@ Since Rustuna is built for high performance, we decoupled the queue from the sto
 
 ```python
 import rustuna
-from rustuna import TrialQueue
+from rustuna.trial_queue import SQLite3TrialQueue
 
 def objective(trial: rustuna.Trial) -> float:
     return trial.suggest_float("x", -10, 10)
 
-study = rustuna.create_study(
-    storage=...,
-    trial_queue=TrialQueue.sqlite3("optuna_queue.sqlite3"),
-)
+study_name = "example"
+trial_queue = SQLite3TrialQueue("optuna_queue.sqlite3", namespace=study_name)
+study = rustuna.create_study(trial_queue=trial_queue, ...)
 
 study.enqueue_trial({"x": 5})
 study.optimize(objective, n_trials=10)

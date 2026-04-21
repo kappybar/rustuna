@@ -71,7 +71,7 @@ impl DirectoryTrialQueue {
 }
 
 impl TrialQueue for DirectoryTrialQueue {
-    fn push(&mut self, trial_id: u32) -> Result<()> {
+    fn enqueue(&mut self, trial_id: u32) -> Result<()> {
         let filename = Self::trial_id_to_filename(trial_id);
         let target_path = self.pending_dir.join(&filename);
 
@@ -94,7 +94,7 @@ impl TrialQueue for DirectoryTrialQueue {
         Ok(())
     }
 
-    fn pop(&mut self) -> Result<u32> {
+    fn dequeue(&mut self) -> Result<u32> {
         // Read all entries from pending directory and sort by filename
         let mut entries: Vec<_> = fs::read_dir(&self.pending_dir)
             .map_err(|e| {
@@ -158,25 +158,25 @@ mod tests {
     use rustuna_core::trial_queue::TrialQueue;
 
     #[test]
-    fn test_push_and_pop() {
+    fn test_enqueue_and_dequeue() {
         let temp_dir = tempfile::tempdir().unwrap();
         let mut queue = DirectoryTrialQueue::new(temp_dir.path()).unwrap();
 
-        queue.push(1).unwrap();
-        queue.push(2).unwrap();
-        queue.push(3).unwrap();
+        queue.enqueue(1).unwrap();
+        queue.enqueue(2).unwrap();
+        queue.enqueue(3).unwrap();
 
-        assert_eq!(queue.pop().unwrap(), 3);
-        assert_eq!(queue.pop().unwrap(), 2);
-        assert_eq!(queue.pop().unwrap(), 1);
+        assert_eq!(queue.dequeue().unwrap(), 3);
+        assert_eq!(queue.dequeue().unwrap(), 2);
+        assert_eq!(queue.dequeue().unwrap(), 1);
     }
 
     #[test]
-    fn test_pop_empty_queue() {
+    fn test_dequeue_empty_queue() {
         let temp_dir = tempfile::tempdir().unwrap();
         let mut queue = DirectoryTrialQueue::new(temp_dir.path()).unwrap();
 
-        assert!(queue.pop().is_err());
+        assert!(queue.dequeue().is_err());
     }
 
     #[test]
@@ -185,15 +185,15 @@ mod tests {
         let mut queue = DirectoryTrialQueue::new(temp_dir.path()).unwrap();
 
         // Push in non-sequential order
-        queue.push(5).unwrap();
-        queue.push(2).unwrap();
-        queue.push(8).unwrap();
-        queue.push(1).unwrap();
+        queue.enqueue(5).unwrap();
+        queue.enqueue(2).unwrap();
+        queue.enqueue(8).unwrap();
+        queue.enqueue(1).unwrap();
 
-        assert_eq!(queue.pop().unwrap(), 1);
-        assert_eq!(queue.pop().unwrap(), 8);
-        assert_eq!(queue.pop().unwrap(), 2);
-        assert_eq!(queue.pop().unwrap(), 5);
+        assert_eq!(queue.dequeue().unwrap(), 1);
+        assert_eq!(queue.dequeue().unwrap(), 8);
+        assert_eq!(queue.dequeue().unwrap(), 2);
+        assert_eq!(queue.dequeue().unwrap(), 5);
     }
 
     #[test]
@@ -202,11 +202,11 @@ mod tests {
         let mut queue1 = DirectoryTrialQueue::new(temp_dir.path()).unwrap();
         let mut queue2 = DirectoryTrialQueue::new(temp_dir.path()).unwrap();
 
-        queue1.push(1).unwrap();
-        queue1.push(2).unwrap();
+        queue1.enqueue(1).unwrap();
+        queue1.enqueue(2).unwrap();
 
         // Both queues share the same directory, so queue2 should see the items
-        assert_eq!(queue2.pop().unwrap(), 2);
-        assert_eq!(queue1.pop().unwrap(), 1);
+        assert_eq!(queue2.dequeue().unwrap(), 2);
+        assert_eq!(queue1.dequeue().unwrap(), 1);
     }
 }
