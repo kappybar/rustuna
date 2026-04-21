@@ -412,8 +412,8 @@ class Study:
         study_id: int,
         name: str,
         directions: list[StudyDirection],
-        storage: Storage,
-        sampler: Sampler,
+        storage: StorageProtocol,
+        sampler: SamplerProtocol,
     ) -> None: ...
     def ask(self) -> Trial:
         """Create a new trial from which hyperparameters can be suggested.

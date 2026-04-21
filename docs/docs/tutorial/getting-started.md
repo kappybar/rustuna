@@ -273,7 +273,7 @@ study = rustuna.create_study(sampler=rustuna.Sampler.nsgaii())
 
 ## Storages
 
-Rustuna uses in-memory storage ([rustuna.Storage.in_memory](../api/storage.md#rustuna.Storage.in_memory)) by default. This is very fast, but it is volatile, and the lifespan of the data is limited to the duration of the program's execution.
+Rustuna uses in-memory storage ([rustuna.storages.InMemoryStorage](../api/storages.md#rustuna.storages.InMemoryStorage)) by default. This is very fast, but it is volatile, and the lifespan of the data is limited to the duration of the program's execution.
 
 ### Saving/Resuming Study with RDB Backend/File-Based Journal Storage
 
@@ -291,7 +291,7 @@ def objective(trial: rustuna.Trial) -> float:
 	return (x - 2) ** 2 + y**2
 
 
-storage = rustuna.Storage.sqlite3("rustuna_example.db", create_database=True)
+storage = rustuna.storages.SQLite3Storage("rustuna_example.db", create_database=True)
 study = rustuna.create_study(
     study_name="sqlite3_example",
     storage=storage,
@@ -315,7 +315,7 @@ Best params: {'x': 2.415903272062356, 'y': 0}
 To resume a study, call [load_study](../api/study.md#rustuna.study.load_study) with the `study_name` and `storage` arguments as follows. When loading, you must specify the same database file and study name. Also, set `create_database` to `False` (Note: This argument is `False` by default, so it can be omitted).
 
 ```python
-storage = rustuna.Storage.sqlite3("rustuna_example.db", create_database=False)
+storage = rustuna.storages.SQLite3Storage("rustuna_example.db", create_database=False)
 study = rustuna.load_study(
     study_name="sqlite3_example",
     storage=storage
@@ -335,8 +335,8 @@ Best value: [8.562350946635473e-05]
 Best params: {'x': 2.0092532972213344, 'y': 0}
 ```
 
-Rustuna also provides Journal Storage ([rustuna.Storage.journal_file](../api/storage.md#rustuna.Storage.journal_file)) and it can be available as follows:
+Rustuna also provides Journal Storage ([rustuna.storages.JournalFileStorage](../api/storages.md#rustuna.storages.JournalFileStorage)) and it can be available as follows:
 
 ```python
-storage = rustuna.Storage.journal_file("rustuna_example.log")
+storage = rustuna.storages.JournalFileStorage("rustuna_example.log")
 ```
