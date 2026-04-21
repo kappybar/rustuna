@@ -26,6 +26,8 @@ if typing.TYPE_CHECKING:
     from optuna.distributions import BaseDistribution
     from optuna.trial import TrialState
 
+    from rustuna._rustuna import Distribution
+
 
 to_rustuna_state_map = {
     optuna.trial.TrialState.RUNNING: rustuna.trial.TrialState.RUNNING,
@@ -85,7 +87,7 @@ def to_persisted_trial(
             trial.intermediate_values
         )
 
-    distributions: dict[str, rustuna.Distribution] = {}
+    distributions: dict[str, Distribution] = {}
     for param_name in trial.distributions:
         optuna_distribution = trial.distributions[param_name]
         distributions[param_name] = to_rustuna_distribution(optuna_distribution)

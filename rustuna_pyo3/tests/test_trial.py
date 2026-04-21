@@ -7,8 +7,8 @@ def test_create_trial() -> None:
     trial = rustuna.trial.create_trial(
         params={"x": 1.5, "y": "foo"},
         distributions={
-            "x": rustuna.Distribution.float(0.0, 10.0),
-            "y": rustuna.Distribution.categorical(["foo", "bar"]),
+            "x": rustuna.distributions.FloatDistribution(0.0, 10.0),
+            "y": rustuna.distributions.CategoricalDistribution(["foo", "bar"]),
         },
         value=5.0,
         user_attrs={"user": "attr"},
@@ -37,9 +37,11 @@ def test_create_trial_distributions() -> None:
     trial = rustuna.trial.create_trial(
         params={"lr": 0.01, "n_layers": 3, "activation": "relu"},
         distributions={
-            "lr": rustuna.Distribution.float(1e-5, 1e-1),
-            "n_layers": rustuna.Distribution.int(1, 5),
-            "activation": rustuna.Distribution.categorical(["relu", "tanh", "sigmoid"]),
+            "lr": rustuna.distributions.FloatDistribution(1e-5, 1e-1),
+            "n_layers": rustuna.distributions.IntDistribution(1, 5),
+            "activation": rustuna.distributions.CategoricalDistribution(
+                ["relu", "tanh", "sigmoid"]
+            ),
         },
         value=0.95,
     )
@@ -56,7 +58,7 @@ def test_create_trial_unknown_param_raises() -> None:
     with pytest.raises(Exception):
         rustuna.trial.create_trial(
             params={"x": 1.0, "unknown": 99.0},
-            distributions={"x": rustuna.Distribution.float(0.0, 10.0)},
+            distributions={"x": rustuna.distributions.FloatDistribution(0.0, 10.0)},
             value=1.0,
         )
 
@@ -69,9 +71,11 @@ def test_persisted_trial_new_distributions() -> None:
         state=rustuna.trial.TrialState.COMPLETE,
         params={"lr": 0.001, "n_layers": 2, "activation": "tanh"},
         distributions={
-            "lr": rustuna.Distribution.float(1e-5, 1e-1),
-            "n_layers": rustuna.Distribution.int(1, 5),
-            "activation": rustuna.Distribution.categorical(["relu", "tanh", "sigmoid"]),
+            "lr": rustuna.distributions.FloatDistribution(1e-5, 1e-1),
+            "n_layers": rustuna.distributions.IntDistribution(1, 5),
+            "activation": rustuna.distributions.CategoricalDistribution(
+                ["relu", "tanh", "sigmoid"]
+            ),
         },
         values=[0.9, 0.8],
         user_attrs={"note": "test"},

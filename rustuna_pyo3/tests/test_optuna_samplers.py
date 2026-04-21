@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 import optuna
 import pytest
@@ -14,6 +14,9 @@ from optuna.testing.pytest_samplers import (
 
 import rustuna
 from rustuna.converter import ToOptunaSampler
+
+if TYPE_CHECKING:
+    from rustuna._rustuna import Distribution
 
 
 class TestTpeSampler(
@@ -40,7 +43,7 @@ class RecordingSampler:
         self,
         ctx: rustuna.samplers.SamplerContext,
         storage: rustuna.storages.StorageProtocol,
-        search_space: dict[str, rustuna.Distribution],
+        search_space: dict[str, Distribution],
     ) -> dict[str, float]:
         raise AssertionError("sample_joint must not be called")
 
@@ -49,7 +52,7 @@ class RecordingSampler:
         ctx: rustuna.samplers.SamplerContext,
         storage: rustuna.storages.StorageProtocol,
         name: str,
-        distribution: rustuna.Distribution,
+        distribution: Distribution,
     ) -> float:
         distribution_dict = distribution.to_dict()
         if distribution_dict["type"] == "FloatDistribution":

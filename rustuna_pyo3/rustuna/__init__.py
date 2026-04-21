@@ -1,9 +1,8 @@
 # See https://pyo3.rs/v0.20.0/python_typing_hints#if-you-need-other-python-files
 from typing import TYPE_CHECKING
 
-from rustuna import exceptions, samplers, storages, study, trial
+from rustuna import distributions, exceptions, samplers, storages, study, trial
 from rustuna._rustuna import (
-    Distribution,
     PersistedStudy,
     Study,
     Trial,
@@ -21,13 +20,13 @@ if TYPE_CHECKING:
 
 __all__ = [
     # modules
+    "distributions",
     "exceptions",
     "samplers",
     "study",
     "storages",
     "trial",
     # functions or classes
-    "Distribution",
     "PersistedStudy",
     "Study",
     "Trial",

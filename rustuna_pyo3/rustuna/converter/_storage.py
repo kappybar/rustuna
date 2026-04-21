@@ -32,6 +32,7 @@ if typing.TYPE_CHECKING:
     from optuna._typing import JSONSerializable
 
     from rustuna import CategoricalChoiceType
+    from rustuna._rustuna import Distribution
 
 
 logger = optuna.logging.get_logger(__name__)
@@ -72,7 +73,7 @@ class ToRustunaStorage:
         self,
         trial_id: int,
         name: str,
-        distribution: rustuna.Distribution,
+        distribution: Distribution,
         value: float,
     ) -> None:
         self._storage.set_trial_param(
