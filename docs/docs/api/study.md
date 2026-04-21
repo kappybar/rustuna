@@ -1,13 +1,17 @@
-# Study API
+# rustuna.study
 
-::: rustuna.Study
+The `study` module implements the Study object and related functions.
+A public constructor is available for the Study class, but direct use of this constructor is not recommended.
+Instead, library users should create and load a Study using `create_study()` and `load_study()` respectively.
 
-::: rustuna.PersistedStudy
+::: rustuna.study.Study
 
-::: rustuna.StudyDirection
+::: rustuna.study.PersistedStudy
 
-::: rustuna.create_study
+::: rustuna.study.StudyDirection
 
-::: rustuna.load_study
+::: rustuna.study.create_study
 
-::: rustuna.copy_study
+::: rustuna.study.load_study
+
+::: rustuna.study.copy_study

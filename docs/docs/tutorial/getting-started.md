@@ -42,7 +42,7 @@ A [Trial](../api/trial.md) object corresponds to a single execution of the objec
 
 The suggest APIs (for example, [suggest_float()](../api/trial.md#rustuna.trial.Trial.suggest_float)) are called inside the objective function to obtain parameters for a trial. [suggest_float()](../api/trial.md#rustuna.trial.Trial.suggest_float) selects parameters uniformly within the range provided. In our example, from $−10$ to $10$.
 
-To start the optimization, we create a study object and pass the objective function to method [optimize()](../api/study.md#rustuna.Study.optimize) as follows.
+To start the optimization, we create a study object and pass the objective function to method [optimize()](../api/study.md#rustuna.study.Study.optimize) as follows.
 
 ```python
 study = rustuna.create_study()
@@ -70,7 +70,7 @@ Found x: 1.9977979724456008, (x - 2)^2: 4.848925350333516e-06
 
 ## Study Object
 
-In Rustuna, we use the study object to manage optimization. Method [create_study()](../api/rustuna.md#rustuna.create_study) returns a study object. A study object has useful properties for analyzing the optimization outcome.
+In Rustuna, we use the study object to manage optimization. Method [create_study()](../api/study.md#rustuna.study.create_study) returns a study object. A study object has useful properties for analyzing the optimization outcome.
 
 To get the best trial:
 
@@ -250,7 +250,7 @@ Rustuna provides the following sampling algorithms:
 
 The default sampler is [rustuna.Sampler.tpe](../api/sampler.md#rustuna.Sampler.tpe).
 
-You can specify a sampler using the `sampler` argument in [create_study()](../api/rustuna.md#rustuna.create_study) as follows.
+You can specify a sampler using the `sampler` argument in [create_study()](../api/study.md#rustuna.study.create_study) as follows.
 
 ```python
 study = rustuna.create_study(sampler=rustuna.Sampler.nsgaii())
@@ -279,7 +279,7 @@ Rustuna uses in-memory storage ([rustuna.Storage.in_memory](../api/storage.md#ru
 
 An RDB backend enables persistent experiments (i.e., to save and resume a study) as well as access to history of studies. In this section, let’s try simple examples running on a local environment with SQLite DB.
 
-We can create a persistent study by calling [create_study()](../api/rustuna.md#rustuna.create_study) function with a sqlite3 storage object as follows. An SQLite file `sqlite3_example.db` is created to store a new study record.
+We can create a persistent study by calling [create_study()](../api/study.md#rustuna.study.create_study) function with a sqlite3 storage object as follows. An SQLite file `sqlite3_example.db` is created to store a new study record.
 
 ```python
 import rustuna
@@ -312,7 +312,7 @@ Best value: [0.17297553171217403]
 Best params: {'x': 2.415903272062356, 'y': 0}
 ```
 
-To resume a study, call [load_study](../api/rustuna.md#rustuna.load_study) with the `study_name` and `storage` arguments as follows. When loading, you must specify the same database file and study name. Also, set `create_database` to `False` (Note: This argument is `False` by default, so it can be omitted).
+To resume a study, call [load_study](../api/study.md#rustuna.study.load_study) with the `study_name` and `storage` arguments as follows. When loading, you must specify the same database file and study name. Also, set `create_database` to `False` (Note: This argument is `False` by default, so it can be omitted).
 
 ```python
 storage = rustuna.Storage.sqlite3("rustuna_example.db", create_database=False)

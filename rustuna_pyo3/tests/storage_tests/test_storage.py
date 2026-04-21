@@ -52,7 +52,9 @@ def storage(request: FixtureRequest) -> Generator[StorageProtocol, None, None]:
 
 
 def test_get_study_attr_methods(storage: StorageProtocol) -> None:
-    study = storage.create_new_study("example study", [rustuna.StudyDirection.MINIMIZE])
+    study = storage.create_new_study(
+        "example study", [rustuna.study.StudyDirection.MINIMIZE]
+    )
     storage.set_study_user_attrs(
         study.id,
         {
@@ -88,7 +90,9 @@ def test_study_get_user_attr_method(storage: StorageProtocol) -> None:
 
 
 def test_get_trial_attr_methods(storage: StorageProtocol) -> None:
-    study = storage.create_new_study("example study", [rustuna.StudyDirection.MINIMIZE])
+    study = storage.create_new_study(
+        "example study", [rustuna.study.StudyDirection.MINIMIZE]
+    )
     trial = storage.create_new_trial(study.id)
     storage.set_trial_user_attrs(
         trial._trial_id,
