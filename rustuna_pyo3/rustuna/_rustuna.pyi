@@ -981,80 +981,6 @@ class SamplerProtocol(Protocol):
     to suggest parameter values.
     """
     @property
-    def support_joint_sampling(self) -> bool: ...
-    def sample_joint(
-        self,
-        ctx: SamplerContext,
-        storage: StorageProtocol,
-        search_space: dict[str, Distribution],
-    ) -> dict[str, float]: ...
-    def sample_independent(
-        self,
-        ctx: SamplerContext,
-        storage: StorageProtocol,
-        name: str,
-        distribution: Distribution,
-    ) -> float: ...
-    def after_trial(
-        self,
-        ctx: SamplerContext,
-        storage: StorageProtocol,
-        state: TrialState,
-        values: list[float] | None = None,
-    ) -> None: ...
-
-class Sampler:
-    """Factory class for creating sampler instances."""
-
-    @classmethod
-    def tpe(
-        cls,
-        seed: int | None = None,
-        n_startup_trials: int = 10,
-        multivariate: bool = True,
-    ) -> Sampler:
-        """Create a Tree-structured Parzen Estimator sampler.
-
-        Args:
-            seed: Random seed. If None, a random seed is used.
-            n_startup_trials: Number of startup trials before using TPE.
-            multivariate: Whether to use multivariate TPE.
-
-        Returns:
-            A TPE sampler instance.
-        """
-    @classmethod
-    def random(cls, seed: int | None = None) -> Sampler:
-        """Create a random sampler.
-
-        Args:
-            seed: Random seed. If None, a random seed is used.
-
-        Returns:
-            A random sampler instance.
-        """
-    @classmethod
-    def nsgaii(
-        cls,
-        seed: int | None = None,
-        population_size: int = 50,
-        mutation_prob: float | None = None,
-        crossover_prob: float = 0.9,
-        swapping_prob: float = 0.5,
-    ) -> Sampler:
-        """Create an NSGA-II sampler for multi-objective optimization.
-
-        Args:
-            seed: Random seed. If None, a random seed is used.
-            population_size: Population size.
-            mutation_prob: Mutation probability. If None, 1.0 / len(search_space) is used.
-            crossover_prob: Crossover probability.
-            swapping_prob: Swapping probability for crossover.
-
-        Returns:
-            An NSGA-II sampler instance.
-        """
-    @property
     def support_joint_sampling(self) -> bool:
         """Return True if the sampler supports joint parameter sampling."""
 
@@ -1092,7 +1018,6 @@ class Sampler:
         Returns:
             Suggested parameter value (Optuna's internal representation).
         """
-
     def after_trial(
         self,
         ctx: SamplerContext,
@@ -1108,6 +1033,50 @@ class Sampler:
             state: Final trial state.
             values: Final objective values. ``None`` unless the trial completed.
         """
+
+class Sampler:
+    """Factory class for creating sampler instances."""
+
+    @classmethod
+    def tpe(
+        cls,
+        seed: int | None = None,
+        n_startup_trials: int = 10,
+        multivariate: bool = True,
+    ) -> Sampler: ...
+    @classmethod
+    def random(cls, seed: int | None = None) -> Sampler: ...
+    @classmethod
+    def nsgaii(
+        cls,
+        seed: int | None = None,
+        population_size: int = 50,
+        mutation_prob: float | None = None,
+        crossover_prob: float = 0.9,
+        swapping_prob: float = 0.5,
+    ) -> Sampler: ...
+    @property
+    def support_joint_sampling(self) -> bool: ...
+    def sample_joint(
+        self,
+        ctx: SamplerContext,
+        storage: StorageProtocol,
+        search_space: dict[str, Distribution],
+    ) -> dict[str, float]: ...
+    def sample_independent(
+        self,
+        ctx: SamplerContext,
+        storage: StorageProtocol,
+        name: str,
+        distribution: Distribution,
+    ) -> float: ...
+    def after_trial(
+        self,
+        ctx: SamplerContext,
+        storage: StorageProtocol,
+        state: TrialState,
+        values: list[float] | None = None,
+    ) -> None: ...
 
 # Trial Queue
 class TrialQueue:
