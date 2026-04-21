@@ -16,7 +16,7 @@ class DummyIndependentSampler:
     def sample_joint(
         self,
         ctx: rustuna.SamplerContext,
-        storage: rustuna.StorageProtocol,
+        storage: rustuna.storages.StorageProtocol,
         search_space: dict[str, rustuna.Distribution],
     ) -> dict[str, float]:
         assert False, "Unreachable code"
@@ -24,7 +24,7 @@ class DummyIndependentSampler:
     def sample_independent(
         self,
         ctx: rustuna.SamplerContext,
-        storage: rustuna.StorageProtocol,
+        storage: rustuna.storages.StorageProtocol,
         name: str,
         distribution: rustuna.Distribution,
     ) -> float:
@@ -40,7 +40,7 @@ class DummyIndependentSampler:
     def after_trial(
         self,
         ctx: rustuna.SamplerContext,
-        storage: rustuna.StorageProtocol,
+        storage: rustuna.storages.StorageProtocol,
         state: rustuna.trial.TrialState,
         values: list[float] | None = None,
     ) -> None:
@@ -58,7 +58,7 @@ class DummyJointSampler:
     def sample_joint(
         self,
         ctx: rustuna.SamplerContext,
-        storage: rustuna.StorageProtocol,
+        storage: rustuna.storages.StorageProtocol,
         search_space: dict[str, rustuna.Distribution],
     ) -> dict[str, float]:
         params = {}
@@ -77,7 +77,7 @@ class DummyJointSampler:
     def sample_independent(
         self,
         ctx: rustuna.SamplerContext,
-        storage: rustuna.StorageProtocol,
+        storage: rustuna.storages.StorageProtocol,
         name: str,
         distribution: rustuna.Distribution,
     ) -> float:
@@ -93,7 +93,7 @@ class DummyJointSampler:
     def after_trial(
         self,
         ctx: rustuna.SamplerContext,
-        storage: rustuna.StorageProtocol,
+        storage: rustuna.storages.StorageProtocol,
         state: rustuna.trial.TrialState,
         values: list[float] | None = None,
     ) -> None:
@@ -109,7 +109,7 @@ class RecordingSampler(DummyIndependentSampler):
     def after_trial(
         self,
         ctx: rustuna.SamplerContext,
-        storage: rustuna.StorageProtocol,
+        storage: rustuna.storages.StorageProtocol,
         state: rustuna.trial.TrialState,
         values: list[float] | None = None,
     ) -> None:
@@ -120,7 +120,7 @@ class FailingAfterTrialSampler(DummyIndependentSampler):
     def after_trial(
         self,
         ctx: rustuna.SamplerContext,
-        storage: rustuna.StorageProtocol,
+        storage: rustuna.storages.StorageProtocol,
         state: rustuna.trial.TrialState,
         values: list[float] | None = None,
     ) -> None:

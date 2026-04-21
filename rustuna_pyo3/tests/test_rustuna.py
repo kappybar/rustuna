@@ -4,7 +4,7 @@ import rustuna
 
 
 def test_load_study_with_trial_queue():
-    storage = rustuna.Storage.in_memory()
+    storage = rustuna.storages.InMemoryStorage()
     created = rustuna.create_study(study_name="queued-study", storage=storage)
 
     template = rustuna.trial.PersistedTrial(
@@ -67,7 +67,7 @@ def test_optimize():
 
 
 def test_trial_storage_inside_objective():
-    storage = rustuna.Storage.in_memory()
+    storage = rustuna.storages.InMemoryStorage()
     study = rustuna.create_study(storage=storage)
 
     def objective(trial: rustuna.Trial):
@@ -76,6 +76,14 @@ def test_trial_storage_inside_objective():
         return trial.suggest_float("x", -1.0, 1.0)
 
     study.optimize(objective, n_trials=1)
+
+
+def test_concrete_inmemory_storage_class():
+    storage = rustuna.storages.InMemoryStorage()
+    study = rustuna.create_study(storage=storage)
+
+    assert study._storage is storage
+    assert len(storage.get_studies()) == 1
 
 
 def test_study_get_trials_filters_by_states():
@@ -201,7 +209,7 @@ def test_study_get_user_attr():
 
 
 def test_create_study_load_if_exists_true():
-    storage = rustuna.Storage.in_memory()
+    storage = rustuna.storages.InMemoryStorage()
     first = rustuna.create_study(
         storage=storage,
         study_name="load-if-exists",
@@ -219,7 +227,7 @@ def test_create_study_load_if_exists_true():
 
 
 def test_create_study_load_if_exists_false():
-    storage = rustuna.Storage.in_memory()
+    storage = rustuna.storages.InMemoryStorage()
     rustuna.create_study(storage=storage, study_name="load-if-exists")
 
     with pytest.raises(rustuna.exceptions.DuplicatedStudyError):
@@ -231,8 +239,8 @@ def test_create_study_load_if_exists_false():
 
 
 def test_copy_study():
-    from_storage = rustuna.Storage.in_memory()
-    to_storage = rustuna.Storage.in_memory()
+    from_storage = rustuna.storages.InMemoryStorage()
+    to_storage = rustuna.storages.InMemoryStorage()
     from_study = rustuna.create_study(
         storage=from_storage,
         study_name="copy-source",
@@ -266,8 +274,8 @@ def test_copy_study():
 
 
 def test_copy_study_to_study_name():
-    from_storage = rustuna.Storage.in_memory()
-    to_storage = rustuna.Storage.in_memory()
+    from_storage = rustuna.storages.InMemoryStorage()
+    to_storage = rustuna.storages.InMemoryStorage()
     rustuna.create_study(storage=from_storage, study_name="foo")
     rustuna.create_study(storage=to_storage, study_name="foo")
 
@@ -379,7 +387,7 @@ def test_sample():
         rustuna.Sampler.random(),
     ]
     for sampler in samplers:
-        storage = rustuna.Storage.in_memory()
+        storage = rustuna.storages.InMemoryStorage()
         study = rustuna.create_study(sampler=sampler, storage=storage)
         trial = study.ask()
         ctx = rustuna.SamplerContext(
@@ -392,11 +400,6 @@ def test_sample():
             ctx, storage, "x", rustuna.Distribution.float(0, 1)
         )
         assert 0 <= value <= 1
-
-
-def test_storage():
-    storage = rustuna.Storage.in_memory()
-    study = storage.create_new_study("example", [rustuna.study.StudyDirection.MINIMIZE])
 
 
 def test_get_pareto_front():

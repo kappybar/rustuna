@@ -39,7 +39,7 @@ class RecordingSampler:
     def sample_joint(
         self,
         ctx: rustuna.SamplerContext,
-        storage: rustuna.StorageProtocol,
+        storage: rustuna.storages.StorageProtocol,
         search_space: dict[str, rustuna.Distribution],
     ) -> dict[str, float]:
         raise AssertionError("sample_joint must not be called")
@@ -47,7 +47,7 @@ class RecordingSampler:
     def sample_independent(
         self,
         ctx: rustuna.SamplerContext,
-        storage: rustuna.StorageProtocol,
+        storage: rustuna.storages.StorageProtocol,
         name: str,
         distribution: rustuna.Distribution,
     ) -> float:
@@ -63,7 +63,7 @@ class RecordingSampler:
     def after_trial(
         self,
         ctx: rustuna.SamplerContext,
-        storage: rustuna.StorageProtocol,
+        storage: rustuna.storages.StorageProtocol,
         state: rustuna.trial.TrialState,
         values: Sequence[float] | None = None,
     ) -> None:
@@ -81,7 +81,7 @@ class FailingAfterTrialSampler(RecordingSampler):
     def after_trial(
         self,
         ctx: rustuna.SamplerContext,
-        storage: rustuna.StorageProtocol,
+        storage: rustuna.storages.StorageProtocol,
         state: rustuna.trial.TrialState,
         values: Sequence[float] | None = None,
     ) -> None:

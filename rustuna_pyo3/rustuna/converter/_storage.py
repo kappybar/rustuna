@@ -203,7 +203,7 @@ class ToRustunaStorage:
 
 
 class ToOptunaStorage(BaseStorage):
-    def __init__(self, storage: rustuna.OptunaStorageProtocol) -> None:
+    def __init__(self, storage: rustuna.storages.OptunaStorageProtocol) -> None:
         self._storage = storage
         self._trial_cache: dict[int, FrozenTrialLike] = {}
 

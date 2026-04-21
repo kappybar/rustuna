@@ -14,7 +14,7 @@ from rustuna.converter._storage import ToRustunaStorage
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-    from rustuna import StorageProtocol
+    from rustuna.storages import StorageProtocol
 
 
 @pytest.fixture(
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 )
 def storage(request: FixtureRequest) -> Generator[StorageProtocol, None, None]:
     if request.param == "inmemory":
-        yield rustuna.Storage.in_memory()
+        yield rustuna.storages.InMemoryStorage()
         return
     if request.param == "optuna-inmemory":
         yield ToRustunaStorage(InMemoryStorage())
@@ -42,13 +42,13 @@ def storage(request: FixtureRequest) -> Generator[StorageProtocol, None, None]:
     with tempfile.TemporaryDirectory() as workdir:
         if request.param == "sqlite3":
             file_path = f"{workdir}/test.db"
-            yield rustuna.Storage.sqlite3(file_path, create_database=True)
+            yield rustuna.storages.SQLite3Storage(file_path, create_database=True)
         elif request.param == "optuna-journal-file":
             file_path = f"{workdir}/test.journal"
             yield ToRustunaStorage(JournalStorage(JournalFileBackend(file_path)))
         else:
             file_path = f"{workdir}/test.journal"
-            yield rustuna.Storage.journal_file(file_path)
+            yield rustuna.storages.JournalFileStorage(file_path)
 
 
 def test_get_study_attr_methods(storage: StorageProtocol) -> None:

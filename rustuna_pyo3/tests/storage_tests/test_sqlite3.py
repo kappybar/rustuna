@@ -9,7 +9,7 @@ import rustuna
 def test_optimize_with_sqlite3() -> None:
     with tempfile.TemporaryDirectory() as workdir:
         file_path = f"{workdir}/test.db"
-        storage = rustuna.Storage.sqlite3(file_path, create_database=True)
+        storage = rustuna.storages.SQLite3Storage(file_path, create_database=True)
         study = rustuna.create_study(storage=storage)
 
         def objective(trial: optuna.Trial | rustuna.Trial) -> float:
@@ -29,7 +29,7 @@ def test_use_optuna_db() -> None:
         # Create a database file
         RDBStorage(f"sqlite:///{file_path}")
 
-        storage = rustuna.Storage.sqlite3(file_path)
+        storage = rustuna.storages.SQLite3Storage(file_path)
         study = rustuna.create_study(storage=storage)
 
         def objective(trial: optuna.Trial | rustuna.Trial) -> float:
