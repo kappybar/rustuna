@@ -39,7 +39,6 @@ pub trait Storage: Send + Sync {
     fn get_studies(&mut self) -> Result<&Vec<PersistedStudy>>;
     fn get_study(&mut self, study_id: u32) -> Result<&PersistedStudy>;
     fn get_study_attr(&mut self, study_id: u32, key: AttrKey) -> Result<String>;
-    fn get_trial_attr(&mut self, trial_id: u32, key: AttrKey) -> Result<String>;
     fn get_trials(&mut self, study_id: u32) -> Result<&Vec<PersistedTrial>>;
     fn get_trial(&mut self, trial_id: u32) -> Result<&PersistedTrial>;
     // Design Note:
@@ -341,15 +340,6 @@ impl Storage for InMemoryStorage {
             .ok_or(Error::new(ErrorKind::AttrNotFound))
     }
 
-    fn get_trial_attr(&mut self, trial_id: u32, key: AttrKey) -> Result<String> {
-        let trial = self.get_trial(trial_id)?;
-        trial
-            .attrs
-            .get(&key)
-            .cloned()
-            .ok_or(Error::new(ErrorKind::AttrNotFound))
-    }
-
     fn get_trials(&mut self, study_id: u32) -> Result<&Vec<PersistedTrial>> {
         get_trials_by_study_id(&self.trials, study_id)
     }
@@ -567,23 +557,6 @@ mod tests {
     }
 
     #[test]
-    fn get_trial_attr_returns_stored_value() -> Result<()> {
-        let mut storage = InMemoryStorage::new();
-        let study_id = storage
-            .create_new_study("study", vec![Direction::Minimize])?
-            .id;
-        let trial_id = storage.create_new_trial(study_id)?.id;
-        let key = AttrKey::User("owner".into());
-        let mut attrs = Attrs::new();
-        attrs.insert(key.clone(), "bob".to_string());
-        storage.set_trial_attrs(trial_id, attrs, false)?;
-
-        let value = storage.get_trial_attr(trial_id, key)?;
-        assert_eq!(value, "bob");
-        Ok(())
-    }
-
-    #[test]
     fn get_study_attr_returns_error_for_missing_key() -> Result<()> {
         let mut storage = InMemoryStorage::new();
         let study_id = storage
@@ -592,21 +565,6 @@ mod tests {
 
         let err = storage
             .get_study_attr(study_id, AttrKey::User("missing".into()))
-            .unwrap_err();
-        assert!(matches!(err.kind, ErrorKind::AttrNotFound));
-        Ok(())
-    }
-
-    #[test]
-    fn get_trial_attr_returns_error_for_missing_key() -> Result<()> {
-        let mut storage = InMemoryStorage::new();
-        let study_id = storage
-            .create_new_study("study", vec![Direction::Minimize])?
-            .id;
-        let trial_id = storage.create_new_trial(study_id)?.id;
-
-        let err = storage
-            .get_trial_attr(trial_id, AttrKey::User("missing".into()))
             .unwrap_err();
         assert!(matches!(err.kind, ErrorKind::AttrNotFound));
         Ok(())

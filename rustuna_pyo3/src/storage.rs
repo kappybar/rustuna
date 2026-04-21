@@ -319,24 +319,6 @@ impl PyStorage {
             .map_err(err_to_exceptions)
     }
 
-    fn get_trial_user_attr(&mut self, trial_id: u32, key: String) -> PyResult<String> {
-        let mut guard = self.storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        guard
-            .get_trial_attr(trial_id, AttrKey::User(key.into()))
-            .map_err(err_to_exceptions)
-    }
-
-    fn get_trial_system_attr(&mut self, trial_id: u32, key: String) -> PyResult<String> {
-        let mut guard = self.storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        guard
-            .get_trial_attr(trial_id, AttrKey::System(key.into()))
-            .map_err(err_to_exceptions)
-    }
-
     fn get_trial_id_from_study_id_trial_number(
         &mut self,
         study_id: u32,

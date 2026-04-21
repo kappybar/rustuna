@@ -678,10 +678,16 @@ impl PyPersistedTrial {
             PyPersistedTrialSource::StorageBacked {
                 storage, trial_id, ..
             } => {
-                let mut guard = storage.write().map_err(|e| {
+                let guard = storage.read().map_err(|e| {
                     PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
                 })?;
-                guard.get_trial_attr(*trial_id, AttrKey::User(key.into()))
+                guard.get_cached_trial(*trial_id).and_then(|trial| {
+                    trial
+                        .attrs
+                        .get(&AttrKey::User(key.into()))
+                        .cloned()
+                        .ok_or(rustuna_core::Error::new(ErrorKind::AttrNotFound))
+                })
             }
         };
         match result {

@@ -470,15 +470,6 @@ impl Storage for JournalStorage {
             .ok_or(Error::new(ErrorKind::AttrNotFound))
     }
 
-    fn get_trial_attr(&mut self, trial_id: u32, key: AttrKey) -> Result<String> {
-        let trial = self.get_trial(trial_id)?;
-        trial
-            .attrs
-            .get(&key)
-            .cloned()
-            .ok_or(Error::new(ErrorKind::AttrNotFound))
-    }
-
     fn get_cached_trial(&self, trial_id: u32) -> Result<&PersistedTrial> {
         let (study_id, trial_number) = self
             .replay
