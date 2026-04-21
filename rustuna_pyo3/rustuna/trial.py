@@ -1,4 +1,8 @@
-from ._rustuna import create_trial  # NOQA
-from ._rustuna import PersistedTrial  # NOQA
-from ._rustuna import TrialState  # NOQA
-from ._rustuna import Trial  # NOQA
+from ._rustuna import PersistedTrial, Trial, TrialState, create_trial
+
+__all__ = [
+    "PersistedTrial",
+    "Trial",
+    "TrialState",
+    "create_trial",
+]
