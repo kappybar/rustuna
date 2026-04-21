@@ -45,19 +45,19 @@ impl PyTrialQueue {
         })
     }
 
-    fn push(&self, trial_id: u32) -> PyResult<()> {
+    fn enqueue(&self, trial_id: u32) -> PyResult<()> {
         let mut guard = self
             .queue
             .write()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire queue lock"))?;
-        guard.push(trial_id).map_err(err_to_exceptions)
+        guard.enqueue(trial_id).map_err(err_to_exceptions)
     }
 
-    fn pop(&self) -> PyResult<u32> {
+    fn dequeue(&self) -> PyResult<u32> {
         let mut guard = self
             .queue
             .write()
             .map_err(|_| PyRuntimeError::new_err("Failed to acquire queue lock"))?;
-        guard.pop().map_err(err_to_exceptions)
+        guard.dequeue().map_err(err_to_exceptions)
     }
 }

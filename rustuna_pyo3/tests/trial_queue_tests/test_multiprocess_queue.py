@@ -29,7 +29,7 @@ def _worker_push(
 ) -> None:
     queue = _make_queue(queue_type, base_path, study_id)
     for trial_id in trial_ids:
-        queue.push(trial_id)
+        queue.enqueue(trial_id)
         time.sleep(0.001)
 
 
@@ -44,7 +44,7 @@ def _worker_pop_exact(
 
     while len(popped_ids) < count:
         try:
-            popped_ids.append(queue.pop())
+            popped_ids.append(queue.dequeue())
         except Exception:
             time.sleep(0.01)
     return popped_ids
@@ -60,7 +60,7 @@ def _worker_pop_all_for_study(
 
 
 @parametrize_multiprocess_trial_queue
-def test_queue_multiprocess_push_pop(
+def test_queue_multiprocess_enqueue_dequeue(
     queue_type: MultiprocessQueueType,
 ) -> None:
     with TrialQueueFactory(queue_type) as factory:
@@ -124,7 +124,7 @@ def test_queue_lifo_across_processes(
             ).result()
 
         queue = factory.create_queue()
-        popped_ids = [queue.pop() for _ in trial_ids]
+        popped_ids = [queue.dequeue() for _ in trial_ids]
     assert popped_ids == list(reversed(trial_ids))
 
 
@@ -137,7 +137,7 @@ def test_queue_no_duplicates(
         assert factory.base_path is not None
         num_trials = 100
         for i in range(1, num_trials + 1):
-            factory.queue.push(i)
+            factory.queue.enqueue(i)
 
         num_workers = 5
         trials_per_worker = num_trials // num_workers

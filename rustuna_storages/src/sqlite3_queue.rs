@@ -60,7 +60,7 @@ impl SQLite3TrialQueue {
 }
 
 impl TrialQueue for SQLite3TrialQueue {
-    fn push(&mut self, trial_id: u32) -> Result<()> {
+    fn enqueue(&mut self, trial_id: u32) -> Result<()> {
         let conn = self
             .conn
             .lock()
@@ -98,7 +98,7 @@ impl TrialQueue for SQLite3TrialQueue {
         Ok(())
     }
 
-    fn pop(&mut self) -> Result<u32> {
+    fn dequeue(&mut self) -> Result<u32> {
         let conn = self
             .conn
             .lock()
@@ -160,25 +160,25 @@ mod tests {
     use tempfile::NamedTempFile;
 
     #[test]
-    fn test_push_and_pop() {
+    fn test_enqueue_and_dequeue() {
         let temp_file = NamedTempFile::new().unwrap();
         let mut queue = SQLite3TrialQueue::new(temp_file.path(), 1).unwrap();
 
-        queue.push(10).unwrap();
-        queue.push(20).unwrap();
-        queue.push(30).unwrap();
+        queue.enqueue(10).unwrap();
+        queue.enqueue(20).unwrap();
+        queue.enqueue(30).unwrap();
 
-        assert_eq!(queue.pop().unwrap(), 30);
-        assert_eq!(queue.pop().unwrap(), 20);
-        assert_eq!(queue.pop().unwrap(), 10);
+        assert_eq!(queue.dequeue().unwrap(), 30);
+        assert_eq!(queue.dequeue().unwrap(), 20);
+        assert_eq!(queue.dequeue().unwrap(), 10);
     }
 
     #[test]
-    fn test_pop_empty_queue() {
+    fn test_dequeue_empty_queue() {
         let temp_file = NamedTempFile::new().unwrap();
         let mut queue = SQLite3TrialQueue::new(temp_file.path(), 1).unwrap();
 
-        assert!(queue.pop().is_err());
+        assert!(queue.dequeue().is_err());
     }
 
     #[test]
@@ -187,11 +187,11 @@ mod tests {
         let mut queue = SQLite3TrialQueue::new(temp_file.path(), 1).unwrap();
 
         for i in 1..=100 {
-            queue.push(i).unwrap();
+            queue.enqueue(i).unwrap();
         }
 
         for i in (1..=100).rev() {
-            assert_eq!(queue.pop().unwrap(), i);
+            assert_eq!(queue.dequeue().unwrap(), i);
         }
     }
 
@@ -201,18 +201,18 @@ mod tests {
         let mut queue1 = SQLite3TrialQueue::new(temp_file.path(), 1).unwrap();
         let mut queue2 = SQLite3TrialQueue::new(temp_file.path(), 2).unwrap();
 
-        queue1.push(10).unwrap();
-        queue1.push(20).unwrap();
-        queue2.push(30).unwrap();
-        queue2.push(40).unwrap();
+        queue1.enqueue(10).unwrap();
+        queue1.enqueue(20).unwrap();
+        queue2.enqueue(30).unwrap();
+        queue2.enqueue(40).unwrap();
 
-        assert_eq!(queue1.pop().unwrap(), 20);
-        assert_eq!(queue2.pop().unwrap(), 40);
-        assert_eq!(queue1.pop().unwrap(), 10);
-        assert_eq!(queue2.pop().unwrap(), 30);
+        assert_eq!(queue1.dequeue().unwrap(), 20);
+        assert_eq!(queue2.dequeue().unwrap(), 40);
+        assert_eq!(queue1.dequeue().unwrap(), 10);
+        assert_eq!(queue2.dequeue().unwrap(), 30);
 
-        assert!(queue1.pop().is_err());
-        assert!(queue2.pop().is_err());
+        assert!(queue1.dequeue().is_err());
+        assert!(queue2.dequeue().is_err());
     }
 
     #[test]
@@ -220,15 +220,15 @@ mod tests {
         let temp_file = NamedTempFile::new().unwrap();
         let mut queue = SQLite3TrialQueue::new(temp_file.path(), 1).unwrap();
 
-        queue.push(1).unwrap();
-        queue.push(2).unwrap();
-        assert_eq!(queue.pop().unwrap(), 2);
+        queue.enqueue(1).unwrap();
+        queue.enqueue(2).unwrap();
+        assert_eq!(queue.dequeue().unwrap(), 2);
 
-        queue.push(3).unwrap();
-        assert_eq!(queue.pop().unwrap(), 3);
-        assert_eq!(queue.pop().unwrap(), 1);
+        queue.enqueue(3).unwrap();
+        assert_eq!(queue.dequeue().unwrap(), 3);
+        assert_eq!(queue.dequeue().unwrap(), 1);
 
-        assert!(queue.pop().is_err());
+        assert!(queue.dequeue().is_err());
     }
 
     #[test]
@@ -238,15 +238,15 @@ mod tests {
 
         {
             let mut queue = SQLite3TrialQueue::new(&db_path, 1).unwrap();
-            queue.push(10).unwrap();
-            queue.push(20).unwrap();
+            queue.enqueue(10).unwrap();
+            queue.enqueue(20).unwrap();
         }
 
         {
             let mut queue = SQLite3TrialQueue::new(&db_path, 1).unwrap();
-            assert_eq!(queue.pop().unwrap(), 20);
-            assert_eq!(queue.pop().unwrap(), 10);
-            assert!(queue.pop().is_err());
+            assert_eq!(queue.dequeue().unwrap(), 20);
+            assert_eq!(queue.dequeue().unwrap(), 10);
+            assert!(queue.dequeue().is_err());
         }
     }
 }

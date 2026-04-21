@@ -134,13 +134,13 @@ impl Study {
                     format!("Failed to acquire a queue guard: {e}"),
                 )
             })?;
-            queue_guard.pop().ok()
+            queue_guard.dequeue().ok()
         };
 
         let (trial_id, trial_number, datetime_start, datetime_complete, fixed_params) =
             if let Some(trial_id) = queued_trial_id {
                 // Try to get trial from storage and transition to Running state.
-                // If any storage operation fails, push the trial_id back to the queue.
+                // If any storage operation fails, enqueue the trial_id back to the queue.
                 let result = (|| {
                     let mut guard = self.storage.write().map_err(|e| {
                         Error::with_reason(
@@ -176,7 +176,7 @@ impl Study {
                                 format!("Failed to acquire queue guard for recovery: {queue_err}"),
                             )
                         })?;
-                        if let Err(queue_err) = queue_guard.push(trial_id) {
+                        if let Err(queue_err) = queue_guard.enqueue(trial_id) {
                             return Err(Error::with_reason(
                                 ErrorKind::Unexpected,
                                 format!(
@@ -422,7 +422,7 @@ impl Study {
                 format!("Failed to acquire a queue guard: {e}"),
             )
         })?;
-        queue_guard.push(trial_id)?;
+        queue_guard.enqueue(trial_id)?;
 
         Ok(())
     }

@@ -17,7 +17,7 @@ def test_load_study_with_trial_queue():
     trial = storage.create_new_trial(created._study_id, template)
 
     queue = rustuna.TrialQueue.in_memory()
-    queue.push(trial._trial_id)
+    queue.enqueue(trial._trial_id)
 
     loaded = rustuna.load_study(
         study_name="queued-study",
@@ -28,17 +28,17 @@ def test_load_study_with_trial_queue():
     asked = loaded.ask()
     assert asked.number == trial.number
     assert asked.suggest_float("x", 0.0, 10.0) == 5.0
-    loaded.trial_queue.push(123)
-    assert queue.pop() == 123
+    loaded.trial_queue.enqueue(123)
+    assert queue.dequeue() == 123
 
 
 def test_study_trial_queue_property():
     queue = rustuna.TrialQueue.in_memory()
     study = rustuna.create_study(trial_queue=queue)
 
-    study.trial_queue.push(123)
+    study.trial_queue.enqueue(123)
 
-    assert queue.pop() == 123
+    assert queue.dequeue() == 123
 
 
 def test_optimize():

@@ -3,12 +3,14 @@ from __future__ import annotations
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Literal, Self
+from typing import TYPE_CHECKING, Literal, Self
 
 import pytest
 
 import rustuna
-from rustuna._rustuna import TrialQueueProtocol
+
+if TYPE_CHECKING:
+    from rustuna._rustuna import TrialQueueProtocol
 
 TrialQueueType = Literal["in_memory", "directory", "sqlite3"]
 MultiprocessQueueType = Literal["directory", "sqlite3"]

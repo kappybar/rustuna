@@ -1049,17 +1049,16 @@ class Sampler:
 class TrialQueueProtocol(Protocol):
     """Protocol for trial queue implementations.
 
-    This protocol defines the interface that TrialQueue must implement
-    to .
+    This protocol defines the interface implemented by trial queue objects.
     """
-    def push(self, trial_id: int) -> None:
+    def enqueue(self, trial_id: int) -> None:
         """Add a trial ID to the queue.
 
         Args:
             trial_id: The trial ID to enqueue.
         """
 
-    def pop(self) -> int:
+    def dequeue(self) -> int:
         """Remove and return the next trial ID from the queue.
 
         Returns:
