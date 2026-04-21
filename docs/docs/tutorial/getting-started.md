@@ -244,21 +244,21 @@ Samplers basically continually narrow down the search space using the records of
 
 Rustuna provides the following sampling algorithms:
 
-- Random Search implemented in [rustuna.Sampler.random](../api/sampler.md#rustuna.Sampler.random)
-- Tree-structured Parzen Estimator algorithm implemented in [rustuna.Sampler.tpe](../api/sampler.md#rustuna.Sampler.tpe)
-- Nondominated Sorting Genetic Algorithm II implemented in [rustuna.Sampler.nsgaii](../api/sampler.md#rustuna.Sampler.nsgaii)
+- Random Search implemented in [RandomSampler](../api/samplers.md#rustuna.samplers.RandomSampler)
+- Tree-structured Parzen Estimator algorithm implemented in [TPESampler](../api/samplers.md#rustuna.samplers.TPESampler)
+- Nondominated Sorting Genetic Algorithm II implemented in [NSGAIISampler](../api/samplers.md#rustuna.samplers.NSGAIISampler)
 
-The default sampler is [rustuna.Sampler.tpe](../api/sampler.md#rustuna.Sampler.tpe).
+The default sampler is [TPESampler](../api/samplers.md#rustuna.samplers.TPESampler).
 
 You can specify a sampler using the `sampler` argument in [create_study()](../api/study.md#rustuna.study.create_study) as follows.
 
 ```python
-study = rustuna.create_study(sampler=rustuna.Sampler.nsgaii())
+study = rustuna.create_study(sampler=rustuna.samplers.NSGAIISampler())
 ```
 
 ### Status of Supported Features in Each Sampler
 
-||[rustuna.Sampler.random](../api/sampler.md#rustuna.Sampler.random)|[rustuna.Sampler.tpe](../api/sampler.md#rustuna.Sampler.tpe)|[rustuna.Sampler.nsgaii](../api/sampler.md#rustuna.Sampler.nsgaii)|
+||[RandomSampler](../api/samplers.md#rustuna.samplers.RandomSampler)|[TPESampler](../api/samplers.md#rustuna.samplers.TPESampler)|[NSGAIISampler](../api/samplers.md#rustuna.samplers.NSGAIISampler)|
 |-|-|-|-|
 |Float parameters|✓|✓|▴|
 |Integer parameters|✓|✓|▴|

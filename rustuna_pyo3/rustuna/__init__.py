@@ -1,12 +1,10 @@
 # See https://pyo3.rs/v0.20.0/python_typing_hints#if-you-need-other-python-files
 from typing import TYPE_CHECKING
 
-from rustuna import exceptions, storages, study, trial
+from rustuna import exceptions, samplers, storages, study, trial
 from rustuna._rustuna import (
     Distribution,
     PersistedStudy,
-    Sampler,
-    SamplerContext,
     Study,
     Trial,
     TrialQueue,
@@ -19,22 +17,18 @@ from rustuna._rustuna import (
 from rustuna.exceptions import TrialPruned
 
 if TYPE_CHECKING:
-    from rustuna._rustuna import (
-        CategoricalChoiceType,
-        SamplerProtocol,
-    )
+    from rustuna._rustuna import CategoricalChoiceType
 
 __all__ = [
     # modules
     "exceptions",
+    "samplers",
     "study",
     "storages",
     "trial",
     # functions or classes
     "Distribution",
     "PersistedStudy",
-    "Sampler",
-    "SamplerContext",
     "Study",
     "Trial",
     "TrialQueue",

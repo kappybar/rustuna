@@ -40,7 +40,7 @@ nav:
       - rustuna: api/rustuna.md
       - rustuna.study: api/study.md
       - rustuna.trial: api/trial.md
-      - rustuna.Sampler: api/sampler.md
+      - rustuna.samplers: api/samplers.md
       - rustuna.storages: api/storages.md
       - rustuna.TrialQueue: api/trial_queue.md
       - rustuna.Importance: api/importance.md

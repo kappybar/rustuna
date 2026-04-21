@@ -383,14 +383,14 @@ def test_persisted_trial():
 
 def test_sample():
     samplers = [
-        rustuna.Sampler.tpe(),
-        rustuna.Sampler.random(),
+        rustuna.samplers.TPESampler(),
+        rustuna.samplers.RandomSampler(),
     ]
     for sampler in samplers:
         storage = rustuna.storages.InMemoryStorage()
         study = rustuna.create_study(sampler=sampler, storage=storage)
         trial = study.ask()
-        ctx = rustuna.SamplerContext(
+        ctx = rustuna.samplers.SamplerContext(
             study_id=study._study_id,
             trial_number=trial.number,
             trial_id=trial._trial_id,

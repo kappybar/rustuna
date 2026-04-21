@@ -21,7 +21,7 @@ from rustuna.converter._storage import ToRustunaStorage
 from rustuna.converter._trial import to_rustuna_state
 
 if TYPE_CHECKING:
-    from rustuna import SamplerProtocol
+    from rustuna.samplers import SamplerProtocol
     from rustuna.storages import StorageProtocol
 
 
@@ -45,7 +45,7 @@ class ToOptunaSampler(BaseSampler):
         if search_space == {}:
             return {}
 
-        ctx = rustuna.SamplerContext(
+        ctx = rustuna.samplers.SamplerContext(
             study_id=study._study_id,
             trial_number=trial.number,
             trial_id=trial._trial_id,
@@ -70,7 +70,7 @@ class ToOptunaSampler(BaseSampler):
         param_name: str,
         param_distribution: BaseDistribution,
     ) -> Any:
-        ctx = rustuna.SamplerContext(
+        ctx = rustuna.samplers.SamplerContext(
             study_id=study._study_id,
             trial_number=trial.number,
             trial_id=trial._trial_id,
@@ -114,7 +114,7 @@ class ToOptunaSampler(BaseSampler):
         if after_trial is None:
             return
 
-        ctx = rustuna.SamplerContext(
+        ctx = rustuna.samplers.SamplerContext(
             study_id=study._study_id,
             trial_number=trial.number,
             trial_id=trial._trial_id,
