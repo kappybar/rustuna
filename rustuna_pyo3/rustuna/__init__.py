@@ -27,7 +27,6 @@ __all__ = [
     "storages",
     "trial",
     # functions or classes
-    "PersistedStudy",
     "Study",
     "Trial",
     "TrialQueue",
