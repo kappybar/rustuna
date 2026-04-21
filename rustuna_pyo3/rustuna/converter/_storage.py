@@ -46,10 +46,10 @@ class ToRustunaStorage:
 
     def create_new_study(
         self, study_name: str, directions: list[rustuna.study.StudyDirection]
-    ) -> rustuna.PersistedStudy:
+    ) -> rustuna.study.PersistedStudy:
         optuna_directions = to_optuna_directions(directions)
         study_id = self._storage.create_new_study(optuna_directions, study_name)
-        return rustuna.PersistedStudy(
+        return rustuna.study.PersistedStudy(
             id=study_id,
             name=study_name,
             directions=directions,
@@ -92,11 +92,11 @@ class ToRustunaStorage:
             values=values,
         )
 
-    def get_studies(self) -> list[rustuna.PersistedStudy]:
+    def get_studies(self) -> list[rustuna.study.PersistedStudy]:
         frozen_studies = self._storage.get_all_studies()
         return [to_persisted_study(s) for s in frozen_studies]
 
-    def get_study(self, study_id: int) -> rustuna.PersistedStudy:
+    def get_study(self, study_id: int) -> rustuna.study.PersistedStudy:
         frozen_studies = self._storage.get_all_studies()
         for s in frozen_studies:
             if s._study_id == study_id:

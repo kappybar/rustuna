@@ -119,8 +119,9 @@ fn into_trial_queue_pyobj(
                     trial_queue.clone_ref(py),
                 ))
             } else {
-                let queue: SharedTrialQueue =
-                    Arc::new(RwLock::new(PyObjectTrialQueue::new(trial_queue.clone_ref(py))));
+                let queue: SharedTrialQueue = Arc::new(RwLock::new(PyObjectTrialQueue::new(
+                    trial_queue.clone_ref(py),
+                )));
                 Ok((queue, trial_queue.clone_ref(py)))
             }
         }

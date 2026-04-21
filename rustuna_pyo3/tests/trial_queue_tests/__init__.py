@@ -39,17 +39,19 @@ class TrialQueueFactory:
 
     def __enter__(self) -> Self:
         if self.queue_type == "in_memory":
-            self.queue = rustuna.TrialQueue.in_memory()
+            self.queue = rustuna.trial_queue.InMemoryTrialQueue()
         elif self.queue_type == "python_in_memory":
             self.queue = DummyInMemoryTrialQueue()
         elif self.queue_type == "directory":
             self.tmpdir = tempfile.mkdtemp()
             self.base_path = str(Path(self.tmpdir) / "queue")
-            self.queue = rustuna.TrialQueue.directory(self.base_path)
+            self.queue = rustuna.trial_queue.DirectoryTrialQueue(self.base_path)
         elif self.queue_type == "sqlite3":
             self.tmpdir = tempfile.mkdtemp()
             self.base_path = str(Path(self.tmpdir) / "queue.db")
-            self.queue = rustuna.TrialQueue.sqlite3(self.base_path, self.namespace)
+            self.queue = rustuna.trial_queue.SQLite3TrialQueue(
+                self.base_path, namespace=self.namespace
+            )
         else:
             raise ValueError(f"Unknown queue type: {self.queue_type}")
         return self
@@ -60,7 +62,7 @@ class TrialQueueFactory:
 
     def create_queue(self, namespace: str | None = None) -> TrialQueueProtocol:
         if self.queue_type == "in_memory":
-            return rustuna.TrialQueue.in_memory()
+            return rustuna.trial_queue.InMemoryTrialQueue()
         if self.queue_type == "python_in_memory":
             return DummyInMemoryTrialQueue()
         if self.base_path is None:
@@ -77,11 +79,11 @@ def make_trial_queue(
     namespace: str = "study-1",
 ) -> TrialQueueProtocol:
     if queue_type == "directory":
-        return rustuna.TrialQueue.directory(base_path)
+        return rustuna.trial_queue.DirectoryTrialQueue(base_path)
     if queue_type == "sqlite3":
-        return rustuna.TrialQueue.sqlite3(base_path, namespace=namespace)
+        return rustuna.trial_queue.SQLite3TrialQueue(base_path, namespace=namespace)
     if queue_type == "in_memory":
-        return rustuna.TrialQueue.in_memory()
+        return rustuna.trial_queue.InMemoryTrialQueue()
     if queue_type == "python_in_memory":
         return DummyInMemoryTrialQueue()
     raise ValueError(f"Unknown queue type: {queue_type}")

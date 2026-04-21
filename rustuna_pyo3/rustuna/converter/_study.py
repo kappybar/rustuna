@@ -9,7 +9,7 @@ import rustuna
 from ._direction import to_optuna_directions, to_rustuna_directions
 
 
-def to_frozen_study(study: rustuna.PersistedStudy) -> FrozenStudy:
+def to_frozen_study(study: rustuna.study.PersistedStudy) -> FrozenStudy:
     return FrozenStudy(
         study_name=study.name,
         study_id=study.id,
@@ -24,8 +24,8 @@ def to_frozen_study(study: rustuna.PersistedStudy) -> FrozenStudy:
     )
 
 
-def to_persisted_study(study: FrozenStudy) -> rustuna.PersistedStudy:
-    return rustuna.PersistedStudy(
+def to_persisted_study(study: FrozenStudy) -> rustuna.study.PersistedStudy:
+    return rustuna.study.PersistedStudy(
         id=study._study_id,
         name=study.study_name,
         directions=to_rustuna_directions(study.directions),

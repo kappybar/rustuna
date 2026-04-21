@@ -16,7 +16,7 @@ def test_load_study_with_trial_queue():
     )
     trial = storage.create_new_trial(created._study_id, template)
 
-    queue = rustuna.TrialQueue.in_memory()
+    queue = rustuna.trial_queue.InMemoryTrialQueue()
     queue.enqueue(trial._trial_id)
 
     loaded = rustuna.load_study(
@@ -33,7 +33,7 @@ def test_load_study_with_trial_queue():
 
 
 def test_study_trial_queue_property():
-    queue = rustuna.TrialQueue.in_memory()
+    queue = rustuna.trial_queue.InMemoryTrialQueue()
     study = rustuna.create_study(trial_queue=queue)
 
     study.trial_queue.enqueue(123)
