@@ -16,6 +16,10 @@ dynamic = ["version"]
 features = ["pyo3/extension-module"]
 module-name = "rustuna._rustuna"
 
+[tool.uv]
+exclude-newer = "5 days"
+exclude-newer-package = { optuna = false }
+
 [tool.ruff.lint]
 select = ["E", "I"] # pycodestyle and isort
 ignore = ["E501"]
