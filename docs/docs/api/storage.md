@@ -1,3 +1,0 @@
-# Storage API
-
-::: rustuna.Storage

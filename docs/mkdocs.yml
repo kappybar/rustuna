@@ -33,17 +33,17 @@ plugins:
 
 nav:
   - Home: index.md
+  - Migrating from Optuna: migration.md
   - Tutorial:
       - Getting Started: tutorial/getting-started.md
   - API Reference:
       - rustuna: api/rustuna.md
-      - rustuna.Study: api/study.md
-      - rustuna.Trial: api/trial.md
-      - rustuna.Sampler: api/sampler.md
-      - rustuna.Storage: api/storage.md
-      - rustuna.TrialQueue: api/trial_queue.md
-      - rustuna.Importance: api/importance.md
-      - rustuna.Distribution: api/distribution.md
+      - rustuna.study: api/study.md
+      - rustuna.trial: api/trial.md
+      - rustuna.samplers: api/samplers.md
+      - rustuna.storages: api/storages.md
+      - rustuna.trial_queue: api/trial_queue.md
+      - rustuna.distributions: api/distributions.md
 
 markdown_extensions:
   - attr_list

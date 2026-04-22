@@ -4,20 +4,20 @@ import rustuna
 
 
 def test_load_study_with_trial_queue():
-    storage = rustuna.Storage.in_memory()
+    storage = rustuna.storages.InMemoryStorage()
     created = rustuna.create_study(study_name="queued-study", storage=storage)
 
-    template = rustuna.PersistedTrial(
+    template = rustuna.trial.PersistedTrial(
         trial_id=0,
         study_id=created._study_id,
         number=0,
-        state=rustuna.TrialState.WAITING,
+        state=rustuna.trial.TrialState.WAITING,
         system_attrs={"fixed_params:x": "f:0x4014000000000000"},
     )
     trial = storage.create_new_trial(created._study_id, template)
 
-    queue = rustuna.TrialQueue.in_memory()
-    queue.push(trial._trial_id)
+    queue = rustuna.trial_queue.InMemoryTrialQueue()
+    queue.enqueue(trial._trial_id)
 
     loaded = rustuna.load_study(
         study_name="queued-study",
@@ -28,17 +28,17 @@ def test_load_study_with_trial_queue():
     asked = loaded.ask()
     assert asked.number == trial.number
     assert asked.suggest_float("x", 0.0, 10.0) == 5.0
-    loaded.trial_queue.push(123)
-    assert queue.pop() == 123
+    loaded.trial_queue.enqueue(123)
+    assert queue.dequeue() == 123
 
 
 def test_study_trial_queue_property():
-    queue = rustuna.TrialQueue.in_memory()
+    queue = rustuna.trial_queue.InMemoryTrialQueue()
     study = rustuna.create_study(trial_queue=queue)
 
-    study.trial_queue.push(123)
+    study.trial_queue.enqueue(123)
 
-    assert queue.pop() == 123
+    assert queue.dequeue() == 123
 
 
 def test_optimize():
@@ -67,7 +67,7 @@ def test_optimize():
 
 
 def test_trial_storage_inside_objective():
-    storage = rustuna.Storage.in_memory()
+    storage = rustuna.storages.InMemoryStorage()
     study = rustuna.create_study(storage=storage)
 
     def objective(trial: rustuna.Trial):
@@ -78,21 +78,29 @@ def test_trial_storage_inside_objective():
     study.optimize(objective, n_trials=1)
 
 
+def test_concrete_inmemory_storage_class():
+    storage = rustuna.storages.InMemoryStorage()
+    study = rustuna.create_study(storage=storage)
+
+    assert study._storage is storage
+    assert len(storage.get_studies()) == 1
+
+
 def test_study_get_trials_filters_by_states():
     study = rustuna.create_study()
     failed_trial = study.ask()
     completed_trial = study.ask()
-    study.tell(failed_trial.number, state=rustuna.TrialState.FAIL)
+    study.tell(failed_trial.number, state=rustuna.trial.TrialState.FAIL)
     study.tell(completed_trial.number, values=1.0)
 
     filtered = study.get_trials(
-        states=[rustuna.TrialState.FAIL, rustuna.TrialState.COMPLETE]
+        states=[rustuna.trial.TrialState.FAIL, rustuna.trial.TrialState.COMPLETE]
     )
 
     assert len(filtered) == 2
     assert [trial.state for trial in filtered] == [
-        rustuna.TrialState.FAIL,
-        rustuna.TrialState.COMPLETE,
+        rustuna.trial.TrialState.FAIL,
+        rustuna.trial.TrialState.COMPLETE,
     ]
 
 
@@ -108,10 +116,10 @@ def test_optimize_catch_exception():
     study.optimize(objective, n_trials=2, catch=(Exception, RuntimeError))
 
     assert len(study.trials) == 4
-    assert study.trials[0].state == rustuna.TrialState.FAIL
-    assert study.trials[1].state == rustuna.TrialState.COMPLETE
-    assert study.trials[2].state == rustuna.TrialState.FAIL
-    assert study.trials[3].state == rustuna.TrialState.COMPLETE
+    assert study.trials[0].state == rustuna.trial.TrialState.FAIL
+    assert study.trials[1].state == rustuna.trial.TrialState.COMPLETE
+    assert study.trials[2].state == rustuna.trial.TrialState.FAIL
+    assert study.trials[3].state == rustuna.trial.TrialState.COMPLETE
 
 
 def test_optimize_reraises_uncaught_exception():
@@ -126,7 +134,7 @@ def test_optimize_reraises_uncaught_exception():
     with pytest.raises(ValueError):
         study.optimize(objective, n_trials=1, catch=(RuntimeError,))
 
-    assert study.trials[0].state == rustuna.TrialState.FAIL
+    assert study.trials[0].state == rustuna.trial.TrialState.FAIL
 
 
 def test_optimize_trial_pruned():
@@ -137,7 +145,7 @@ def test_optimize_trial_pruned():
 
     study.optimize(objective, n_trials=1)
 
-    assert study.trials[0].state == rustuna.TrialState.PRUNED
+    assert study.trials[0].state == rustuna.trial.TrialState.PRUNED
 
 
 def test_optimize_multi_objective():
@@ -201,7 +209,7 @@ def test_study_get_user_attr():
 
 
 def test_create_study_load_if_exists_true():
-    storage = rustuna.Storage.in_memory()
+    storage = rustuna.storages.InMemoryStorage()
     first = rustuna.create_study(
         storage=storage,
         study_name="load-if-exists",
@@ -215,11 +223,11 @@ def test_create_study_load_if_exists_true():
     )
 
     assert first._study_id == second._study_id
-    assert second.directions == [rustuna.StudyDirection.MINIMIZE]
+    assert second.directions == [rustuna.study.StudyDirection.MINIMIZE]
 
 
 def test_create_study_load_if_exists_false():
-    storage = rustuna.Storage.in_memory()
+    storage = rustuna.storages.InMemoryStorage()
     rustuna.create_study(storage=storage, study_name="load-if-exists")
 
     with pytest.raises(rustuna.exceptions.DuplicatedStudyError):
@@ -231,8 +239,8 @@ def test_create_study_load_if_exists_false():
 
 
 def test_copy_study():
-    from_storage = rustuna.Storage.in_memory()
-    to_storage = rustuna.Storage.in_memory()
+    from_storage = rustuna.storages.InMemoryStorage()
+    to_storage = rustuna.storages.InMemoryStorage()
     from_study = rustuna.create_study(
         storage=from_storage,
         study_name="copy-source",
@@ -266,8 +274,8 @@ def test_copy_study():
 
 
 def test_copy_study_to_study_name():
-    from_storage = rustuna.Storage.in_memory()
-    to_storage = rustuna.Storage.in_memory()
+    from_storage = rustuna.storages.InMemoryStorage()
+    to_storage = rustuna.storages.InMemoryStorage()
     rustuna.create_study(storage=from_storage, study_name="foo")
     rustuna.create_study(storage=to_storage, study_name="foo")
 
@@ -348,16 +356,16 @@ def test_ask():
 
 
 def test_trial_state():
-    state = rustuna.TrialState.COMPLETE
+    state = rustuna.trial.TrialState.COMPLETE
     assert state.is_finished()
 
 
 def test_persisted_trial():
-    trial = rustuna.PersistedTrial(
+    trial = rustuna.trial.PersistedTrial(
         trial_id=2,
         study_id=1,
         number=2,
-        state=rustuna.TrialState.COMPLETE,
+        state=rustuna.trial.TrialState.COMPLETE,
         values=[0.5],
     )
     assert trial.study_id == 1
@@ -367,34 +375,31 @@ def test_persisted_trial():
 
     pytest.raises(
         ValueError,
-        lambda: rustuna.PersistedTrial(2, 1, 2, state=rustuna.TrialState.COMPLETE),
+        lambda: rustuna.trial.PersistedTrial(
+            trial_id=2, study_id=1, number=2, state=rustuna.trial.TrialState.COMPLETE
+        ),
     )
 
 
 def test_sample():
     samplers = [
-        rustuna.Sampler.tpe(),
-        rustuna.Sampler.random(),
+        rustuna.samplers.TPESampler(),
+        rustuna.samplers.RandomSampler(),
     ]
     for sampler in samplers:
-        storage = rustuna.Storage.in_memory()
+        storage = rustuna.storages.InMemoryStorage()
         study = rustuna.create_study(sampler=sampler, storage=storage)
         trial = study.ask()
-        ctx = rustuna.SamplerContext(
+        ctx = rustuna.samplers.SamplerContext(
             study_id=study._study_id,
             trial_number=trial.number,
             trial_id=trial._trial_id,
             directions=study.directions,
         )
         value = sampler.sample_independent(
-            ctx, storage, "x", rustuna.Distribution.float(0, 1)
+            ctx, storage, "x", rustuna.distributions.FloatDistribution(0, 1)
         )
         assert 0 <= value <= 1
-
-
-def test_storage():
-    storage = rustuna.Storage.in_memory()
-    study = storage.create_new_study("example", [rustuna.StudyDirection.MINIMIZE])
 
 
 def test_get_pareto_front():

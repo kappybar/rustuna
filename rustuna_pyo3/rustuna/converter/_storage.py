@@ -32,6 +32,7 @@ if typing.TYPE_CHECKING:
     from optuna._typing import JSONSerializable
 
     from rustuna import CategoricalChoiceType
+    from rustuna._rustuna import Distribution
 
 
 logger = optuna.logging.get_logger(__name__)
@@ -44,11 +45,11 @@ class ToRustunaStorage:
         self._lock = threading.Lock()
 
     def create_new_study(
-        self, study_name: str, directions: list[rustuna.StudyDirection]
-    ) -> rustuna.PersistedStudy:
+        self, study_name: str, directions: list[rustuna.study.StudyDirection]
+    ) -> rustuna.study.PersistedStudy:
         optuna_directions = to_optuna_directions(directions)
         study_id = self._storage.create_new_study(optuna_directions, study_name)
-        return rustuna.PersistedStudy(
+        return rustuna.study.PersistedStudy(
             id=study_id,
             name=study_name,
             directions=directions,
@@ -57,8 +58,8 @@ class ToRustunaStorage:
         )
 
     def create_new_trial(
-        self, study_id: int, template_trial: rustuna.PersistedTrial | None = None
-    ) -> rustuna.PersistedTrial:
+        self, study_id: int, template_trial: rustuna.trial.PersistedTrial | None = None
+    ) -> rustuna.trial.PersistedTrial:
         template_frozen = to_frozen_trial(template_trial) if template_trial else None
         trial_id = self._storage.create_new_trial(
             study_id, template_trial=template_frozen
@@ -72,7 +73,7 @@ class ToRustunaStorage:
         self,
         trial_id: int,
         name: str,
-        distribution: rustuna.Distribution,
+        distribution: Distribution,
         value: float,
     ) -> None:
         self._storage.set_trial_param(
@@ -82,7 +83,7 @@ class ToRustunaStorage:
     def set_trial_state_values(
         self,
         trial_id: int,
-        state: rustuna.TrialState,
+        state: rustuna.trial.TrialState,
         values: None | list[float] = None,
     ) -> None:
         self._storage.set_trial_state_values(
@@ -91,28 +92,36 @@ class ToRustunaStorage:
             values=values,
         )
 
-    def get_studies(self) -> list[rustuna.PersistedStudy]:
+    def get_studies(self) -> list[rustuna.study.PersistedStudy]:
         frozen_studies = self._storage.get_all_studies()
         return [to_persisted_study(s) for s in frozen_studies]
 
-    def get_study(self, study_id: int) -> rustuna.PersistedStudy:
+    def get_study(self, study_id: int) -> rustuna.study.PersistedStudy:
         frozen_studies = self._storage.get_all_studies()
         for s in frozen_studies:
             if s._study_id == study_id:
                 return to_persisted_study(s)
         raise KeyError(f"Study {study_id} not found")
 
-    def get_trials(self, study_id: int) -> list[rustuna.PersistedTrial]:
-        frozen_trials = self._storage.get_all_trials(study_id)
+    def get_trials(
+        self,
+        study_id: int,
+        *,
+        states: list[rustuna.trial.TrialState] | None = None,
+    ) -> list[rustuna.trial.PersistedTrial]:
+        optuna_states = None
+        if states is not None:
+            optuna_states = tuple(to_optuna_state(state) for state in states)
+        frozen_trials = self._storage.get_all_trials(study_id, states=optuna_states)
 
-        persisted_trials: list[rustuna.PersistedTrial] = []
+        persisted_trials: list[rustuna.trial.PersistedTrial] = []
         with self._lock:
             for t in frozen_trials:
                 persisted_trials.append(to_persisted_trial(t, study_id))
                 self._trial_id_to_study_id[t._trial_id] = study_id
         return persisted_trials
 
-    def get_trial(self, trial_id: int) -> rustuna.PersistedTrial:
+    def get_trial(self, trial_id: int) -> rustuna.trial.PersistedTrial:
         with self._lock:
             study_id = self._trial_id_to_study_id.get(trial_id, -1)
         if study_id == -1:
@@ -123,7 +132,7 @@ class ToRustunaStorage:
         frozen_trial = self._storage.get_trial(trial_id)
         return to_persisted_trial(frozen_trial, study_id=study_id)
 
-    def get_cached_trial(self, trial_id: int) -> rustuna.PersistedTrial:
+    def get_cached_trial(self, trial_id: int) -> rustuna.trial.PersistedTrial:
         return self.get_trial(trial_id)
 
     def delete_study(self, study_id: int) -> None:
@@ -160,16 +169,6 @@ class ToRustunaStorage:
         value = self._storage.get_study_system_attrs(study_id)[key]
         return json.dumps(value) if not isinstance(value, str) else value
 
-    def get_trial_user_attr(self, trial_id: int, key: str) -> str:
-        trial = self._storage.get_trial(trial_id)
-        value = trial.user_attrs[key]
-        return json.dumps(value) if not isinstance(value, str) else value
-
-    def get_trial_system_attr(self, trial_id: int, key: str) -> str:
-        trial = self._storage.get_trial(trial_id)
-        value = trial.system_attrs[key]
-        return json.dumps(value) if not isinstance(value, str) else value
-
     def set_category_labels(
         self,
         study_id: int,
@@ -195,19 +194,19 @@ class ToRustunaStorage:
 
 
 class ToOptunaStorage(BaseStorage):
-    def __init__(self, storage: rustuna.OptunaStorageProtocol) -> None:
+    def __init__(self, storage: rustuna.storages.OptunaStorageProtocol) -> None:
         self._storage = storage
         self._trial_cache: dict[int, FrozenTrialLike] = {}
 
     def create_new_study(
         self, directions: Sequence[StudyDirection], study_name: str | None = None
     ) -> int:
-        rustuna_directions: list[rustuna.StudyDirection] = []
+        rustuna_directions: list[rustuna.study.StudyDirection] = []
         for d in directions:
             if d == StudyDirection.MINIMIZE:
-                rustuna_directions.append(rustuna.StudyDirection.MINIMIZE)
+                rustuna_directions.append(rustuna.study.StudyDirection.MINIMIZE)
             elif d == StudyDirection.MAXIMIZE:
-                rustuna_directions.append(rustuna.StudyDirection.MAXIMIZE)
+                rustuna_directions.append(rustuna.study.StudyDirection.MAXIMIZE)
             else:
                 raise ValueError("Unexpected Study Direction")
 
@@ -260,7 +259,7 @@ class ToOptunaStorage(BaseStorage):
     def create_new_trial(
         self, study_id: int, template_trial: FrozenTrial | None = None
     ) -> int:
-        persisted_trial_template: rustuna.PersistedTrial | None = None
+        persisted_trial_template: rustuna.trial.PersistedTrial | None = None
         if template_trial is not None:
             for param_name, distribution in template_trial.distributions.items():
                 if isinstance(
@@ -342,8 +341,7 @@ class ToOptunaStorage(BaseStorage):
         deepcopy: bool = True,
         states: Container[TrialState] | None = None,
     ) -> list[FrozenTrial]:
-        rustuna_trials = self._storage.get_trials(study_id)
-        rustuna_states: list[rustuna.TrialState] | None = None
+        rustuna_states: list[rustuna.trial.TrialState] | None = None
         if states is not None:
             assert isinstance(states, Iterable), (
                 "ToOptunaStorage assumes that states is Iterable to make this faster"
@@ -352,10 +350,9 @@ class ToOptunaStorage(BaseStorage):
             if not states_list:
                 return []
             rustuna_states = [to_rustuna_state(s) for s in states_list]
+        rustuna_trials = self._storage.get_trials(study_id, states=rustuna_states)
         trials: list[FrozenTrial] = []
         for t in rustuna_trials:
-            if rustuna_states is not None and t.state not in rustuna_states:
-                continue
             cached = self._trial_cache.get(t._trial_id)
             if cached is not None:
                 trials.append(cached)

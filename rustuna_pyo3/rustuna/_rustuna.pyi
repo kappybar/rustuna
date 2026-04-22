@@ -11,6 +11,13 @@ from collections.abc import (
 )
 from typing import Any, Literal, Protocol, TypedDict, TypeVar, overload
 
+from ._protocols import (
+    OptunaStorageProtocol,
+    SamplerProtocol,
+    StorageProtocol,
+    TrialQueueProtocol,
+)
+
 _T = TypeVar("_T")
 
 CategoricalChoiceType = float | int | str | bool | None
@@ -53,46 +60,13 @@ class Distribution:
     @classmethod
     def float(
         cls, low: float, high: float, log: bool = False, step: float | None = None
-    ) -> Distribution:
-        """Create a float distribution.
-
-        Args:
-            low: Lower bound.
-            high: Upper bound.
-            log: If True, sample from a log scale.
-            step: Discretization step.
-
-        Returns:
-            A float distribution.
-        """
-
+    ) -> Distribution: ...
     @classmethod
     def int(
         cls, low: int, high: int, log: bool = False, step: int | None = None
-    ) -> Distribution:
-        """Create an integer distribution.
-
-        Args:
-            low: Lower bound.
-            high: Upper bound.
-            log: If True, sample from a log scale.
-            step: Discretization step.
-
-        Returns:
-            An integer distribution.
-        """
-
+    ) -> Distribution: ...
     @classmethod
-    def categorical(cls, choices: list[CategoricalChoiceType]) -> Distribution:
-        """Create a categorical distribution.
-
-        Args:
-            choices: List of candidate values.
-
-        Returns:
-            A categorical distribution.
-        """
-
+    def categorical(cls, choices: list[CategoricalChoiceType]) -> Distribution: ...
     def to_dict(self) -> DistributionDict:
         """Convert the distribution to a dictionary.
 
@@ -244,12 +218,14 @@ class PersistedTrial:
 
     def __init__(
         self,
+        *,
         trial_id: int,
         study_id: int,
         number: int,
         state: TrialState,
+        value: float | None = None,
         values: list[float] | None = None,
-        internal_params: dict[str, float] | None = None,
+        params: dict[str, CategoricalChoiceType] | None = None,
         distributions: dict[str, Distribution] | None = None,
         user_attrs: dict[str, str] | None = None,
         system_attrs: dict[str, str] | None = None,
@@ -316,6 +292,35 @@ class PersistedTrial:
 # Study
 ObjectiveFuncType = Callable[[Trial], float | tuple[float, ...]]
 
+def create_trial(
+    *,
+    state: TrialState = TrialState.COMPLETE,
+    value: float | None = None,
+    values: Sequence[float] | None = None,
+    params: dict[str, Any] | None = None,
+    distributions: dict[str, Distribution] | None = None,
+    user_attrs: dict[str, str] | None = None,
+    system_attrs: dict[str, str] | None = None,
+) -> PersistedTrial:
+    """Create a low-level PersistedTrial object.
+
+    This is intended to mirror Optuna's ``create_trial`` helper for preparing
+    trials that will later be passed to ``Study.add_trial``.
+
+    Args:
+        state: Trial state.
+        value: Trial objective value. Must not be specified together with ``values``.
+        values: Sequence of trial objective values. Must not be specified together
+            with ``value``.
+        params: Dictionary with suggested parameter values in external representation.
+        distributions: Dictionary with parameter distributions.
+        user_attrs: Dictionary with user attributes.
+        system_attrs: Dictionary with system attributes.
+
+    Returns:
+        A PersistedTrial object.
+    """
+
 def create_study(
     *,
     study_name: str | None = None,
@@ -324,7 +329,7 @@ def create_study(
     direction: Literal["minimize"] | Literal["maximize"] | None = None,
     directions: list[Literal["minimize"] | Literal["maximize"]] | None = None,
     load_if_exists: bool = False,
-    trial_queue: TrialQueue | None = None,
+    trial_queue: TrialQueueProtocol | None = None,
 ) -> Study:
     """Create a new study.
 
@@ -337,7 +342,8 @@ def create_study(
         directions: Directions of optimization for multi-objective optimization.
             Cannot be specified together with ``direction``.
         load_if_exists: If True, return an existing study when ``study_name`` already exists.
-        trial_queue: TrialQueue object for managing trial execution order. If None, InMemoryTrialQueue is used.
+        trial_queue: Trial queue object for managing trial execution order. If None,
+            InMemoryTrialQueue is used.
 
     Returns:
         A Study object.
@@ -348,7 +354,7 @@ def load_study(
     study_name: str | None = None,
     storage: StorageProtocol | None = None,
     sampler: SamplerProtocol | None = None,
-    trial_queue: TrialQueue | None = None,
+    trial_queue: TrialQueueProtocol | None = None,
 ) -> Study:
     """Load an existing study.
 
@@ -356,7 +362,8 @@ def load_study(
         study_name: Study's name. If None, the most recently created study is loaded.
         storage: Storage object. If None, raises an error.
         sampler: Sampler object for parameter suggestion. If None, TPESampler is used.
-        trial_queue: TrialQueue object for managing trial execution order. If None, InMemoryTrialQueue is used.
+        trial_queue: Trial queue object for managing trial execution order. If None,
+            InMemoryTrialQueue is used.
     """
 
 def copy_study(
@@ -381,8 +388,8 @@ class Study:
         study_id: int,
         name: str,
         directions: list[StudyDirection],
-        storage: Storage,
-        sampler: Sampler,
+        storage: StorageProtocol,
+        sampler: SamplerProtocol,
     ) -> None: ...
     def ask(self) -> Trial:
         """Create a new trial from which hyperparameters can be suggested.
@@ -458,16 +465,16 @@ class Study:
             value: A value of the attribute. The value should be JSON serializable.
 
         Example:
-            .. code-block:: python
+            ```python
+            import rustuna
 
-                import rustuna
+            study = rustuna.create_study()
+            study.set_user_attr("objective function", "quadratic function")
 
-                study = rustuna.create_study()
-                study.set_user_attr("objective function", "quadratic function")
-
-                assert study.user_attrs == {
-                    "objective function": "quadratic function",
-                }
+            assert study.user_attrs == {
+                "objective function": "quadratic function",
+            }
+            ```
         """
     def set_user_attrs(
         self,
@@ -482,18 +489,18 @@ class Study:
             attrs: A dictionary object.
 
         Example:
-            .. code-block:: python
+            ```python
+            import rustuna
 
-                import rustuna
+            study = rustuna.create_study()
+            study.set_user_attrs({
+                "objective function", "quadratic function"
+            })
 
-                study = rustuna.create_study()
-                study.set_user_attrs({
-                    "objective function", "quadratic function"
-                })
-
-                assert study.user_attrs == {
-                    "objective function": "quadratic function",
-                }
+            assert study.user_attrs == {
+                "objective function": "quadratic function",
+            }
+            ```
         """
     def get_user_attr(
         self,
@@ -556,7 +563,7 @@ class Study:
     def sampler(self) -> SamplerProtocol:
         """Return the storage object."""
     @property
-    def trial_queue(self) -> TrialQueue:
+    def trial_queue(self) -> TrialQueueProtocol:
         """Return the trial queue object."""
 
 class StudyDirection(enum.IntEnum):
@@ -595,12 +602,26 @@ class PersistedStudy:
     def system_attrs(self) -> dict[str, str]: ...
 
 ## Storage
-class StorageProtocol(Protocol):
-    """Protocol for storage implementations.
 
-    This protocol defines the interface that storage backends must implement
-    to persist optimization history.
+class PyObjectStorage:
+    """Wrapper to convert a StorageProtocol implementation to Rust Storage trait.
+
+    This class wraps a Python object implementing StorageProtocol and makes it
+    usable as a Rust Storage trait implementation.
+
+    Note:
+        This class is not intended for direct use by end users. It is used internally
+        by rustuna converters (e.g., ToOptunaSampler) to bridge Python StorageProtocol
+        implementations with Rust components.
     """
+
+    def __init__(self, storage: StorageProtocol) -> None:
+        """Create a PyObjectStorage from a StorageProtocol instance.
+
+        Args:
+            storage: A Python object implementing StorageProtocol.
+        """
+
     def create_new_study(
         self, study_name: str, directions: list[StudyDirection]
     ) -> PersistedStudy: ...
@@ -625,16 +646,16 @@ class StorageProtocol(Protocol):
     ) -> None: ...
     def get_studies(self) -> list[PersistedStudy]: ...
     def get_study(self, study_id: int) -> PersistedStudy: ...
-    def get_trials(self, study_id: int) -> list[PersistedTrial]: ...
+    def get_trials(
+        self, study_id: int, *, states: list[TrialState] | None = None
+    ) -> list[PersistedTrial]: ...
     def get_trial(self, trial_id: int) -> PersistedTrial: ...
     def get_cached_trial(self, trial_id: int) -> PersistedTrial: ...
-    def get_study_user_attr(self, study_id: int, key: str) -> str: ...
-    def get_study_system_attr(self, study_id: int, key: str) -> str: ...
-    def get_trial_user_attr(self, trial_id: int, key: str) -> str: ...
-    def get_trial_system_attr(self, trial_id: int, key: str) -> str: ...
     def get_trial_id_from_study_id_trial_number(
         self, study_id: int, trial_number: int
     ) -> int: ...
+    def get_study_user_attr(self, study_id: int, key: str) -> str: ...
+    def get_study_system_attr(self, study_id: int, key: str) -> str: ...
     def set_study_system_attrs(self, study_id: int, attrs: dict[str, str]) -> None: ...
     def set_study_user_attrs(self, study_id: int, attrs: dict[str, str]) -> None: ...
     def set_trial_system_attrs(self, trial_id: int, attrs: dict[str, str]) -> None: ...
@@ -651,268 +672,77 @@ class StorageProtocol(Protocol):
         param_name: str,
         cardinality: int,
     ) -> list[CategoricalChoiceType] | None: ...
-
-class OptunaStorageProtocol(StorageProtocol, Protocol):
     def set_trial_intermediate_value(
         self, trial_id: int, step: int, intermediate_value: float
     ) -> None: ...
-
-class PyObjectStorage(StorageProtocol):
-    """Wrapper to convert a StorageProtocol implementation to Rust Storage trait.
-
-    This class wraps a Python object implementing StorageProtocol and makes it
-    usable as a Rust Storage trait implementation.
-
-    Note:
-        This class is not intended for direct use by end users. It is used internally
-        by rustuna converters (e.g., ToOptunaSampler) to bridge Python StorageProtocol
-        implementations with Rust components.
-    """
-
-    def __init__(self, storage: StorageProtocol) -> None:
-        """Create a PyObjectStorage from a StorageProtocol instance.
-
-        Args:
-            storage: A Python object implementing StorageProtocol.
-        """
 
 class Storage:
     """Storage for persisting optimization history."""
 
     @classmethod
-    def in_memory(cls) -> StorageProtocol:
-        """Create an in-memory storage.
-
-        Returns:
-            An in-memory storage instance.
-        """
+    def in_memory(cls) -> StorageProtocol: ...
     @classmethod
     def sqlite3(
         cls, file_path: str, *, create_database: bool = True
-    ) -> OptunaStorageProtocol:
-        """Create a SQLite3 storage.
-
-        Args:
-            file_path: Path to the SQLite3 database file.
-            create_database: If True, initialize the database when it is missing.
-
-        Returns:
-            A SQLite3 storage instance.
-        """
+    ) -> OptunaStorageProtocol: ...
     @classmethod
     def journal_file(
         cls,
         file_path: str,
-    ) -> OptunaStorageProtocol:
-        """Create a Journal storage with its file backend.
-
-        Args:
-            file_path: Path to the journal log file.
-
-        Returns:
-            A Journal storage instance.
-        """
+    ) -> OptunaStorageProtocol: ...
     def create_new_study(
         self, study_name: str, directions: list[StudyDirection]
-    ) -> PersistedStudy:
-        """Create a new study.
-
-        Args:
-            study_name: Name of the study.
-            directions: Optimization directions.
-
-        Returns:
-            The created study.
-        """
-    def delete_study(self, study_id: int) -> None:
-        """Delete a study.
-
-        Args:
-            study_id: ID of the study to delete.
-        """
+    ) -> PersistedStudy: ...
+    def delete_study(self, study_id: int) -> None: ...
     def create_new_trial(
         self,
         study_id: int,
         template_trial: PersistedTrial | None = None,
-    ) -> PersistedTrial:
-        """Create a new trial in the specified study.
-
-        Args:
-            study_id: ID of the study.
-            template_trial: Template PersistedTrial with default user-attributes,
-                system-attributes, intermediate-values, and a state.
-
-        Returns:
-            The created trial.
-        """
+    ) -> PersistedTrial: ...
     def set_trial_param(
         self,
         trial_id: int,
         name: str,
         distribution: Distribution,
         value: float,
-    ) -> None:
-        """Set a parameter value for a trial.
-
-        Args:
-            trial_id: ID of the trial.
-            name: Parameter name.
-            distribution: Parameter distribution.
-            value: Internal representation of the parameter value.
-        """
+    ) -> None: ...
     def set_trial_state_values(
         self,
         trial_id: int,
         state: TrialState,
         values: None | list[float] = None,
-    ) -> None:
-        """Set the state and values of a trial.
-
-        Args:
-            trial_id: ID of the trial.
-            state: New state of the trial.
-            values: Objective values (required when state is COMPLETE).
-        """
-    def get_studies(self) -> list[PersistedStudy]:
-        """Get all studies.
-
-        Returns:
-            List of all studies.
-        """
-    def get_study(self, study_id: int) -> PersistedStudy:
-        """Get a study by ID.
-
-        Args:
-            study_id: ID of the study.
-
-        Returns:
-            The study.
-        """
-    def get_trials(self, study_id: int) -> list[PersistedTrial]:
-        """Get all trials in a study.
-
-        Args:
-            study_id: ID of the study.
-
-        Returns:
-            List of all trials in the study.
-        """
-    def get_n_trials(self, study_id: int) -> int:
-        """Get the number of trials in a study.
-
-        Args:
-            study_id: ID of the study.
-
-        Returns:
-            Number of trials.
-        """
-    def get_trial(self, trial_id: int) -> PersistedTrial:
-        """Get a trial by ID.
-
-        Args:
-            trial_id: ID of the trial.
-
-        Returns:
-            The trial.
-        """
-    def get_cached_trial(self, trial_id: int) -> PersistedTrial:
-        """Get a cached trial by ID without synchronizing with backends.
-
-        Args:
-            trial_id: ID of the trial.
-
-        Returns:
-            The trial.
-        """
-    def get_trial_by_number(self, study_id: int, trial_number: int) -> PersistedTrial:
-        """Get a trial by study ID and trial number.
-
-        Args:
-            study_id: ID of the study.
-            trial_number: Number of the trial within the study.
-
-        Returns:
-            The trial.
-        """
+    ) -> None: ...
+    def get_studies(self) -> list[PersistedStudy]: ...
+    def get_study(self, study_id: int) -> PersistedStudy: ...
+    def get_trials(
+        self, study_id: int, *, states: list[TrialState] | None = None
+    ) -> list[PersistedTrial]: ...
+    def get_trial(self, trial_id: int) -> PersistedTrial: ...
+    def get_cached_trial(self, trial_id: int) -> PersistedTrial: ...
     def get_trial_id_from_study_id_trial_number(
         self, study_id: int, trial_number: int
-    ) -> int:
-        """Get a trial ID from study ID and trial number.
-
-        Args:
-            study_id: ID of the study.
-            trial_number: Number of the trial within the study.
-
-        Returns:
-            ID of the trial.
-        """
-    def set_study_system_attrs(self, study_id: int, attrs: dict[str, str]) -> None:
-        """Set system attributes of a study.
-
-        Args:
-            study_id: ID of the study.
-            attrs: System attributes to set.
-        """
-    def set_study_user_attrs(self, study_id: int, attrs: dict[str, str]) -> None:
-        """Set user attributes of a study.
-
-        Args:
-            study_id: ID of the study.
-            attrs: User attributes to set.
-        """
-    def set_trial_system_attrs(self, trial_id: int, attrs: dict[str, str]) -> None:
-        """Set system attributes of a trial.
-
-        Args:
-            trial_id: ID of the trial.
-            attrs: System attributes to set.
-        """
-    def set_trial_user_attrs(self, trial_id: int, attrs: dict[str, str]) -> None:
-        """Set user attributes of a trial.
-
-        Args:
-            trial_id: ID of the trial.
-            attrs: User attributes to set.
-        """
+    ) -> int: ...
+    def get_study_user_attr(self, study_id: int, key: str) -> str: ...
+    def get_study_system_attr(self, study_id: int, key: str) -> str: ...
+    def set_study_system_attrs(self, study_id: int, attrs: dict[str, str]) -> None: ...
+    def set_study_user_attrs(self, study_id: int, attrs: dict[str, str]) -> None: ...
+    def set_trial_system_attrs(self, trial_id: int, attrs: dict[str, str]) -> None: ...
+    def set_trial_user_attrs(self, trial_id: int, attrs: dict[str, str]) -> None: ...
     def set_category_labels(
         self,
         study_id: int,
         param_name: str,
         choices: list[CategoricalChoiceType],
-    ) -> None:
-        """Set category labels for a categorical parameter.
-
-        Args:
-            study_id: ID of the study.
-            param_name: Name of the categorical parameter.
-            choices: List of category labels.
-        """
+    ) -> None: ...
     def get_category_labels(
         self,
         study_id: int,
         param_name: str,
         cardinality: int,
-    ) -> list[CategoricalChoiceType] | None:
-        """Get category labels for a categorical parameter.
-
-        Args:
-            study_id: ID of the study.
-            param_name: Name of the categorical parameter.
-            cardinality: Number of categories.
-
-        Returns:
-            List of category labels, or None if not set.
-        """
+    ) -> list[CategoricalChoiceType] | None: ...
     def set_trial_intermediate_value(
         self, trial_id: int, step: int, intermediate_value: float
-    ) -> None:
-        """Set an intermediate value for a trial.
-
-        Args:
-            trial_id: ID of the trial.
-            step: Step at which the intermediate value is reported.
-            intermediate_value: Intermediate objective value.
-        """
+    ) -> None: ...
 
 # Sampler
 class SamplerContext:
@@ -938,12 +768,27 @@ class SamplerContext:
         directions: list[StudyDirection],
     ) -> None: ...
 
-class SamplerProtocol(Protocol):
-    """Protocol for sampler implementations.
+class Sampler:
+    """Factory class for creating sampler instances."""
 
-    This protocol defines the interface that samplers must implement
-    to suggest parameter values.
-    """
+    @classmethod
+    def tpe(
+        cls,
+        seed: int | None = None,
+        n_startup_trials: int = 10,
+        multivariate: bool = True,
+    ) -> Sampler: ...
+    @classmethod
+    def random(cls, seed: int | None = None) -> Sampler: ...
+    @classmethod
+    def nsgaii(
+        cls,
+        seed: int | None = None,
+        population_size: int = 50,
+        mutation_prob: float | None = None,
+        crossover_prob: float = 0.9,
+        swapping_prob: float = 0.5,
+    ) -> Sampler: ...
     @property
     def support_joint_sampling(self) -> bool: ...
     def sample_joint(
@@ -959,96 +804,13 @@ class SamplerProtocol(Protocol):
         name: str,
         distribution: Distribution,
     ) -> float: ...
-
-class Sampler:
-    """Factory class for creating sampler instances."""
-
-    @classmethod
-    def tpe(
-        cls,
-        seed: int | None = None,
-        n_startup_trials: int = 10,
-        multivariate: bool = True,
-    ) -> Sampler:
-        """Create a Tree-structured Parzen Estimator sampler.
-
-        Args:
-            seed: Random seed. If None, a random seed is used.
-            n_startup_trials: Number of startup trials before using TPE.
-            multivariate: Whether to use multivariate TPE.
-
-        Returns:
-            A TPE sampler instance.
-        """
-    @classmethod
-    def random(cls, seed: int | None = None) -> Sampler:
-        """Create a random sampler.
-
-        Args:
-            seed: Random seed. If None, a random seed is used.
-
-        Returns:
-            A random sampler instance.
-        """
-    @classmethod
-    def nsgaii(
-        cls,
-        seed: int | None = None,
-        population_size: int = 50,
-        mutation_prob: float | None = None,
-        crossover_prob: float = 0.9,
-        swapping_prob: float = 0.5,
-    ) -> Sampler:
-        """Create an NSGA-II sampler for multi-objective optimization.
-
-        Args:
-            seed: Random seed. If None, a random seed is used.
-            population_size: Population size.
-            mutation_prob: Mutation probability. If None, 1.0 / len(search_space) is used.
-            crossover_prob: Crossover probability.
-            swapping_prob: Swapping probability for crossover.
-
-        Returns:
-            An NSGA-II sampler instance.
-        """
-    @property
-    def support_joint_sampling(self) -> bool:
-        """Return True if the sampler supports joint parameter sampling."""
-
-    def sample_joint(
+    def after_trial(
         self,
         ctx: SamplerContext,
         storage: StorageProtocol,
-        search_space: dict[str, Distribution],
-    ) -> dict[str, float]:
-        """Sample multiple parameters simultaneously.
-
-        Args:
-            ctx: Sampler context.
-            storage: Storage object.
-            search_space: Parameter distributions.
-
-        Returns:
-            Suggested parameter values (Optuna's internal representation).
-        """
-    def sample_independent(
-        self,
-        ctx: SamplerContext,
-        storage: StorageProtocol,
-        name: str,
-        distribution: Distribution,
-    ) -> float:
-        """Sample a single parameter independently.
-
-        Args:
-            ctx: Sampler context.
-            storage: Storage object.
-            name: Parameter name.
-            distribution: Parameter distribution.
-
-        Returns:
-            Suggested parameter value (Optuna's internal representation).
-        """
+        state: TrialState,
+        values: list[float] | None = None,
+    ) -> None: ...
 
 # Trial Queue
 class TrialQueue:
@@ -1059,61 +821,27 @@ class TrialQueue:
     """
 
     @classmethod
-    def in_memory(cls) -> TrialQueue:
-        """Create an in-memory trial queue.
-
-        This queue stores trial IDs in memory and does not persist across process restarts.
-        Suitable for single-process optimization or when persistence is not required.
-
-        Returns:
-            An in-memory trial queue instance.
-        """
-
+    def in_memory(cls) -> TrialQueueProtocol: ...
     @classmethod
-    def directory(cls, base_dir: str) -> TrialQueue:
-        """Create a directory-based trial queue.
-
-        This queue uses the filesystem to persist trial IDs and provides multi-process
-        safety through atomic file operations. The queue is stored in two subdirectories
-        under the base directory: 'pending/' for queued trials and 'processing/' for
-        trials being processed.
-
-        Args:
-            base_dir: Base directory path for the queue. Should be study-specific
-                (e.g., '{storage_dir}/queue/{study_id}/') to ensure isolation between studies.
-
-        Returns:
-            A directory-based trial queue instance.
-        """
-
+    def directory(cls, base_dir: str) -> TrialQueueProtocol: ...
     @classmethod
-    def sqlite3(cls, db_path: str, study_id: int) -> TrialQueue:
-        """Create a SQLite3-based trial queue.
+    def sqlite3(cls, db_path: str, namespace: str) -> TrialQueueProtocol: ...
+    def enqueue(self, trial_id: int) -> None: ...
+    def dequeue(self) -> int: ...
 
-        This queue uses SQLite to persist trial IDs with ACID guarantees. Multiple studies
-        can share the same database file, with study_id used for isolation.
+class PyObjectTrialQueue:
+    """Wrapper to convert a TrialQueueProtocol implementation to Rust TrialQueue trait.
 
-        Args:
-            db_path: Path to the SQLite database file.
-            study_id: Study ID to isolate trials for this queue.
+    This class wraps a Python object implementing TrialQueueProtocol and makes it
+    usable as a Rust TrialQueue trait implementation.
+    """
 
-        Returns:
-            A SQLite3-based trial queue instance.
-        """
-
-    def push(self, trial_id: int) -> None:
-        """Add a trial ID to the queue.
+    def __init__(self, trial_queue: TrialQueueProtocol) -> None:
+        """Create a PyObjectTrialQueue from a TrialQueueProtocol instance.
 
         Args:
-            trial_id: The trial ID to enqueue.
+            trial_queue: A Python object implementing TrialQueueProtocol.
         """
 
-    def pop(self) -> int:
-        """Remove and return the next trial ID from the queue.
-
-        Returns:
-            The next trial ID in LIFO order.
-
-        Raises:
-            Exception: If the queue is empty.
-        """
+    def enqueue(self, trial_id: int) -> None: ...
+    def dequeue(self) -> int: ...

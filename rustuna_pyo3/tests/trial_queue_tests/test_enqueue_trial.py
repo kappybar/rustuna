@@ -131,14 +131,14 @@ def test_enqueue_trial_with_user_attrs(queue_type: TrialQueueType) -> None:
 
 
 @parametrize_trial_queue
-def test_queue_basic_push_pop(queue_type: "TrialQueueType") -> None:
-    """Test basic queue creation and push/pop operations."""
+def test_queue_basic_enqueue_dequeue(queue_type: "TrialQueueType") -> None:
+    """Test basic queue creation and enqueue/dequeue operations."""
     with TrialQueueFactory(queue_type) as factory:
         assert factory.queue is not None
-        factory.queue.push(1)
-        factory.queue.push(2)
-        assert factory.queue.pop() == 2
-        assert factory.queue.pop() == 1
+        factory.queue.enqueue(1)
+        factory.queue.enqueue(2)
+        assert factory.queue.dequeue() == 2
+        assert factory.queue.dequeue() == 1
 
 
 @parametrize_trial_queue

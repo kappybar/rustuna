@@ -14,7 +14,7 @@ from rustuna.converter._storage import ToRustunaStorage
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-    from rustuna import StorageProtocol
+    from rustuna.storages import StorageProtocol
 
 
 @pytest.fixture(
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 )
 def storage(request: FixtureRequest) -> Generator[StorageProtocol, None, None]:
     if request.param == "inmemory":
-        yield rustuna.Storage.in_memory()
+        yield rustuna.storages.InMemoryStorage()
         return
     if request.param == "optuna-inmemory":
         yield ToRustunaStorage(InMemoryStorage())
@@ -42,17 +42,19 @@ def storage(request: FixtureRequest) -> Generator[StorageProtocol, None, None]:
     with tempfile.TemporaryDirectory() as workdir:
         if request.param == "sqlite3":
             file_path = f"{workdir}/test.db"
-            yield rustuna.Storage.sqlite3(file_path, create_database=True)
+            yield rustuna.storages.SQLite3Storage(file_path, create_database=True)
         elif request.param == "optuna-journal-file":
             file_path = f"{workdir}/test.journal"
             yield ToRustunaStorage(JournalStorage(JournalFileBackend(file_path)))
         else:
             file_path = f"{workdir}/test.journal"
-            yield rustuna.Storage.journal_file(file_path)
+            yield rustuna.storages.JournalFileStorage(file_path)
 
 
 def test_get_study_attr_methods(storage: StorageProtocol) -> None:
-    study = storage.create_new_study("example study", [rustuna.StudyDirection.MINIMIZE])
+    study = storage.create_new_study(
+        "example study", [rustuna.study.StudyDirection.MINIMIZE]
+    )
     storage.set_study_user_attrs(
         study.id,
         {
@@ -87,38 +89,6 @@ def test_study_get_user_attr_method(storage: StorageProtocol) -> None:
     assert study.get_user_attr("not_found", default=1) == 1
 
 
-def test_get_trial_attr_methods(storage: StorageProtocol) -> None:
-    study = storage.create_new_study("example study", [rustuna.StudyDirection.MINIMIZE])
-    trial = storage.create_new_trial(study.id)
-    storage.set_trial_user_attrs(
-        trial._trial_id,
-        {
-            "trial_user_attr": "trial_user_attr",
-        },
-    )
-    storage.set_trial_system_attrs(
-        trial._trial_id,
-        {
-            "trial_system_attr": "trial_system_attr",
-        },
-    )
-    assert (
-        storage.get_trial_user_attr(trial._trial_id, "trial_user_attr")
-        == "trial_user_attr"
-    )
-    assert (
-        storage.get_trial_system_attr(trial._trial_id, "trial_system_attr")
-        == "trial_system_attr"
-    )
-    storage.set_trial_user_attrs(
-        trial._trial_id,
-        {
-            "trial_user_attr": "updated",
-        },
-    )
-    assert storage.get_trial_user_attr(trial._trial_id, "trial_user_attr") == "updated"
-
-
 def test_trial_get_user_attr_method(storage: StorageProtocol) -> None:
     study = rustuna.create_study(storage=storage)
     trial = study.ask()
@@ -127,3 +97,35 @@ def test_trial_get_user_attr_method(storage: StorageProtocol) -> None:
     assert persisted.get_user_attr("key", decoder=int) == 1
     assert persisted.get_user_attr("not_found") is None
     assert persisted.get_user_attr("not_found", default=1) == 1
+
+
+def test_get_trials_with_states_filter(storage: StorageProtocol) -> None:
+    study = rustuna.create_study(storage=storage)
+
+    completed = study.ask()
+    running = study.ask()
+    failed = study.ask()
+
+    study.tell(completed.number, 1.0)
+    study.tell(failed.number, state=rustuna.trial.TrialState.FAIL)
+
+    completed_trials = storage.get_trials(
+        study._study_id, states=[rustuna.trial.TrialState.COMPLETE]
+    )
+    assert len(completed_trials) == 1
+    assert completed_trials[0].number == completed.number
+
+    running_trials = storage.get_trials(
+        study._study_id, states=[rustuna.trial.TrialState.RUNNING]
+    )
+    assert len(running_trials) == 1
+    assert running_trials[0].number == running.number
+
+    finished_trials = storage.get_trials(
+        study._study_id,
+        states=[rustuna.trial.TrialState.COMPLETE, rustuna.trial.TrialState.FAIL],
+    )
+    assert {trial.number for trial in finished_trials} == {
+        completed.number,
+        failed.number,
+    }

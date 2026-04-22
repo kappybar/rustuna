@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use chrono::NaiveDateTime;
+use chrono::{Local, NaiveDateTime};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString};
-use rustuna_core::attr::{get_category_labels, AttrKey, Attrs, CategoryLabel};
+use rustuna_core::attr::{
+    category_labels_to_attrs, get_category_labels, AttrKey, Attrs, CategoryLabel,
+};
 use rustuna_core::distribution::Distribution;
 use rustuna_core::storage::Storage;
 use rustuna_core::trial::{PersistedTrial, Trial, TrialStateValues};
@@ -16,6 +18,157 @@ use crate::distribution::{
     category_label_to_pyobject, py_to_external_repr, pyobject_to_category_label, PyDistribution,
 };
 use crate::exception::err_to_exceptions;
+
+fn state_values_from_py(
+    state: &PyTrialState,
+    value: Option<f64>,
+    values: Option<Vec<f64>>,
+) -> PyResult<TrialStateValues> {
+    if value.is_some() && values.is_some() {
+        return Err(PyValueError::new_err(
+            "value and values must not be specified at the same time",
+        ));
+    }
+
+    let values = match (value, values) {
+        (Some(value), None) => Some(vec![value]),
+        (None, values) => values,
+        (Some(_), Some(_)) => unreachable!(),
+    };
+
+    match state {
+        PyTrialState::RUNNING => Ok(TrialStateValues::Running),
+        PyTrialState::COMPLETE => Ok(TrialStateValues::Complete(values.ok_or(
+            PyValueError::new_err("value or values must be specified when state is COMPLETE"),
+        )?)),
+        PyTrialState::PRUNED => Ok(TrialStateValues::Pruned),
+        PyTrialState::FAIL => Ok(TrialStateValues::Fail),
+        PyTrialState::WAITING => Ok(TrialStateValues::Waiting),
+    }
+}
+
+fn internal_param_from_py(obj: &Bound<'_, PyAny>, distribution: &PyDistribution) -> PyResult<f64> {
+    match &distribution.distribution {
+        Distribution::Float { .. } => obj.extract::<f64>(),
+        Distribution::Int { .. } => obj.extract::<i64>().map(|v| v as f64),
+        Distribution::Categorical { .. } => {
+            let label = pyobject_to_category_label(obj)?;
+            let labels = distribution
+                .category_labels
+                .as_ref()
+                .ok_or(PyValueError::new_err(
+                    "categorical distributions must include choices",
+                ))?;
+            labels
+                .iter()
+                .position(|candidate| candidate == &label)
+                .map(|index| index as f64)
+                .ok_or(PyValueError::new_err(
+                    "parameter value is not contained in the categorical distribution",
+                ))
+        }
+    }
+    .map_err(|e| PyValueError::new_err(format!("Failed to convert parameter value: {e}")))
+}
+
+fn build_trial_attrs(
+    user_attrs: HashMap<String, String>,
+    system_attrs: HashMap<String, String>,
+) -> Attrs {
+    let mut trial_attrs = Attrs::with_capacity(user_attrs.len() + system_attrs.len());
+    for (key, value) in user_attrs {
+        trial_attrs.insert(AttrKey::User(key.into()), value);
+    }
+    for (key, value) in system_attrs {
+        trial_attrs.insert(AttrKey::System(key.into()), value);
+    }
+    trial_attrs
+}
+
+fn build_params(
+    params: Option<&Bound<'_, PyDict>>,
+    distributions: &HashMap<String, PyDistribution>,
+) -> PyResult<HashMap<String, f64>> {
+    params
+        .map(|params| -> PyResult<HashMap<String, f64>> {
+            let mut internal_params = HashMap::with_capacity(params.len());
+            for (key, value) in params.iter() {
+                let name = key.extract::<String>()?;
+                let distribution =
+                    distributions
+                        .get(&name)
+                        .ok_or(PyValueError::new_err(format!(
+                            "Parameter '{name}' is not found in distributions."
+                        )))?;
+                let internal_value = internal_param_from_py(&value, distribution)?;
+                internal_params.insert(name, internal_value);
+            }
+            Ok(internal_params)
+        })
+        .transpose()
+        .map(|opt| opt.unwrap_or_default())
+}
+
+fn study_attrs_from_distributions(distributions: &HashMap<String, PyDistribution>) -> Attrs {
+    let mut attrs = Attrs::new();
+    for (name, distribution) in distributions {
+        if let Some(labels) = &distribution.category_labels {
+            attrs.extend(category_labels_to_attrs(name, labels));
+        }
+    }
+    attrs
+}
+
+#[pyfunction]
+#[pyo3(
+    name = "create_trial",
+    signature = (
+        *,
+        state = PyTrialState::COMPLETE,
+        value = None,
+        values = None,
+        params = None,
+        distributions = None,
+        user_attrs = None,
+        system_attrs = None,
+    )
+)]
+pub fn py_create_trial(
+    state: PyTrialState,
+    value: Option<f64>,
+    values: Option<Vec<f64>>,
+    params: Option<&Bound<'_, PyDict>>,
+    distributions: Option<HashMap<String, PyDistribution>>,
+    user_attrs: Option<HashMap<String, String>>,
+    system_attrs: Option<HashMap<String, String>>,
+) -> PyResult<PyPersistedTrial> {
+    let mut trial = PersistedTrial::new(0, 0, 0);
+    trial.state_values = state_values_from_py(&state, value, values)?;
+
+    let distributions = distributions.unwrap_or_default();
+    let study_attrs = study_attrs_from_distributions(&distributions);
+    trial.internal_params = build_params(params, &distributions)?;
+    trial.distributions = distributions
+        .into_iter()
+        .map(|(name, distribution)| (name, distribution.distribution))
+        .collect();
+    trial.attrs = build_trial_attrs(
+        user_attrs.unwrap_or_default(),
+        system_attrs.unwrap_or_default(),
+    );
+
+    let now = Local::now().naive_local().to_string();
+    if matches!(state, PyTrialState::WAITING) {
+        trial.datetime_start = None;
+        trial.datetime_complete = None;
+    } else {
+        trial.datetime_start = Some(now.clone());
+        trial.datetime_complete = if state.is_finished() { Some(now) } else { None };
+    }
+
+    trial.validate().map_err(err_to_exceptions)?;
+    Ok(PyPersistedTrial::new(trial, study_attrs))
+}
 
 #[derive(Clone, Debug, PartialEq)]
 #[pyclass(name = "TrialState", eq, eq_int)]
@@ -330,62 +483,40 @@ impl PyPersistedTrial {
 #[pymethods]
 impl PyPersistedTrial {
     #[new]
-    #[pyo3(signature = (trial_id, study_id, number, state, values=None, internal_params=None, distributions=None, user_attrs=None, system_attrs=None, datetime_start=None, datetime_complete=None))]
+    #[pyo3(signature = (*, trial_id, study_id, number, state, value=None, values=None, params=None, distributions=None, user_attrs=None, system_attrs=None, datetime_start=None, datetime_complete=None))]
     #[allow(clippy::too_many_arguments)]
     pub fn py_new(
         trial_id: u32,
         study_id: u32,
         number: u32,
         state: PyTrialState,
+        value: Option<f64>,
         values: Option<Vec<f64>>,
-        internal_params: Option<HashMap<String, f64>>,
+        params: Option<&Bound<'_, PyDict>>,
         distributions: Option<HashMap<String, PyDistribution>>,
         user_attrs: Option<HashMap<String, String>>,
         system_attrs: Option<HashMap<String, String>>,
         datetime_start: Option<NaiveDateTime>,
         datetime_complete: Option<NaiveDateTime>,
     ) -> PyResult<Self> {
-        if matches!(state, PyTrialState::COMPLETE) && values.is_none() {
-            Err(PyValueError::new_err(
-                "values must be specified when state is COMPLETE",
-            ))?;
-        }
         let mut trial = PersistedTrial::new(trial_id, study_id, number);
-        trial.state_values = match state {
-            PyTrialState::RUNNING => TrialStateValues::Running,
-            PyTrialState::COMPLETE => TrialStateValues::Complete(values.ok_or(
-                PyValueError::new_err("values must be specified when state is COMPLETE"),
-            )?),
-            PyTrialState::PRUNED => TrialStateValues::Pruned,
-            PyTrialState::FAIL => TrialStateValues::Fail,
-            PyTrialState::WAITING => TrialStateValues::Waiting,
-        };
+        trial.state_values = state_values_from_py(&state, value, values)?;
 
-        trial.internal_params = internal_params.unwrap_or_default();
-        trial.distributions = HashMap::with_capacity(match &distributions {
-            Some(d) => d.len(),
-            None => 0,
-        });
-        for (name, dist) in distributions.unwrap_or_default() {
-            trial.distributions.insert(name, dist.distribution);
-        }
-
-        let user_attrs = user_attrs.unwrap_or_default();
-        let system_attrs = system_attrs.unwrap_or_default();
-        let n_user_attrs = user_attrs.len();
-        let n_system_attrs = user_attrs.len();
-        let mut trial_attrs = Attrs::with_capacity(n_user_attrs + n_system_attrs);
-        for (key, value) in user_attrs {
-            trial_attrs.insert(AttrKey::User(key.into()), value);
-        }
-        for (key, value) in system_attrs {
-            trial_attrs.insert(AttrKey::System(key.into()), value);
-        }
-        trial.attrs = trial_attrs;
+        let distributions = distributions.unwrap_or_default();
+        let study_attrs = study_attrs_from_distributions(&distributions);
+        trial.internal_params = build_params(params, &distributions)?;
+        trial.distributions = distributions
+            .into_iter()
+            .map(|(name, dist)| (name, dist.distribution))
+            .collect();
+        trial.attrs = build_trial_attrs(
+            user_attrs.unwrap_or_default(),
+            system_attrs.unwrap_or_default(),
+        );
         trial.datetime_start = datetime_start.map(|dt| dt.to_string());
         trial.datetime_complete = datetime_complete.map(|dt| dt.to_string());
 
-        let study_attrs = Attrs::new();
+        trial.validate().map_err(err_to_exceptions)?;
         Ok(PyPersistedTrial::new(trial, study_attrs))
     }
 
@@ -547,10 +678,16 @@ impl PyPersistedTrial {
             PyPersistedTrialSource::StorageBacked {
                 storage, trial_id, ..
             } => {
-                let mut guard = storage.write().map_err(|e| {
+                let guard = storage.read().map_err(|e| {
                     PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
                 })?;
-                guard.get_trial_attr(*trial_id, AttrKey::User(key.into()))
+                guard.get_cached_trial(*trial_id).and_then(|trial| {
+                    trial
+                        .attrs
+                        .get(&AttrKey::User(key.into()))
+                        .cloned()
+                        .ok_or(rustuna_core::Error::new(ErrorKind::AttrNotFound))
+                })
             }
         };
         match result {

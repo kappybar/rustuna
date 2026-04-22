@@ -40,9 +40,9 @@ This function returns the value of $(x-2)^2$. Our goal is to find the value of `
 
 A [Trial](../api/trial.md) object corresponds to a single execution of the objective function and is internally instantiated upon each invocation of the function.
 
-The suggest APIs (for example, [suggest_float()](../api/trial.md#rustuna.Trial.suggest_float)) are called inside the objective function to obtain parameters for a trial. [suggest_float()](../api/trial.md#rustuna.Trial.suggest_float) selects parameters uniformly within the range provided. In our example, from $−10$ to $10$.
+The suggest APIs (for example, [suggest_float()](../api/trial.md#rustuna.trial.Trial.suggest_float)) are called inside the objective function to obtain parameters for a trial. [suggest_float()](../api/trial.md#rustuna.trial.Trial.suggest_float) selects parameters uniformly within the range provided. In our example, from $−10$ to $10$.
 
-To start the optimization, we create a study object and pass the objective function to method [optimize()](../api/study.md#rustuna.Study.optimize) as follows.
+To start the optimization, we create a study object and pass the objective function to method [optimize()](../api/study.md#rustuna.study.Study.optimize) as follows.
 
 ```python
 study = rustuna.create_study()
@@ -70,7 +70,7 @@ Found x: 1.9977979724456008, (x - 2)^2: 4.848925350333516e-06
 
 ## Study Object
 
-In Rustuna, we use the study object to manage optimization. Method [create_study()](../api/rustuna.md#rustuna.create_study) returns a study object. A study object has useful properties for analyzing the optimization outcome.
+In Rustuna, we use the study object to manage optimization. Method [create_study()](../api/study.md#rustuna.study.create_study) returns a study object. A study object has useful properties for analyzing the optimization outcome.
 
 To get the best trial:
 
@@ -154,9 +154,9 @@ Found x: 1.9991240057627049, (x - 2)^2: 7.673659037742573e-07
 
 For parameter sampling, Rustuna provides the following features:
 
-- [rustuna.Trial.suggest_categorical()](../api/trial.md#rustuna.Trial.suggest_categorical) for categorical parameters
-- [rustuna.Trial.suggest_int()](../api/trial.md#rustuna.Trial.suggest_int) for integer parameters
-- [rustuna.Trial.suggest_float()](../api/trial.md#rustuna.Trial.suggest_float) for floating point parameters
+- [Trial.suggest_categorical()](../api/trial.md#rustuna.trial.Trial.suggest_categorical) for categorical parameters
+- [Trial.suggest_int()](../api/trial.md#rustuna.trial.Trial.suggest_int) for integer parameters
+- [Trial.suggest_float()](../api/trial.md#rustuna.trial.Trial.suggest_float) for floating point parameters
 
 With optional arguments of `step` and `log`, we can discretize or take the logarithm of integer and floating point parameters.
 
@@ -244,21 +244,21 @@ Samplers basically continually narrow down the search space using the records of
 
 Rustuna provides the following sampling algorithms:
 
-- Random Search implemented in [rustuna.Sampler.random](../api/sampler.md#rustuna.Sampler.random)
-- Tree-structured Parzen Estimator algorithm implemented in [rustuna.Sampler.tpe](../api/sampler.md#rustuna.Sampler.tpe)
-- Nondominated Sorting Genetic Algorithm II implemented in [rustuna.Sampler.nsgaii](../api/sampler.md#rustuna.Sampler.nsgaii)
+- Random Search implemented in [RandomSampler](../api/samplers.md#rustuna.samplers.RandomSampler)
+- Tree-structured Parzen Estimator algorithm implemented in [TPESampler](../api/samplers.md#rustuna.samplers.TPESampler)
+- Nondominated Sorting Genetic Algorithm II implemented in [NSGAIISampler](../api/samplers.md#rustuna.samplers.NSGAIISampler)
 
-The default sampler is [rustuna.Sampler.tpe](../api/sampler.md#rustuna.Sampler.tpe).
+The default sampler is [TPESampler](../api/samplers.md#rustuna.samplers.TPESampler).
 
-You can specify a sampler using the `sampler` argument in [create_study()](../api/rustuna.md#rustuna.create_study) as follows.
+You can specify a sampler using the `sampler` argument in [create_study()](../api/study.md#rustuna.study.create_study) as follows.
 
 ```python
-study = rustuna.create_study(sampler=rustuna.Sampler.nsgaii())
+study = rustuna.create_study(sampler=rustuna.samplers.NSGAIISampler())
 ```
 
 ### Status of Supported Features in Each Sampler
 
-||[rustuna.Sampler.random](../api/sampler.md#rustuna.Sampler.random)|[rustuna.Sampler.tpe](../api/sampler.md#rustuna.Sampler.tpe)|[rustuna.Sampler.nsgaii](../api/sampler.md#rustuna.Sampler.nsgaii)|
+||[RandomSampler](../api/samplers.md#rustuna.samplers.RandomSampler)|[TPESampler](../api/samplers.md#rustuna.samplers.TPESampler)|[NSGAIISampler](../api/samplers.md#rustuna.samplers.NSGAIISampler)|
 |-|-|-|-|
 |Float parameters|✓|✓|▴|
 |Integer parameters|✓|✓|▴|
@@ -273,13 +273,13 @@ study = rustuna.create_study(sampler=rustuna.Sampler.nsgaii())
 
 ## Storages
 
-Rustuna uses in-memory storage ([rustuna.Storage.in_memory](../api/storage.md#rustuna.Storage.in_memory)) by default. This is very fast, but it is volatile, and the lifespan of the data is limited to the duration of the program's execution.
+Rustuna uses in-memory storage ([rustuna.storages.InMemoryStorage](../api/storages.md#rustuna.storages.InMemoryStorage)) by default. This is very fast, but it is volatile, and the lifespan of the data is limited to the duration of the program's execution.
 
 ### Saving/Resuming Study with RDB Backend/File-Based Journal Storage
 
 An RDB backend enables persistent experiments (i.e., to save and resume a study) as well as access to history of studies. In this section, let’s try simple examples running on a local environment with SQLite DB.
 
-We can create a persistent study by calling [create_study()](../api/rustuna.md#rustuna.create_study) function with a sqlite3 storage object as follows. An SQLite file `sqlite3_example.db` is created to store a new study record.
+We can create a persistent study by calling [create_study()](../api/study.md#rustuna.study.create_study) function with a sqlite3 storage object as follows. An SQLite file `sqlite3_example.db` is created to store a new study record.
 
 ```python
 import rustuna
@@ -291,7 +291,7 @@ def objective(trial: rustuna.Trial) -> float:
 	return (x - 2) ** 2 + y**2
 
 
-storage = rustuna.Storage.sqlite3("rustuna_example.db", create_database=True)
+storage = rustuna.storages.SQLite3Storage("rustuna_example.db", create_database=True)
 study = rustuna.create_study(
     study_name="sqlite3_example",
     storage=storage,
@@ -312,10 +312,10 @@ Best value: [0.17297553171217403]
 Best params: {'x': 2.415903272062356, 'y': 0}
 ```
 
-To resume a study, call [load_study](../api/rustuna.md#rustuna.load_study) with the `study_name` and `storage` arguments as follows. When loading, you must specify the same database file and study name. Also, set `create_database` to `False` (Note: This argument is `False` by default, so it can be omitted).
+To resume a study, call [load_study](../api/study.md#rustuna.study.load_study) with the `study_name` and `storage` arguments as follows. When loading, you must specify the same database file and study name. Also, set `create_database` to `False` (Note: This argument is `False` by default, so it can be omitted).
 
 ```python
-storage = rustuna.Storage.sqlite3("rustuna_example.db", create_database=False)
+storage = rustuna.storages.SQLite3Storage("rustuna_example.db", create_database=False)
 study = rustuna.load_study(
     study_name="sqlite3_example",
     storage=storage
@@ -335,8 +335,8 @@ Best value: [8.562350946635473e-05]
 Best params: {'x': 2.0092532972213344, 'y': 0}
 ```
 
-Rustuna also provides Journal Storage ([rustuna.Storage.journal_file](../api/storage.md#rustuna.Storage.journal_file)) and it can be available as follows:
+Rustuna also provides Journal Storage ([rustuna.storages.JournalFileStorage](../api/storages.md#rustuna.storages.JournalFileStorage)) and it can be available as follows:
 
 ```python
-storage = rustuna.Storage.journal_file("rustuna_example.log")
+storage = rustuna.storages.JournalFileStorage("rustuna_example.log")
 ```

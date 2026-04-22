@@ -348,13 +348,13 @@ mod tests {
         let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let study = create_study_with_arc("dummy", storage.clone(), directions)?;
+        let study = create_study_with_arc("dummy", storage.clone(), sampler, directions)?;
 
         let mut params = HashMap::new();
         params.insert("x".to_string(), CategoryLabel::Float(5.0));
         study.enqueue_trial(params, None)?;
 
-        let mut trial = study.ask(sampler.clone())?;
+        let mut trial = study.ask()?;
         let value = trial.suggest_float("x", 0.0, 10.0)?;
         assert_eq!(value, 5.0);
         Ok(())
@@ -365,13 +365,13 @@ mod tests {
         let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let study = create_study_with_arc("dummy", storage.clone(), directions)?;
+        let study = create_study_with_arc("dummy", storage.clone(), sampler, directions)?;
 
         let mut params = HashMap::new();
         params.insert("x".to_string(), CategoryLabel::Int(7));
         study.enqueue_trial(params, None)?;
 
-        let mut trial = study.ask(sampler.clone())?;
+        let mut trial = study.ask()?;
         let value = trial.suggest_int("x", 0, 10)?;
         assert_eq!(value, 7);
         Ok(())
@@ -382,13 +382,13 @@ mod tests {
         let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let study = create_study_with_arc("dummy", storage.clone(), directions)?;
+        let study = create_study_with_arc("dummy", storage.clone(), sampler, directions)?;
 
         let mut params = HashMap::new();
         params.insert("x".to_string(), CategoryLabel::Float(100.0));
         study.enqueue_trial(params, None)?;
 
-        let mut trial = study.ask(sampler.clone())?;
+        let mut trial = study.ask()?;
         let value = trial.suggest_float("x", 0.0, 10.0)?;
         assert!((0.0..=10.0).contains(&value));
         Ok(())
@@ -399,18 +399,18 @@ mod tests {
         let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let study = create_study_with_arc("dummy", storage.clone(), directions)?;
+        let study = create_study_with_arc("dummy", storage.clone(), sampler, directions)?;
 
         let mut params = HashMap::new();
         params.insert("x".to_string(), CategoryLabel::Float(5.0));
         study.enqueue_trial(params, None)?;
 
         // First ask should use enqueued trial
-        let mut trial1 = study.ask(sampler.clone())?;
+        let mut trial1 = study.ask()?;
         assert_eq!(trial1.suggest_float("x", 0.0, 10.0)?, 5.0);
 
         // Second ask should create a new trial (sampled)
-        let mut trial2 = study.ask(sampler.clone())?;
+        let mut trial2 = study.ask()?;
         let value = trial2.suggest_float("x", 0.0, 10.0)?;
         assert!((0.0..=10.0).contains(&value));
 
@@ -422,13 +422,13 @@ mod tests {
         let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let study = create_study_with_arc("dummy", storage.clone(), directions)?;
+        let study = create_study_with_arc("dummy", storage.clone(), sampler, directions)?;
 
         let mut params = HashMap::new();
         params.insert("x".to_string(), CategoryLabel::Float(5.0));
         study.enqueue_trial(params, None)?;
 
-        let mut trial = study.ask(sampler.clone())?;
+        let mut trial = study.ask()?;
         assert_eq!(trial.suggest_float("x", 0.0, 10.0)?, 5.0);
         // "y" is not in fixed_params, so it should be sampled
         let y = trial.suggest_float("y", 0.0, 10.0)?;
@@ -442,10 +442,10 @@ mod tests {
         let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
         let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         let directions = vec![Direction::Minimize];
-        let study = create_study_with_arc("dummy", storage.clone(), directions)?;
+        let study = create_study_with_arc("dummy", storage.clone(), sampler, directions)?;
 
         // Set user attributes
-        let mut trial = study.ask(sampler.clone())?;
+        let mut trial = study.ask()?;
         trial.set_user_attr("key", "user".to_string())?;
 
         // Set system attributes

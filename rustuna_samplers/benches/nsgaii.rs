@@ -4,7 +4,6 @@ extern crate test;
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
     use test::Bencher;
 
     use rustuna_core::storage::InMemoryStorage;
@@ -16,8 +15,8 @@ mod tests {
         b.iter(|| {
             let directions = vec![Direction::Minimize, Direction::Minimize];
             let storage = InMemoryStorage::new();
-            let sampler = Arc::new(Mutex::new(NSGAIISampler::default()));
-            let study = create_study("dummy", storage, directions).unwrap();
+            let study =
+                create_study("dummy", storage, NSGAIISampler::default(), directions).unwrap();
             study
                 .optimize(
                     |mut t| {
@@ -28,7 +27,6 @@ mod tests {
                         let v1 = (x - 5.0).powi(2) + (y - 5.0).powi(2);
                         Ok(vec![v0, v1])
                     },
-                    sampler,
                     200,
                 )
                 .unwrap();

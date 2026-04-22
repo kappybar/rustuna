@@ -6,6 +6,7 @@ use std::sync::{Arc, RwLock};
 use crate::distribution::Distribution;
 use crate::storage::Storage;
 use crate::study::Direction;
+use crate::trial::TrialStateValues;
 use crate::Result;
 
 #[derive(Debug, Clone)]
@@ -31,6 +32,14 @@ pub trait Sampler: Send {
         storage: Arc<RwLock<dyn Storage>>,
         search_space: &HashMap<String, Distribution>,
     ) -> Result<HashMap<String, f64>>;
+    fn after_trial(
+        &mut self,
+        _ctx: &Context,
+        _storage: Arc<RwLock<dyn Storage>>,
+        _state_values: &TrialStateValues,
+    ) -> Result<()> {
+        Ok(())
+    }
 }
 
 pub struct RandomSampler {
@@ -156,13 +165,20 @@ impl Sampler for RandomSampler {
     ) -> Result<HashMap<String, f64>> {
         unreachable!()
     }
+
+    fn after_trial(
+        &mut self,
+        _ctx: &Context,
+        _storage: Arc<RwLock<dyn Storage>>,
+        _state_values: &TrialStateValues,
+    ) -> Result<()> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use std::sync::Mutex;
 
     use crate::storage::InMemoryStorage;
     use crate::study::create_study;
@@ -194,6 +210,15 @@ mod tests {
         ) -> Result<HashMap<String, f64>> {
             Ok(self.joint_params.clone())
         }
+
+        fn after_trial(
+            &mut self,
+            _ctx: &Context,
+            _storage: Arc<RwLock<dyn Storage>>,
+            _state_values: &TrialStateValues,
+        ) -> Result<()> {
+            Ok(())
+        }
     }
 
     fn objective(mut t: Trial) -> Result<Vec<f64>> {
@@ -205,9 +230,13 @@ mod tests {
     #[test]
     fn test_joint_sampling_empty() -> Result<()> {
         let joint_params = HashMap::new();
-        let sampler = Arc::new(Mutex::new(DummyJointSampler { joint_params }));
-        let study = create_study("dummy", InMemoryStorage::new(), vec![Direction::Minimize])?;
-        study.optimize(objective, sampler, 2)?;
+        let study = create_study(
+            "dummy",
+            InMemoryStorage::new(),
+            DummyJointSampler { joint_params },
+            vec![Direction::Minimize],
+        )?;
+        study.optimize(objective, 2)?;
         Ok(())
     }
 
@@ -216,9 +245,13 @@ mod tests {
         let mut joint_params = HashMap::new();
         joint_params.insert(String::from("x"), 0.5);
 
-        let sampler = Arc::new(Mutex::new(DummyJointSampler { joint_params }));
-        let study = create_study("dummy", InMemoryStorage::new(), vec![Direction::Minimize])?;
-        study.optimize(objective, sampler, 2)?;
+        let study = create_study(
+            "dummy",
+            InMemoryStorage::new(),
+            DummyJointSampler { joint_params },
+            vec![Direction::Minimize],
+        )?;
+        study.optimize(objective, 2)?;
 
         let trials = study.get_trials()?;
         assert_eq!(trials.len(), 2);
@@ -233,9 +266,13 @@ mod tests {
         joint_params.insert(String::from("x"), 1.0);
         joint_params.insert(String::from("y"), 1.0);
 
-        let sampler = Arc::new(Mutex::new(DummyJointSampler { joint_params }));
-        let study = create_study("dummy", InMemoryStorage::new(), vec![Direction::Minimize])?;
-        study.optimize(objective, sampler, 2)?;
+        let study = create_study(
+            "dummy",
+            InMemoryStorage::new(),
+            DummyJointSampler { joint_params },
+            vec![Direction::Minimize],
+        )?;
+        study.optimize(objective, 2)?;
 
         let trials = study.get_trials()?;
         assert_eq!(trials.len(), 2);

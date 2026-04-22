@@ -254,13 +254,22 @@ impl PyStorage {
         Ok(study.clone().into())
     }
 
-    fn get_trials(&mut self, study_id: u32) -> PyResult<Vec<PyPersistedTrial>> {
+    #[pyo3(signature = (study_id, *, states = None))]
+    fn get_trials(
+        &mut self,
+        study_id: u32,
+        states: Option<Vec<PyTrialState>>,
+    ) -> PyResult<Vec<PyPersistedTrial>> {
         let mut guard = self.storage.write().map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
         })?;
         let trials = guard.get_trials(study_id).map_err(err_to_exceptions)?;
         let py_trials: Vec<PyPersistedTrial> = trials
             .iter()
+            .filter(|trial| match &states {
+                Some(states) => states.contains(&PyTrialState::from(trial.state_values.clone())),
+                None => true,
+            })
             .map(|t| PyPersistedTrial::from_storage(self.storage.clone(), t))
             .collect();
         Ok(py_trials)
@@ -307,24 +316,6 @@ impl PyStorage {
         })?;
         guard
             .get_study_attr(study_id, AttrKey::System(key.into()))
-            .map_err(err_to_exceptions)
-    }
-
-    fn get_trial_user_attr(&mut self, trial_id: u32, key: String) -> PyResult<String> {
-        let mut guard = self.storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        guard
-            .get_trial_attr(trial_id, AttrKey::User(key.into()))
-            .map_err(err_to_exceptions)
-    }
-
-    fn get_trial_system_attr(&mut self, trial_id: u32, key: String) -> PyResult<String> {
-        let mut guard = self.storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        guard
-            .get_trial_attr(trial_id, AttrKey::System(key.into()))
             .map_err(err_to_exceptions)
     }
 

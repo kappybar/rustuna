@@ -258,6 +258,15 @@ impl Sampler for NSGAIISampler {
         }
         Ok(params)
     }
+
+    fn after_trial(
+        &mut self,
+        _ctx: &Context,
+        _storage: Arc<RwLock<dyn Storage>>,
+        _state_values: &TrialStateValues,
+    ) -> Result<()> {
+        Ok(())
+    }
 }
 
 fn fast_non_dominated_sort(
@@ -410,15 +419,17 @@ mod tests {
     use super::*;
     use rustuna_core::storage::InMemoryStorage;
     use rustuna_core::study::{create_study, Direction};
-    use std::sync::{Arc, Mutex};
-
     #[test]
     fn test_optimize() {
         let storage = InMemoryStorage::new();
         let directions = vec![Direction::Minimize, Direction::Minimize];
-        let study = create_study("simple-quadratic", storage, directions).unwrap();
-
-        let sampler = Arc::new(Mutex::new(NSGAIISampler::new(2, None, 1.0, 1.0)));
+        let study = create_study(
+            "simple-quadratic",
+            storage,
+            NSGAIISampler::new(2, None, 1.0, 1.0),
+            directions,
+        )
+        .unwrap();
         let n_trials = 10;
         study
             .optimize(
@@ -429,7 +440,6 @@ mod tests {
                     let value1 = (x - 5.0).powi(2) + (y - 3.0).powi(2);
                     Ok(vec![value0, value1])
                 },
-                sampler,
                 n_trials,
             )
             .unwrap();

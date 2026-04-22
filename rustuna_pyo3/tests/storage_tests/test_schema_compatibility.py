@@ -30,13 +30,15 @@ def get_optuna_storage(backend: str, base_dir: str) -> optuna.storages.BaseStora
 
 def get_rustuna_storage(
     backend: str, base_dir: str, create_database: bool
-) -> rustuna.OptunaStorageProtocol:
+) -> rustuna.storages.OptunaStorageProtocol:
     if backend == "journal":
         file_path = os.path.join(base_dir, "test.journal")
-        return rustuna.Storage.journal_file(file_path)
+        return rustuna.storages.JournalFileStorage(file_path)
     if backend == "sqlite3":
         file_path = os.path.join(base_dir, "test.sqlite3")
-        return rustuna.Storage.sqlite3(file_path, create_database=create_database)
+        return rustuna.storages.SQLite3Storage(
+            file_path, create_database=create_database
+        )
     raise ValueError(f"Unknown backend: {backend}")
 
 
@@ -96,7 +98,7 @@ def test_rustuna_api_resume_with_compat_storage(
     study_name = "compat-rustuna"
     with tempfile.TemporaryDirectory() as workdir:
         # Start optimization via Rustuna API
-        first_storage: rustuna.StorageProtocol
+        first_storage: rustuna.storages.StorageProtocol
         if first_variant == "direct":
             first_storage = get_rustuna_storage(backend, workdir, create_database=True)
         elif first_variant == "via_to_rustuna":
@@ -108,7 +110,7 @@ def test_rustuna_api_resume_with_compat_storage(
         first_study.optimize(_objective, n_trials=10)
 
         # Resume optimization via Rustuna API
-        second_storage: rustuna.StorageProtocol
+        second_storage: rustuna.storages.StorageProtocol
         if second_variant == "direct":
             second_storage = get_rustuna_storage(
                 backend, workdir, create_database=False

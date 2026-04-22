@@ -839,32 +839,6 @@ impl CachedStorageBackend for SQLite3Storage {
             .ok_or(Error::new(ErrorKind::AttrNotFound))
     }
 
-    fn get_trial_attr(
-        &mut self,
-        trial_id: u32,
-        key: rustuna_core::attr::AttrKey,
-    ) -> rustuna_core::Result<String> {
-        let guard = self
-            .conn
-            .lock()
-            .map_err(|_| Error::new(ErrorKind::StorageError))?;
-        let (table, key_str) = match &key {
-            AttrKey::User(k) => ("trial_user_attributes", k.as_str()),
-            AttrKey::System(k) => ("trial_system_attributes", k.as_str()),
-        };
-        let sql = format!("SELECT value_json FROM {table} WHERE trial_id = ? AND key = ?");
-        guard
-            .query_row(&sql, params![trial_id, key_str], |row| row.get(0))
-            .optional()
-            .map_err(|e| {
-                Error::with_reason(
-                    ErrorKind::StorageError,
-                    format!("Database query failed: {e}"),
-                )
-            })?
-            .ok_or(Error::new(ErrorKind::AttrNotFound))
-    }
-
     fn set_study_attrs(
         &mut self,
         study_id: u32,
@@ -1775,7 +1749,6 @@ mod tests {
     use crate::cache::CachedStorage;
     use rustuna_core::sampler::RandomSampler;
     use rustuna_core::study::{create_study, Direction};
-    use std::sync::Arc;
     use tempfile::tempdir;
 
     fn init_storage() -> Result<SQLite3Storage> {
@@ -2221,8 +2194,12 @@ mod tests {
         storage.create_database()?;
         let storage = CachedStorage::new(Box::new(storage));
 
-        let study = create_study("simple-quadratic", storage, vec![Direction::Minimize])?;
-        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
+        let study = create_study(
+            "simple-quadratic",
+            storage,
+            RandomSampler::new(),
+            vec![Direction::Minimize],
+        )?;
         study.optimize(
             |mut t| {
                 let x = t.suggest_float("x", 0.0, 10.0)?;
@@ -2231,7 +2208,6 @@ mod tests {
                 println!("{:2} x: {}, y: {}, value: {}", t.number, x, y, value);
                 Ok(vec![value])
             },
-            sampler,
             100,
         )?;
         assert_eq!(study.get_trials()?.len(), 100);

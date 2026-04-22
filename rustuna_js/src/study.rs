@@ -1,5 +1,3 @@
-use std::sync::{Arc, Mutex};
-
 use js_sys::Function;
 use rustuna_core::sampler::RandomSampler;
 use rustuna_core::storage::InMemoryStorage;
@@ -16,7 +14,6 @@ pub struct JsStudy(Study);
 #[wasm_bindgen(js_class=Study)]
 impl JsStudy {
     pub fn optimize(&self, objective: &Function, n_trials: usize) -> JsResult<()> {
-        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
         self.0
             .optimize(
                 |t| {
@@ -31,7 +28,6 @@ impl JsStudy {
                     }?;
                     Ok(vec![val])
                 },
-                sampler,
                 n_trials,
             )
             .map_err(|err| JsError::new(&format!("{err:?}")))
@@ -69,7 +65,7 @@ impl From<Study> for JsStudy {
 pub fn js_create_study(study_name: String) -> JsResult<JsStudy> {
     let storage = InMemoryStorage::new();
     let directions = vec![Direction::Minimize];
-    let study = create_study(&study_name, storage, directions);
+    let study = create_study(&study_name, storage, RandomSampler::new(), directions);
     match study {
         Ok(study) => Ok(study.into()),
         Err(err) => Err(JsError::new(&format!("{err:?}"))),

@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 import rustuna
+
+if TYPE_CHECKING:
+    from rustuna._rustuna import Distribution
 
 
 class DummyIndependentSampler:
@@ -15,18 +20,18 @@ class DummyIndependentSampler:
 
     def sample_joint(
         self,
-        ctx: rustuna.SamplerContext,
-        storage: rustuna.Storage,
-        search_space: dict[str, rustuna.Distribution],
+        ctx: rustuna.samplers.SamplerContext,
+        storage: rustuna.storages.StorageProtocol,
+        search_space: dict[str, Distribution],
     ) -> dict[str, float]:
         assert False, "Unreachable code"
 
     def sample_independent(
         self,
-        ctx: rustuna.SamplerContext,
-        storage: rustuna.Storage,
+        ctx: rustuna.samplers.SamplerContext,
+        storage: rustuna.storages.StorageProtocol,
         name: str,
-        distribution: rustuna.Distribution,
+        distribution: Distribution,
     ) -> float:
         dic = distribution.to_dict()
         if dic["type"] == "FloatDistribution":
@@ -36,6 +41,15 @@ class DummyIndependentSampler:
         elif dic["type"] == "CategoricalDistribution":
             return 0
         assert False, "Unreachable code"
+
+    def after_trial(
+        self,
+        ctx: rustuna.samplers.SamplerContext,
+        storage: rustuna.storages.StorageProtocol,
+        state: rustuna.trial.TrialState,
+        values: list[float] | None = None,
+    ) -> None:
+        return None
 
 
 class DummyJointSampler:
@@ -48,9 +62,9 @@ class DummyJointSampler:
 
     def sample_joint(
         self,
-        ctx: rustuna.SamplerContext,
-        storage: rustuna.Storage,
-        search_space: dict[str, rustuna.Distribution],
+        ctx: rustuna.samplers.SamplerContext,
+        storage: rustuna.storages.StorageProtocol,
+        search_space: dict[str, Distribution],
     ) -> dict[str, float]:
         params = {}
         for name, distribution in search_space.items():
@@ -67,10 +81,10 @@ class DummyJointSampler:
 
     def sample_independent(
         self,
-        ctx: rustuna.SamplerContext,
-        storage: rustuna.Storage,
+        ctx: rustuna.samplers.SamplerContext,
+        storage: rustuna.storages.StorageProtocol,
         name: str,
-        distribution: rustuna.Distribution,
+        distribution: Distribution,
     ) -> float:
         dic = distribution.to_dict()
         if dic["type"] == "FloatDistribution":
@@ -81,9 +95,45 @@ class DummyJointSampler:
             return 0
         assert False, "Unreachable code"
 
+    def after_trial(
+        self,
+        ctx: rustuna.samplers.SamplerContext,
+        storage: rustuna.storages.StorageProtocol,
+        state: rustuna.trial.TrialState,
+        values: list[float] | None = None,
+    ) -> None:
+        return None
+
+
+class RecordingSampler(DummyIndependentSampler):
+    def __init__(self) -> None:
+        self.after_trial_calls: list[
+            tuple[int, int, rustuna.trial.TrialState, list[float] | None]
+        ] = []
+
+    def after_trial(
+        self,
+        ctx: rustuna.samplers.SamplerContext,
+        storage: rustuna.storages.StorageProtocol,
+        state: rustuna.trial.TrialState,
+        values: list[float] | None = None,
+    ) -> None:
+        self.after_trial_calls.append((ctx.study_id, ctx.trial_number, state, values))
+
+
+class FailingAfterTrialSampler(DummyIndependentSampler):
+    def after_trial(
+        self,
+        ctx: rustuna.samplers.SamplerContext,
+        storage: rustuna.storages.StorageProtocol,
+        state: rustuna.trial.TrialState,
+        values: list[float] | None = None,
+    ) -> None:
+        raise RuntimeError("after_trial failed")
+
 
 @pytest.mark.parametrize("sampler", [DummyIndependentSampler(), DummyJointSampler()])
-def test_custom_sampler(sampler: rustuna.SamplerProtocol) -> None:
+def test_custom_sampler(sampler: rustuna.samplers.SamplerProtocol) -> None:
     def objective(trial: rustuna.Trial) -> float:
         x = trial.suggest_float("x", -10, 10)
         y = trial.suggest_float("y", -10, 10)
@@ -92,3 +142,30 @@ def test_custom_sampler(sampler: rustuna.SamplerProtocol) -> None:
 
     study = rustuna.create_study(sampler=sampler)
     study.optimize(objective, n_trials=100)
+
+
+def test_custom_sampler_after_trial_is_called() -> None:
+    sampler = RecordingSampler()
+
+    study = rustuna.create_study(sampler=sampler)
+    study.optimize(lambda trial: trial.suggest_float("x", -1.0, 1.0), n_trials=3)
+
+    assert len(sampler.after_trial_calls) == 3
+    for study_id, trial_number, state, values in sampler.after_trial_calls:
+        assert study_id == study._study_id
+        assert trial_number >= 0
+        assert state == rustuna.trial.TrialState.COMPLETE
+        assert values is not None
+        assert len(values) == 1
+
+
+def test_custom_sampler_after_trial_failure_still_persists_trial() -> None:
+    study = rustuna.create_study(sampler=FailingAfterTrialSampler())
+    trial = study.ask()
+
+    with pytest.raises(RuntimeError, match="Failed to tell"):
+        study.tell(trial.number, 1.0)
+
+    persisted = study.trials[0]
+    assert persisted.state == rustuna.trial.TrialState.COMPLETE
+    assert persisted.values == [1.0]

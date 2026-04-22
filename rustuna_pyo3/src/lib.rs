@@ -22,6 +22,7 @@ fn rustuna(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<trial::PyTrial>()?;
     m.add_class::<trial::PyPersistedTrial>()?;
     m.add_class::<trial::PyTrialState>()?;
+    m.add_function(wrap_pyfunction!(trial::py_create_trial, m)?)?;
     // study
     m.add_function(wrap_pyfunction!(study::py_create_study, m)?)?;
     m.add_function(wrap_pyfunction!(study::py_load_study, m)?)?;
@@ -41,5 +42,6 @@ fn rustuna(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(importance::py_get_param_importance, m)?)?;
     // trial_queue
     m.add_class::<trial_queue::PyTrialQueue>()?;
+    m.add_class::<trial_queue::PyPyObjectTrialQueue>()?;
     Ok(())
 }
