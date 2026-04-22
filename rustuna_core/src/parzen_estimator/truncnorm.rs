@@ -1,5 +1,4 @@
 use rand::Rng;
-use statrs::distribution::{ContinuousCDF, Normal};
 
 /// -0.5 * ln(2π)
 pub(crate) const NEG_HALF_LOG_2PI: f64 = -0.9189385332046727;
@@ -44,6 +43,76 @@ fn erf_fast(x: f64) -> f64 {
 #[inline]
 fn norm_cdf(x: f64) -> f64 {
     0.5 * (1.0 + erf_fast(x * std::f64::consts::FRAC_1_SQRT_2))
+}
+
+/// Inverse standard normal CDF Φ⁻¹(p) (probit function).
+/// Peter Acklam's rational approximation; maximum relative error < 1.15e-9.
+///
+/// P.J. Acklam, "An algorithm for computing the inverse normal cumulative
+/// distribution function". Available at http://home.online.no/~pjacklam/notes/invnorm/.
+#[inline]
+fn norm_ppf(p: f64) -> f64 {
+    // Rational approximation coefficients for the central region
+    const A: [f64; 6] = [
+        -3.969683028665376e1,
+        2.209460984245205e2,
+        -2.759285104469687e2,
+        1.38357751867269e2,
+        -3.066479806614716e1,
+        2.506628277459239,
+    ];
+    const B: [f64; 5] = [
+        -5.447609879822406e1,
+        1.615858368580409e2,
+        -1.556989798598866e2,
+        6.680131188771972e1,
+        -1.328068155288572e1,
+    ];
+    // Rational approximation coefficients for the tails
+    const C: [f64; 6] = [
+        -7.784894002430293e-3,
+        -3.223964580411365e-1,
+        -2.400758277161838,
+        -2.549732539343734,
+        4.374664141464968,
+        2.938163982698783,
+    ];
+    const D: [f64; 4] = [
+        7.784695709041462e-3,
+        3.224671290700398e-1,
+        2.445134137142996,
+        3.754408661907416,
+    ];
+    const P_LOW: f64 = 0.02425;
+    const P_HIGH: f64 = 1.0 - P_LOW;
+
+    if p <= 0.0 {
+        return f64::NEG_INFINITY;
+    }
+    if p >= 1.0 {
+        return f64::INFINITY;
+    }
+
+    if p < P_LOW {
+        // Lower tail
+        let r = (-2.0 * p.ln()).sqrt();
+        let num = ((((C[0] * r + C[1]) * r + C[2]) * r + C[3]) * r + C[4]) * r + C[5];
+        let den = (((D[0] * r + D[1]) * r + D[2]) * r + D[3]) * r + 1.0;
+        num / den
+    } else if p <= P_HIGH {
+        // Central region
+        let q = p - 0.5;
+        let r = q * q;
+        let num = ((((A[0] * r + A[1]) * r + A[2]) * r + A[3]) * r + A[4]) * r + A[5];
+        let den = ((((B[0] * r + B[1]) * r + B[2]) * r + B[3]) * r + B[4]) * r + 1.0;
+        q * num / den
+    } else {
+        // Upper tail: use symmetry Φ⁻¹(p) = -Φ⁻¹(1-p)
+        let r = (-2.0 * (1.0 - p).ln()).sqrt();
+        let num = ((((C[0] * r + C[1]) * r + C[2]) * r + C[3]) * r + C[4]) * r + C[5];
+        let den = (((D[0] * r + D[1]) * r + D[2]) * r + D[3]) * r + 1.0;
+        -(num / den)
+    }
 }
 
 #[derive(Debug)]
@@ -132,7 +201,7 @@ pub fn rvs<R: Rng + ?Sized>(
     // Sample p directly in [fa, fb) in a numerically safe way.
     // gen_range returns value in [fa, fb), avoiding exact 0 or 1 when fa==0 or fb==1.
     let p = rng.gen_range(fa..fb); // p ~ U(Φ(a), Φ(b))
-    let z = Normal::new(0.0, 1.0).unwrap().inverse_cdf(p); // z ~ N(0,1) truncated to [a, b]
+    let z = norm_ppf(p); // z ~ N(0,1) truncated to [a, b]
     Ok(loc + scale * z) // X = μ + σ * Z (converted to original scale)
 }
 
@@ -140,6 +209,7 @@ pub fn rvs<R: Rng + ?Sized>(
 mod tests {
     use super::*;
     use rand::{rngs::StdRng, SeedableRng};
+    use statrs::distribution::{ContinuousCDF, Normal};
 
     #[test]
     fn test_rvs() {
@@ -235,6 +305,27 @@ mod tests {
                 "odd symmetry failed at x={x}"
             );
         }
+    }
+
+    #[test]
+    fn test_norm_ppf_accuracy() {
+        let std_normal = Normal::new(0.0, 1.0).unwrap();
+        let ps = [
+            0.0001, 0.001, 0.01, 0.02425, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+            0.95, 0.97575, 0.99, 0.999, 0.9999,
+        ];
+        for &p in &ps {
+            let exact = std_normal.inverse_cdf(p);
+            let approx = norm_ppf(p);
+            let rel_err = (approx - exact).abs() / exact.abs().max(1.0);
+            assert!(
+                rel_err < 2e-9,
+                "norm_ppf({p}) = {approx}, statrs = {exact}, rel_err = {rel_err}"
+            );
+        }
+        // Boundary values
+        assert_eq!(norm_ppf(0.0), f64::NEG_INFINITY);
+        assert_eq!(norm_ppf(1.0), f64::INFINITY);
     }
 
     #[test]
