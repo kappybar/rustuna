@@ -31,7 +31,7 @@ class ToOptunaSampler(BaseSampler):
         self._inter_section_search_space = IntersectionSearchSpace()
         self._storage: PyObjectStorage | None = None
 
-    def _get_storage(self, storage: BaseStorage) -> PyObjectStorage:
+    def _get_storage(self, storage: BaseStorage) -> StorageProtocol:
         if self._storage is None:
             self._storage = PyObjectStorage(ToRustunaStorage(storage))
         return self._storage

@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from rustuna._rustuna import OptunaStorageProtocol, StorageProtocol
-
+from rustuna._protocols import OptunaStorageProtocol, StorageProtocol
 from rustuna._rustuna import Storage
 
 __all__ = [

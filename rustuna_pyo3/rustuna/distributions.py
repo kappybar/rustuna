@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from rustuna._rustuna import CategoricalChoiceType
 
 __all__ = [
+    "Distribution",
     "FloatDistribution",
     "IntDistribution",
     "CategoricalDistribution",
