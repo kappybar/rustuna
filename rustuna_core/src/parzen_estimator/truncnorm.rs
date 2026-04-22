@@ -6,7 +6,7 @@ pub(crate) const NEG_HALF_LOG_2PI: f64 = -0.9189385332046727;
 
 /// Fast erf approximation using piecewise strategy:
 /// - |x| ≤ 0.5: degree-11 Taylor polynomial (no exp), error < 2e-8
-/// - 0.5 < |x| < 6.0: A&S 7.1.28 erfc (one exp call), error < 1.5e-7
+/// - 0.5 < |x| < 6.0: Abramowitz&Stegun 7.1.26 erfc (one exp call), error < 1.5e-7
 /// - |x| ≥ 6.0: ±1.0 (erf saturates)
 #[inline]
 fn erf_fast(x: f64) -> f64 {
@@ -19,9 +19,9 @@ fn erf_fast(x: f64) -> f64 {
             + x2 * (-0.37612638903183753
                 + x2 * (0.11283791670955126
                     + x2 * (-0.026866170645131252
-                        + x2 * (0.005_223_052_625_442_188 + x2 * (-0.000_854_832_702_345_009_5))))))
+                        + x2 * (0.005223052625442188 + x2 * (-0.0008548327023450095))))))
     } else if ax < 6.0 {
-        // A&S 7.1.28: erfc(x) ≈ poly(t) * exp(-x²), t = 1/(1 + 0.3275911*x)
+        // A&S 7.1.26: erfc(x) ≈ poly(t) * exp(-x²), t = 1/(1 + 0.3275911*x)
         let t = 1.0 / (1.0 + 0.3275911 * ax);
         let poly = t
             * (0.254829592
