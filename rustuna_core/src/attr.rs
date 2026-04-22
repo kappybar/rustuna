@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::OnceLock;
 
 use lasso::{Spur, ThreadedRodeo};
-use once_cell::sync::Lazy;
 
 pub type Attrs = HashMap<AttrKey, String>;
 
@@ -12,14 +12,18 @@ pub enum AttrKey {
     System(InternedString),
 }
 
-static INTERNER: Lazy<ThreadedRodeo> = Lazy::new(ThreadedRodeo::new);
+static INTERNER: OnceLock<ThreadedRodeo> = OnceLock::new();
+
+fn interner() -> &'static ThreadedRodeo {
+    INTERNER.get_or_init(ThreadedRodeo::new)
+}
 
 #[derive(Eq, Hash, Clone, Debug, PartialEq)]
 pub struct InternedString(Spur);
 
 impl InternedString {
     pub fn as_str(&self) -> &'static str {
-        INTERNER.resolve(&self.0)
+        interner().resolve(&self.0)
     }
 }
 
@@ -37,13 +41,13 @@ impl AsRef<str> for InternedString {
 
 impl From<&str> for InternedString {
     fn from(value: &str) -> Self {
-        InternedString(INTERNER.get_or_intern(value))
+        InternedString(interner().get_or_intern(value))
     }
 }
 
 impl From<String> for InternedString {
     fn from(value: String) -> Self {
-        InternedString(INTERNER.get_or_intern(value))
+        InternedString(interner().get_or_intern(value))
     }
 }
 

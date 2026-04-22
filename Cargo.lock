@@ -702,7 +702,6 @@ name = "rustuna_core"
 version = "0.1.0"
 dependencies = [
  "lasso",
- "once_cell",
  "rand",
  "rand_distr",
  "statrs",
