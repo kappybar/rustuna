@@ -136,7 +136,6 @@ pub fn rvs<R: Rng + ?Sized>(
     Ok(loc + scale * z) // X = μ + σ * Z (converted to original scale)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
