@@ -3,9 +3,8 @@ from __future__ import annotations
 import copy
 import datetime
 import json
-import typing
 import warnings
-from typing import cast, overload
+from typing import TYPE_CHECKING, overload
 
 import optuna
 from optuna import distributions
@@ -13,12 +12,13 @@ from optuna.trial import FrozenTrial
 
 import rustuna
 
+from ._attrs import OptunaAttrsView, to_rustuna_attrs
 from ._distribution import (
     to_optuna_distributions,
     to_rustuna_distribution,
 )
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from typing import Any
 
@@ -81,10 +81,10 @@ def to_persisted_trial(
     trial: optuna.trial.FrozenTrial,
     study_id: int,
 ) -> rustuna.trial.PersistedTrial:
-    optuna_system_attrs = trial.system_attrs.copy()
+    rustuna_system_attrs = to_rustuna_attrs(trial.system_attrs)
     if trial.intermediate_values:
-        optuna_system_attrs["intermediate_values"] = _encode_intermediate_values(
-            trial.intermediate_values
+        rustuna_system_attrs["intermediate_values"] = json.dumps(
+            _encode_intermediate_values(trial.intermediate_values)
         )
 
     distributions: dict[str, Distribution] = {}
@@ -100,58 +100,11 @@ def to_persisted_trial(
         values=trial.values,
         params=trial.params,
         distributions=distributions,
-        user_attrs={k: json.dumps(v) for k, v in trial.user_attrs.items()},
-        system_attrs={k: json.dumps(v) for k, v in optuna_system_attrs.items()},
+        user_attrs=to_rustuna_attrs(trial.user_attrs),
+        system_attrs=rustuna_system_attrs,
         datetime_start=trial.datetime_start,
         datetime_complete=trial.datetime_complete,
     )
-
-
-class _LazyJSONAttrs(dict[str, typing.Any]):
-    def __init__(self, raw: typing.Mapping[str, str]) -> None:
-        super().__init__(raw)
-        self._cache: dict[str, typing.Any] = {}
-
-    def __getitem__(self, key: str) -> typing.Any:
-        if key in self._cache:
-            return self._cache[key]
-        raw = super().__getitem__(key)
-        decoded = json.loads(raw)
-        self._cache[key] = decoded
-        return decoded
-
-    def __setitem__(self, key: str, value: typing.Any) -> None:
-        super().__setitem__(key, value)
-        self._cache[key] = value
-
-    def __delitem__(self, key: str) -> None:
-        super().__delitem__(key)
-        self._cache.pop(key, None)
-
-    def get(self, key: str, default: typing.Any = None) -> typing.Any:
-        try:
-            return self[key]
-        except KeyError:
-            return default
-
-    def items(self):  # type: ignore[override]
-        return {key: self[key] for key in self}.items()
-
-    def values(self):  # type: ignore[override]
-        return {key: self[key] for key in self}.values()
-
-    def __repr__(self) -> str:
-        return repr(dict(self.items()))
-
-    def __eq__(self, other: object) -> bool:
-        if isinstance(other, dict):
-            if len(self) != len(other):
-                return False
-            for key in self:
-                if other.get(key) != self[key]:
-                    return False
-            return True
-        return NotImplemented
 
 
 class FrozenTrialLike(FrozenTrial):
@@ -297,7 +250,7 @@ class FrozenTrialLike(FrozenTrial):
             return self.__user_attrs
 
         user_attrs = self._persisted_trial.user_attrs
-        self.__user_attrs = _LazyJSONAttrs(user_attrs)
+        self.__user_attrs = OptunaAttrsView(user_attrs)
         return self.__user_attrs
 
     @user_attrs.setter
@@ -308,17 +261,14 @@ class FrozenTrialLike(FrozenTrial):
     def system_attrs(self) -> dict[str, Any]:
         if self.__system_attrs is not None:
             return self.__system_attrs
-        system_attrs = {
-            key: self._persisted_trial.system_attrs[key]
-            for key in self._persisted_trial.system_attrs
-            if not key.startswith("category_labels:") and key != "intermediate_values"
-        }
-        self.__system_attrs = _LazyJSONAttrs(system_attrs)
+
+        system_attrs = self._persisted_trial.system_attrs
+        self.__system_attrs = OptunaAttrsView(system_attrs)
         return self.__system_attrs
 
     @system_attrs.setter
     def system_attrs(self, value: Mapping[str, JSONSerializable]) -> None:
-        self.__system_attrs = cast("dict[str, Any]", value)
+        self.__system_attrs = dict(value)
 
     @property
     def intermediate_values(self) -> dict[int, float]:

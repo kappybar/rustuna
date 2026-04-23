@@ -29,6 +29,12 @@ class TestTpeSampler(
         )
 
 
+class TestNSGAIISampler(BasicSamplerTestCase, MultiObjectiveSamplerTestCase):
+    @pytest.fixture
+    def sampler(self) -> Callable[[], BaseSampler]:
+        return lambda: ToOptunaSampler(rustuna.samplers.NSGAIISampler())
+
+
 class RecordingSampler:
     @property
     def support_joint_sampling(self) -> bool:
