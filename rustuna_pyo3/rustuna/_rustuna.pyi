@@ -777,7 +777,22 @@ class Sampler:
         seed: int | None = None,
         n_startup_trials: int = 10,
         multivariate: bool = True,
-    ) -> Sampler: ...
+    ) -> Sampler:
+        """Create a TPE sampler.
+
+        Prefer using `rustuna.TPESampler` over this factory method.
+
+        Args:
+            seed: Seed for random number generator. If `None`, a random seed is used.
+            n_startup_trials: The random sampling is used instead of the TPE algorithm until
+                the given number of trials finish in the same study. Defaults to `10`.
+            multivariate: If `True`, the multivariate TPE is used when suggesting
+                parameters. Defaults to `True`.
+
+        Returns:
+            A TPE sampler instance.
+        """
+        ...
     @classmethod
     def random(cls, seed: int | None = None) -> Sampler: ...
     @classmethod
