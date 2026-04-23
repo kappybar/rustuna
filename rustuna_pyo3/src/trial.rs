@@ -194,6 +194,16 @@ impl From<TrialStateValues> for PyTrialState {
 }
 #[pymethods]
 impl PyTrialState {
+    fn __hash__(&self) -> isize {
+        match self {
+            PyTrialState::RUNNING => 0,
+            PyTrialState::COMPLETE => 1,
+            PyTrialState::PRUNED => 2,
+            PyTrialState::WAITING => 3,
+            PyTrialState::FAIL => 4,
+        }
+    }
+
     #[getter]
     pub fn name(&self) -> &'static str {
         match self {
