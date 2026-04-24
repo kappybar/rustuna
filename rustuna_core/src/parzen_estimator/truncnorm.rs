@@ -290,7 +290,7 @@ mod tests {
             );
         }
         // Small-x path: verify Taylor branch gives better accuracy
-        for &x in &[-0.5_f64, -0.3, -0.1, 0.0, 0.1, 0.3, 0.5] {
+        for &x in &[-0.5, -0.3, -0.1, 0.0, 0.1, 0.3, 0.5] {
             let approx = erf_fast(x);
             let exact = 2.0 * std_normal.cdf(x * std::f64::consts::SQRT_2) - 1.0;
             assert!(
