@@ -16,6 +16,7 @@ from optuna.trial import FrozenTrial, TrialState
 
 import rustuna
 
+from ._attrs import to_optuna_attrs, to_rustuna_attrs
 from ._distribution import to_optuna_distribution, to_rustuna_distribution
 from ._study import to_frozen_study, to_optuna_directions, to_persisted_study
 from ._trial import (
@@ -221,12 +222,12 @@ class ToOptunaStorage(BaseStorage):
         self._storage.delete_study(study_id=study_id)
 
     def set_study_user_attr(self, study_id: int, key: str, value: Any) -> None:
-        self._storage.set_study_user_attrs(study_id, {key: json.dumps(value)})
+        self._storage.set_study_user_attrs(study_id, to_rustuna_attrs({key: value}))
 
     def set_study_system_attr(
         self, study_id: int, key: str, value: JSONSerializable
     ) -> None:
-        self._storage.set_study_system_attrs(study_id, {key: json.dumps(value)})
+        self._storage.set_study_system_attrs(study_id, to_rustuna_attrs({key: value}))
 
     def get_study_id_from_name(self, study_name: str) -> int:
         for study in self._storage.get_studies():
@@ -244,11 +245,11 @@ class ToOptunaStorage(BaseStorage):
 
     def get_study_user_attrs(self, study_id: int) -> dict[str, Any]:
         study = self._storage.get_study(study_id)
-        return {key: json.loads(value) for key, value in study.user_attrs.items()}
+        return to_optuna_attrs(study.user_attrs)
 
     def get_study_system_attrs(self, study_id: int) -> dict[str, Any]:
         study = self._storage.get_study(study_id)
-        return {key: json.loads(value) for key, value in study.system_attrs.items()}
+        return to_optuna_attrs(study.system_attrs)
 
     def get_all_studies(self) -> list[FrozenStudy]:
         studies: list[FrozenStudy] = []
@@ -319,7 +320,7 @@ class ToOptunaStorage(BaseStorage):
 
     def set_trial_user_attr(self, trial_id: int, key: str, value: Any) -> None:
         try:
-            self._storage.set_trial_user_attrs(trial_id, {key: json.dumps(value)})
+            self._storage.set_trial_user_attrs(trial_id, to_rustuna_attrs({key: value}))
         except rustuna.exceptions.UpdateFinishedTrialError as e:
             raise optuna.exceptions.UpdateFinishedTrialError(str(e)) from e
 
@@ -327,7 +328,9 @@ class ToOptunaStorage(BaseStorage):
         self, trial_id: int, key: str, value: JSONSerializable
     ) -> None:
         try:
-            self._storage.set_trial_system_attrs(trial_id, {key: json.dumps(value)})
+            self._storage.set_trial_system_attrs(
+                trial_id, to_rustuna_attrs({key: value})
+            )
         except rustuna.exceptions.UpdateFinishedTrialError as e:
             raise optuna.exceptions.UpdateFinishedTrialError(str(e)) from e
 
