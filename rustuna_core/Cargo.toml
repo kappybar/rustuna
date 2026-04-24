@@ -12,7 +12,6 @@ readme = "README.md"
 [dependencies]
 rand = { workspace = true }
 rand_distr = "0.4.3"
-lasso = { version = "0.7", features = ["multi-threaded"] }
 
 [dev-dependencies]
 statrs = "0.18.0"

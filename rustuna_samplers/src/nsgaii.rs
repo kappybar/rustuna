@@ -181,24 +181,60 @@ impl Sampler for NSGAIISampler {
         distribution: &Distribution,
     ) -> Result<f64> {
         match distribution {
-            // TODO(HideakiImamura): Support step and log
             Distribution::Float {
                 low,
                 high,
-                step: _,
-                log: _,
+                step,
+                log,
             } => {
-                let param_value = self.rng.gen_range(*low..*high);
+                let param_value = match (step, log) {
+                    (None, false) => self.rng.gen_range(*low..*high),
+                    (None, true) => self.rng.gen_range(low.ln()..high.ln()).exp(),
+                    (Some(step), false) => {
+                        let max_index = ((high - low) / step).floor().max(0.0) as i64;
+                        let index = self.rng.gen_range(0..=max_index);
+                        low + (index as f64) * step
+                    }
+                    (Some(step), true) => {
+                        let value = self.rng.gen_range(low.ln()..high.ln()).exp();
+                        let mut stepped = low + ((value - low) / step).round() * step;
+                        if stepped < *low {
+                            stepped = *low;
+                        }
+                        if stepped > *high {
+                            stepped = *high;
+                        }
+                        stepped
+                    }
+                };
                 Ok(param_value)
             }
             Distribution::Int {
                 low,
                 high,
-                step: _,
-                log: _,
+                step,
+                log,
             } => {
-                let param_value = self.rng.gen_range(*low..*high);
-                Ok(param_value as f64)
+                let low_f = *low as f64;
+                let high_f = *high as f64;
+                let step_f = *step as f64;
+                let param_value = if *log {
+                    let value = self.rng.gen_range(low_f.ln()..high_f.ln()).exp();
+                    let max_index = ((high_f - low_f) / step_f).floor().max(0.0) as i64;
+                    let mut index = ((value - low_f) / step_f).round() as i64;
+                    if index < 0 {
+                        index = 0;
+                    }
+                    if index > max_index {
+                        index = max_index;
+                    }
+                    low_f + (index as f64) * step_f
+                } else {
+                    let max_index = ((high - low) / step).max(0);
+                    let index = self.rng.gen_range(0..=max_index);
+                    (low + index * step) as f64
+                };
+                Ok(param_value)
             }
             Distribution::Categorical { cardinality } => {
                 let param_value = self.rng.gen_range(0..*cardinality);

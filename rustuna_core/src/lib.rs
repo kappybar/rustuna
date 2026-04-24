@@ -5,6 +5,7 @@ pub mod distribution;
 pub mod parzen_estimator;
 pub mod sampler;
 pub mod storage;
+pub mod string_interner;
 pub mod study;
 pub mod study_cache;
 pub mod trial;

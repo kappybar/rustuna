@@ -1,8 +1,5 @@
+use crate::string_interner::InternedString;
 use std::collections::HashMap;
-use std::fmt;
-use std::sync::OnceLock;
-
-use lasso::{Spur, ThreadedRodeo};
 
 pub type Attrs = HashMap<AttrKey, String>;
 
@@ -10,45 +7,6 @@ pub type Attrs = HashMap<AttrKey, String>;
 pub enum AttrKey {
     User(InternedString),
     System(InternedString),
-}
-
-static INTERNER: OnceLock<ThreadedRodeo> = OnceLock::new();
-
-fn interner() -> &'static ThreadedRodeo {
-    INTERNER.get_or_init(ThreadedRodeo::new)
-}
-
-#[derive(Eq, Hash, Clone, Debug, PartialEq)]
-pub struct InternedString(Spur);
-
-impl InternedString {
-    pub fn as_str(&self) -> &'static str {
-        interner().resolve(&self.0)
-    }
-}
-
-impl fmt::Display for InternedString {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl AsRef<str> for InternedString {
-    fn as_ref(&self) -> &str {
-        self.as_str()
-    }
-}
-
-impl From<&str> for InternedString {
-    fn from(value: &str) -> Self {
-        InternedString(interner().get_or_intern(value))
-    }
-}
-
-impl From<String> for InternedString {
-    fn from(value: String) -> Self {
-        InternedString(interner().get_or_intern(value))
-    }
 }
 
 // Compatible with CategoricalChoiceType.
@@ -130,12 +88,10 @@ pub fn get_category_labels(
     let mut labels: Vec<CategoryLabel> = Vec::with_capacity(len);
     for i in 0..len {
         let key = system_key_category_label(param_name, i);
-        match attrs.get(&key) {
-            Some(label) => {
-                let label = CategoryLabel::deserialize(label)?;
-                labels.push(label);
-            }
-            None => return None,
+        {
+            let label = attrs.get(&key)?;
+            let label = CategoryLabel::deserialize(label)?;
+            labels.push(label);
         }
     }
     Some(labels)
