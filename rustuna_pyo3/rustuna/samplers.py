@@ -32,12 +32,53 @@ def TPESampler(
     n_startup_trials: int = 10,
     multivariate: bool = True,
 ) -> SamplerProtocol:
-    """Create a Tree-structured Parzen Estimator sampler.
+    """Sampler using TPE (Tree-structured Parzen Estimator) algorithm.
+
+    On each trial, for each parameter, TPE fits one Gaussian Mixture Model (GMM) `l(x)` to
+    the set of parameter values associated with the good objective values, and another GMM
+    `g(x)` to the remaining parameter values. It chooses the parameter value `x` that
+    maximizes the ratio `l(x)/g(x)`. For multi-objective optimization, it uses non-domination
+    ranks and hypervolume contributions to determine good and poor observations.
+
+    For further information about the TPE algorithm, please refer to the following papers:
+
+    - [Algorithms for Hyper-Parameter Optimization](https://papers.nips.cc/paper/4443-algorithms-for-hyper-parameter-optimization.pdf)
+    - [Making a Science of Model Search: Hyperparameter Optimization in Hundreds of Dimensions for Vision Architectures](http://proceedings.mlr.press/v28/bergstra13.pdf)
+    - [Tree-Structured Parzen Estimator: Understanding Its Algorithm Components and Their Roles for Better Empirical Performance](https://arxiv.org/abs/2304.11127)
+
+    For multi-objective TPE (MOTPE), please refer to the following papers:
+
+    - [Multiobjective Tree-Structured Parzen Estimator for Computationally Expensive Optimization Problems](https://doi.org/10.1145/3377930.3389817)
+    - [Multiobjective Tree-Structured Parzen Estimator](https://doi.org/10.1613/jair.1.13188)
+
+    Example:
+        ```python
+        import rustuna
+
+        def objective(trial):
+            x = trial.suggest_float("x", -10, 10)
+            return x**2
+
+        sampler = rustuna.TPESampler(seed=42)
+        study = rustuna.create_study(sampler=sampler)
+        study.optimize(objective, n_trials=100)
+        ```
 
     Args:
-        seed: Random seed. If None, a random seed is used.
-        n_startup_trials: Number of startup trials before using TPE.
-        multivariate: Whether to use multivariate TPE.
+        seed: Seed for random number generator. If `None`, a random seed is used.
+        n_startup_trials: The random sampling is used instead of the TPE algorithm until
+            the given number of trials finish in the same study. Defaults to `10`.
+        multivariate: If `True`, the multivariate TPE is used when suggesting parameters.
+            The multivariate TPE samples all parameters jointly, which is reported to
+            outperform the independent TPE. Defaults to `True`.
+
+    Note:
+        Multivariate mode is enabled by default (`multivariate=True`).
+        In multivariate mode, TPE samples all non-conditional parameters jointly, which is reported to
+        outperform independent sampling. See
+        [BOHB: Robust and Efficient Hyperparameter Optimization at Scale](http://proceedings.mlr.press/v80/falkner18a.html)
+        for more details.
+
 
     Returns:
         A TPE sampler instance.
