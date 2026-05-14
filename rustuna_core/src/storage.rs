@@ -7,19 +7,44 @@ use crate::study_cache::StudyCache;
 use crate::trial::{PersistedTrial, TrialStateValues};
 use crate::{Error, ErrorKind, Result};
 
+/// Abstraction over study and trial persistence.
+///
+/// This trait is the Rustuna counterpart of Optuna's `BaseStorage`. It abstracts the backend
+/// that stores studies, trials, parameter values, and metadata for hyperparameter optimization.
+///
+/// Rustuna differs from Optuna in a few storage-facing areas:
+/// - user and system attributes are merged into a single [`Attrs`] map keyed by [`AttrKey`],
+/// - attribute writes are exposed as bulk operations, and
+/// - categorical choice labels are stored separately from [`Distribution::Categorical`] and are
+///   retrieved through dedicated category-label APIs.
 pub trait Storage: Send + Sync {
+    /// Creates a new study.
+    ///
+    /// The returned study must have a unique ID even if previously created studies were deleted.
     fn create_new_study(
         &mut self,
         study_name: &str,
         directions: Vec<Direction>,
     ) -> Result<&PersistedStudy>;
+    /// Deletes an existing study and its trials.
     fn delete_study(&mut self, study_id: u32) -> Result<()>;
+    /// Creates a new running trial.
+    ///
+    /// Newly created trials are expected to start in [`TrialStateValues::Running`] unless they
+    /// are created from a template.
     fn create_new_trial(&mut self, study_id: u32) -> Result<&PersistedTrial>;
+    /// Creates a new trial by copying a template.
+    ///
+    /// This is used by features such as queued trials and `Study::add_trial`.
     fn create_new_trial_from_template(
         &mut self,
         study_id: u32,
         template: &PersistedTrial,
     ) -> Result<&PersistedTrial>;
+    /// Records a suggested parameter in internal representation.
+    ///
+    /// Implementations should reject incompatible distributions for the same parameter name
+    /// within a study.
     fn set_trial_param(
         &mut self,
         trial_id: u32,
@@ -27,6 +52,9 @@ pub trait Storage: Send + Sync {
         distribution: &Distribution,
         value: f64,
     ) -> Result<()>;
+    /// Updates the state and objective values of a trial.
+    ///
+    /// Finished trials must not become mutable again.
     fn set_trial_state_values(
         &mut self,
         trial_id: u32,
@@ -36,33 +64,49 @@ pub trait Storage: Send + Sync {
     // get_* methods take &mut self to allow in-place cache refresh in wrapper implementations
     // (e.g., CachedStorage). With &self it is impossible to safely update caches and return
     // references without relying on unsafe patterns.
+    /// Returns all studies.
     fn get_studies(&mut self) -> Result<&Vec<PersistedStudy>>;
+    /// Returns a study by ID.
     fn get_study(&mut self, study_id: u32) -> Result<&PersistedStudy>;
+    /// Returns a study attribute by key.
     fn get_study_attr(&mut self, study_id: u32, key: AttrKey) -> Result<String>;
+    /// Returns all trials that belong to a study.
+    ///
+    /// Trials are expected to be ordered by their trial number.
     fn get_trials(&mut self, study_id: u32) -> Result<&Vec<PersistedTrial>>;
+    /// Returns a trial by ID.
     fn get_trial(&mut self, trial_id: u32) -> Result<&PersistedTrial>;
     // Design Note:
     // get_cached_* methods always return references from the in-memory cache without
     // synchronizing with backends. These methods are separate from get_* to allow
     // callers to use read locks for cache-only reads.
+    /// Returns a cached trial reference without synchronizing external backends.
+    ///
+    /// This method is intended for read-only cache hits under a shared lock.
     fn get_cached_trial(&self, trial_id: u32) -> Result<&PersistedTrial>;
     // Design Note:
     // Category labels are stored in study system attrs internally, but exposed via dedicated
     // APIs for caching efficiency. Since category labels cannot be overwritten once set for
     // a given (study_id, param_name), implementations can safely cache them without
     // invalidation concerns.
+    /// Stores categorical labels for a study parameter.
+    ///
+    /// Rustuna keeps categorical labels outside [`Distribution::Categorical`] to avoid storing
+    /// heap-allocated choice lists repeatedly in each trial.
     fn set_category_labels(
         &mut self,
         study_id: u32,
         param_name: &str,
         labels: Vec<CategoryLabel>,
     ) -> Result<()>;
+    /// Returns categorical labels for a study parameter if present.
     fn get_category_labels(
         &mut self,
         study_id: u32,
         param_name: &str,
         cardinality: usize,
     ) -> Result<Option<Vec<CategoryLabel>>>;
+    /// Resolves a trial ID from a study ID and trial number.
     fn get_trial_id_from_study_id_trial_number(
         &mut self,
         study_id: u32,
@@ -75,21 +119,33 @@ pub trait Storage: Send + Sync {
     // which simplifies the implementation process for third-party storages.
     // Note: Some backend implementations (e.g., SQLite) may partially apply attributes across
     // user/system tables when error_on_overwrite is true.
+    /// Sets study attributes in bulk.
+    ///
+    /// If `error_on_overwrite` is `true`, implementations should reject keys that already exist.
     fn set_study_attrs(
         &mut self,
         study_id: u32,
         attrs: Attrs,
         error_on_overwrite: bool,
     ) -> Result<()>;
+    /// Sets trial attributes in bulk.
+    ///
+    /// If `error_on_overwrite` is `true`, implementations should reject keys that already exist.
     fn set_trial_attrs(
         &mut self,
         trial_id: u32,
         attrs: Attrs,
         error_on_overwrite: bool,
     ) -> Result<()>;
+    /// Returns the joint search space inferred from stored trials.
+    ///
+    /// This corresponds to the search space used for joint sampling.
     fn get_joint_search_space(&mut self, study_id: u32) -> Result<HashMap<String, Distribution>>;
 }
 
+/// In-memory storage implementation used by default in Rust code and tests.
+///
+/// This implementation keeps all studies, trials, and caches in process memory.
 #[derive(Default)]
 pub struct InMemoryStorage {
     studies: Vec<PersistedStudy>,
@@ -100,6 +156,7 @@ pub struct InMemoryStorage {
     next_trial_id: u32,
 }
 impl InMemoryStorage {
+    /// Creates an empty in-memory storage.
     pub fn new() -> InMemoryStorage {
         InMemoryStorage {
             studies: vec![],

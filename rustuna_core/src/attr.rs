@@ -1,16 +1,31 @@
 use crate::string_interner::InternedString;
 use std::collections::HashMap;
 
+/// Attribute map used by studies and trials.
+///
+/// In Optuna, user and system attributes are exposed as separate dictionaries. Rustuna stores
+/// both in a single map and distinguishes them with [`AttrKey::User`] and [`AttrKey::System`].
+/// Unlike Optuna, which accepts arbitrary JSON-serializable values, Rustuna stores attribute
+/// values as strings.
 pub type Attrs = HashMap<AttrKey, String>;
 
+/// Distinguishes between user and system attributes.
 #[derive(Eq, Hash, Clone, Debug, PartialEq)]
 pub enum AttrKey {
+    /// User-defined metadata.
     User(InternedString),
+    /// Internal metadata managed by Rustuna.
     System(InternedString),
 }
 
-// Compatible with CategoricalChoiceType.
-// https://github.com/optuna/optuna/blob/v3.5.0/optuna/distributions.py#L18
+/// Label used for categorical choices and fixed queued parameters.
+///
+/// This matches Optuna's `CategoricalChoiceType`.
+///
+/// In Optuna, categorical choices are stored directly in each `CategoricalDistribution` object.
+/// Rustuna's categorical distribution stores only its cardinality so that trials do not have to
+/// carry heap allocated choice lists repeatedly. The actual choice labels are stored separately in
+/// study system attributes and encoded with `CategoryLabel`.
 #[derive(PartialEq, Debug, Clone)]
 pub enum CategoryLabel {
     Float(f64),
@@ -20,6 +35,7 @@ pub enum CategoryLabel {
     None,
 }
 impl CategoryLabel {
+    /// Serializes the label to a stable string representation.
     pub fn serialize(&self) -> String {
         match self {
             CategoryLabel::Float(f) => format!("f:0x{:016x}", f.to_bits()),
@@ -35,6 +51,7 @@ impl CategoryLabel {
             CategoryLabel::None => "None".to_string(),
         }
     }
+    /// Deserializes a value produced by [`CategoryLabel::serialize`].
     pub fn deserialize(s: &str) -> Option<CategoryLabel> {
         if s == "None" {
             return Some(CategoryLabel::None);
@@ -67,10 +84,12 @@ impl CategoryLabel {
     }
 }
 
+/// Returns the internal system-attribute key used to store a categorical label.
 pub fn system_key_category_label(param_name: &str, choice_idx: usize) -> AttrKey {
     AttrKey::System(format!("category_labels:{param_name}:{choice_idx}").into())
 }
 
+/// Encodes categorical labels into system attributes.
 pub fn category_labels_to_attrs(param_name: &str, labels: &[CategoryLabel]) -> Attrs {
     let mut attrs = Attrs::new();
     for (i, label) in labels.iter().enumerate() {
@@ -80,6 +99,7 @@ pub fn category_labels_to_attrs(param_name: &str, labels: &[CategoryLabel]) -> A
     attrs
 }
 
+/// Decodes categorical labels from system attributes.
 pub fn get_category_labels(
     attrs: &Attrs,
     param_name: &str,
@@ -97,10 +117,12 @@ pub fn get_category_labels(
     Some(labels)
 }
 
+/// Returns the internal system-attribute key used for queued fixed parameters.
 pub fn system_key_fixed_param(param_name: &str) -> AttrKey {
     AttrKey::System(format!("fixed_params:{param_name}").into())
 }
 
+/// Encodes fixed parameter values into trial attributes.
 pub fn fixed_params_to_attrs(params: &HashMap<String, CategoryLabel>) -> Attrs {
     let mut attrs = Attrs::new();
     for (name, value) in params {
@@ -110,11 +132,13 @@ pub fn fixed_params_to_attrs(params: &HashMap<String, CategoryLabel>) -> Attrs {
     attrs
 }
 
+/// Returns a fixed parameter value stored in attributes.
 pub fn get_fixed_param(attrs: &Attrs, param_name: &str) -> Option<CategoryLabel> {
     let key = system_key_fixed_param(param_name);
     attrs.get(&key).and_then(|s| CategoryLabel::deserialize(s))
 }
 
+/// Extracts all fixed parameters stored in trial attributes.
 pub fn extract_fixed_params(attrs: &Attrs) -> HashMap<String, CategoryLabel> {
     let mut params = HashMap::new();
     for (key, value) in attrs {

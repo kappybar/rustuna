@@ -9,6 +9,7 @@ use crate::trial::{PersistedTrial, Trial, TrialStateValues};
 use crate::trial_queue::{InMemoryTrialQueue, TrialQueue};
 use crate::{Error, ErrorKind, Result};
 
+/// Creates a study backed by the given storage and sampler.
 pub fn create_study<S: Storage + Send + Sync + 'static, T: Sampler + Send + 'static>(
     study_name: &str,
     mut storage: S,
@@ -29,6 +30,7 @@ pub fn create_study<S: Storage + Send + Sync + 'static, T: Sampler + Send + 'sta
     ))
 }
 
+/// Creates a study from shared storage and sampler handles.
 pub fn create_study_with_arc(
     study_name: &str,
     storage: Arc<RwLock<dyn Storage>>,
@@ -55,6 +57,13 @@ pub fn create_study_with_arc(
 }
 
 #[derive(Clone)]
+/// A study corresponds to an optimization task, that is, a set of trials.
+///
+/// This is the central object for running optimization in Rustuna. It provides interfaces to
+/// create new trials, evaluate objective functions, access trial history, enqueue fixed trials,
+/// and set or get study-level user attributes.
+///
+/// A `Study` holds shared handles to a storage backend, a sampler, and a trial queue.
 pub struct Study {
     pub id: u32,
     pub name: String,
@@ -64,6 +73,7 @@ pub struct Study {
     pub queue: Arc<RwLock<dyn TrialQueue>>,
 }
 impl Study {
+    /// Constructs a study from fully initialized components.
     pub fn new(
         id: u32,
         name: String,
@@ -82,6 +92,7 @@ impl Study {
         }
     }
 
+    /// Loads a study by ID from storage.
     pub fn from_id(
         id: u32,
         storage: Arc<RwLock<dyn Storage>>,
@@ -101,6 +112,7 @@ impl Study {
         Ok(Study::new(id, name, directions, storage, sampler, queue))
     }
 
+    /// Loads a study by name from storage.
     pub fn from_name(
         name: String,
         storage: Arc<RwLock<dyn Storage>>,
@@ -126,6 +138,7 @@ impl Study {
         ))
     }
 
+    /// Creates or dequeues the next trial to evaluate.
     pub fn ask(&self) -> Result<Trial> {
         let queued_trial_id = {
             let mut queue_guard = self.queue.write().map_err(|e| {
@@ -260,6 +273,7 @@ impl Study {
         Ok(trial)
     }
 
+    /// Finalizes a trial with the given state and objective values.
     pub fn tell(&self, trial_number: u32, state_values: TrialStateValues) -> Result<()> {
         let mut storage_guard = self.storage.write().map_err(|e| {
             Error::with_reason(
@@ -300,6 +314,10 @@ impl Study {
         Ok(())
     }
 
+    /// Runs the objective function repeatedly for `n_trials`.
+    ///
+    /// The objective returns one value per study direction. Returning an error marks the current
+    /// trial as failed and aborts the optimization loop.
     pub fn optimize<F>(&self, mut objective: F, n_trials: usize) -> Result<()>
     where
         F: FnMut(Trial) -> Result<Vec<f64>>,
@@ -326,6 +344,7 @@ impl Study {
         Ok(())
     }
 
+    /// Returns all trials that belong to this study.
     pub fn get_trials(&self) -> Result<Vec<PersistedTrial>> {
         let mut guard = self.storage.write().map_err(|e| {
             Error::with_reason(
@@ -337,6 +356,7 @@ impl Study {
         Ok(trials.clone())
     }
 
+    /// Returns a user attribute stored on the study.
     pub fn get_user_attr(&self, key: String) -> Result<Option<String>> {
         let mut guard = self.storage.write().map_err(|e| {
             Error::with_reason(
@@ -353,6 +373,7 @@ impl Study {
         }
     }
 
+    /// Sets one or more user attributes on the study.
     pub fn set_user_attr(&self, attrs: HashMap<String, String>) -> Result<()> {
         let mut guard = self.storage.write().map_err(|e| {
             Error::with_reason(
@@ -368,6 +389,9 @@ impl Study {
         Ok(())
     }
 
+    /// Inserts an existing persisted trial into the study.
+    ///
+    /// This is the Rustuna counterpart of Optuna's `study.add_trial`.
     pub fn add_trial(&self, trial: PersistedTrial) -> Result<()> {
         trial.validate()?;
         if let TrialStateValues::Complete(ref values) = trial.state_values {
@@ -392,6 +416,10 @@ impl Study {
         Ok(())
     }
 
+    /// Enqueues a trial with fixed parameters to be evaluated later.
+    ///
+    /// Queued parameters are stored as trial attributes and popped through the study's
+    /// [`TrialQueue`] implementation.
     pub fn enqueue_trial(
         &self,
         params: HashMap<String, CategoryLabel>,
@@ -429,12 +457,16 @@ impl Study {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+/// Optimization direction for an objective value.
 pub enum Direction {
     Minimize,
     Maximize,
 }
 
 #[derive(Clone)]
+/// Storage-side representation of a study.
+///
+/// This corresponds to Optuna's `FrozenStudy`.
 pub struct PersistedStudy {
     pub id: u32,
     pub name: String,
@@ -442,6 +474,7 @@ pub struct PersistedStudy {
     pub attrs: Attrs,
 }
 impl PersistedStudy {
+    /// Creates a persisted study with empty attributes.
     pub fn new(id: u32, study_name: String, directions: Vec<Direction>) -> PersistedStudy {
         PersistedStudy {
             id,
@@ -452,6 +485,7 @@ impl PersistedStudy {
     }
     // TODO(knshnb): Consider a builder pattern:
     // https://github.com/optuna/rustuna/pull/37#discussion_r1503510194
+    /// Creates a persisted study with pre-populated attributes.
     pub fn new_with_attrs(
         id: u32,
         study_name: String,
@@ -467,6 +501,7 @@ impl PersistedStudy {
     }
 }
 
+/// Returns the best completed trial number for a single-objective study.
 pub fn get_best_trial(study: &Study) -> Result<u32> {
     let mut guard = study.storage.write().map_err(|e| {
         Error::with_reason(
@@ -503,6 +538,7 @@ pub fn get_best_trial(study: &Study) -> Result<u32> {
 }
 
 // TODO(HideakiImamura): Support the faster algorithm for `len(directions) == 2`.
+/// Returns the trial numbers on the Pareto front of a multi-objective study.
 pub fn get_pareto_front(study: &Study) -> Result<Vec<u32>> {
     let mut guard = study.storage.write().map_err(|e| {
         Error::with_reason(
@@ -543,6 +579,7 @@ pub fn get_pareto_front(study: &Study) -> Result<Vec<u32>> {
     Ok(pareto_front_numbers)
 }
 
+/// Returns whether `values0` dominates `values1` under the given directions.
 pub fn dominates(values0: &[f64], values1: &[f64], directions: &[Direction]) -> bool {
     assert_eq!(values0.len(), values1.len());
     assert_eq!(values0.len(), directions.len());
