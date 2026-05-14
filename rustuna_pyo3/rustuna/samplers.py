@@ -97,14 +97,40 @@ def NSGAIISampler(
     crossover_prob: float = 0.9,
     swapping_prob: float = 0.5,
 ) -> SamplerProtocol:
-    """Create an NSGA-II sampler for multi-objective optimization.
+    """Sampler using NSGA-II (Non-dominated Sorting Genetic Algorithm II) algorithm.
+
+    NSGA-II is an evolutionary algorithm designed for multi-objective optimization. It maintains a
+    population of candidates across generations, and uses non-dominated sorting to rank solutions
+    and crowding distance to preserve diversity among Pareto-optimal solutions. Each generation,
+    new candidates are generated via crossover and mutation of selected parents, and an elite
+    selection strategy retains the best individuals for the next generation.
+
+    For further information about the NSGA-II algorithm, please refer to the following paper:
+
+    - [A Fast and Elitist Multiobjective Genetic Algorithm: NSGA-II](https://ieeexplore.ieee.org/document/996017)
+
+    Example:
+        ```python
+        import rustuna
+
+        def objective(trial):
+            x = trial.suggest_float("x", -5, 5)
+            y = trial.suggest_float("y", -5, 5)
+            return x**2, y**2
+
+        sampler = rustuna.NSGAIISampler(seed=42)
+        study = rustuna.create_study(directions=["minimize", "minimize"], sampler=sampler)
+        study.optimize(objective, n_trials=100)
+        ```
 
     Args:
-        seed: Random seed. If None, a random seed is used.
-        population_size: Population size.
-        mutation_prob: Mutation probability. If None, 1.0 / len(search_space) is used.
-        crossover_prob: Crossover probability.
-        swapping_prob: Swapping probability for crossover.
+        seed: Seed for random number generator. If `None`, a random seed is used.
+        population_size: Number of individuals in the population. Defaults to `50`.
+        mutation_prob: Probability of mutating each parameter of a candidate. If `None`,
+            `1.0 / len(search_space)` is used. Defaults to `None`.
+        crossover_prob: Probability of performing crossover between two parents. Defaults to `0.9`.
+        swapping_prob: Probability of swapping each parameter value during crossover.
+            Defaults to `0.5`.
 
     Returns:
         An NSGA-II sampler instance.
