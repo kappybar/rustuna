@@ -22,9 +22,11 @@ struct StringInterner {
 }
 
 #[derive(Eq, Clone, Copy, Debug, PartialEq)]
+/// Interned string used for low-cardinality keys such as parameter names and attribute names.
 pub struct InternedString(u32);
 
 impl InternedString {
+    /// Returns the interned string as a `'static` string slice.
     pub fn as_str(&self) -> &'static str {
         interner().read().unwrap().resolve(self.0)
     }

@@ -10,6 +10,11 @@ use crate::trial::TrialStateValues;
 use crate::Result;
 
 #[derive(Debug, Clone)]
+/// Lightweight study and trial metadata passed to samplers.
+///
+/// Rustuna does not pass full `Study` or `FrozenTrial` objects to samplers. Instead, it provides
+/// the identifiers and objective directions required to make sampling decisions, while richer
+/// state can be retrieved through [`Storage`] when necessary.
 pub struct Context {
     pub study_id: u32,
     pub directions: Vec<Direction>,
@@ -17,7 +22,24 @@ pub struct Context {
     pub trial_id: u32,
 }
 
+/// Interface for parameter suggestion algorithms.
+///
+/// Like Optuna, Rustuna supports two sampling modes:
+/// - independent sampling, which suggests one parameter at a time without modeling relationships
+///   between parameters, and
+/// - joint sampling, which suggests multiple parameters at once from a shared search space.
+///
+/// In Optuna terminology, Rustuna's joint sampling is the counterpart of relative sampling.
+/// If [`Sampler::support_joint_sampling`] returns `true`, [`Sampler::sample_joint`] is called once
+/// at the beginning of a trial with the inferred joint search space. Parameters not returned from
+/// that method, or all parameters when joint sampling is disabled, fall back to
+/// [`Sampler::sample_independent`].
 pub trait Sampler: Send {
+    /// Samples a single parameter independently.
+    ///
+    /// This method is used for parameters that are not covered by joint sampling. It is suitable
+    /// for samplers such as random search or univariate TPE that decide each parameter
+    /// separately.
     fn sample_independent(
         &mut self,
         ctx: &Context,
@@ -25,13 +47,25 @@ pub trait Sampler: Send {
         name: &str,
         distribution: &Distribution,
     ) -> Result<f64>;
+    /// Returns whether the sampler supports joint sampling.
+    ///
+    /// When this returns `true`, [`Sampler::sample_joint`] is called once per trial before any
+    /// parameter suggestions are requested from the objective function.
     fn support_joint_sampling(&self) -> bool;
+    /// Samples multiple parameters at once from a joint search space.
+    ///
+    /// This is the Rustuna counterpart of Optuna's `sample_relative`. The input search space is
+    /// inferred from previously observed compatible parameters in the study.
     fn sample_joint(
         &mut self,
         ctx: &Context,
         storage: Arc<RwLock<dyn Storage>>,
         search_space: &HashMap<String, Distribution>,
     ) -> Result<HashMap<String, f64>>;
+    /// Hook called when a trial is about to be finalized with the given state.
+    ///
+    /// This corresponds to Optuna's `after_trial` hook. Rustuna calls it after the objective
+    /// function returns and before the finalized state is written to storage.
     fn after_trial(
         &mut self,
         _ctx: &Context,
@@ -42,6 +76,10 @@ pub trait Sampler: Send {
     }
 }
 
+/// Uniform random sampler.
+///
+/// This sampler draws values independently from each parameter distribution and does not perform
+/// joint sampling.
 pub struct RandomSampler {
     rng: StdRng,
 }
@@ -51,12 +89,14 @@ impl Default for RandomSampler {
     }
 }
 impl RandomSampler {
+    /// Creates a sampler with a deterministic default seed.
     pub fn new() -> RandomSampler {
         RandomSampler {
             rng: StdRng::from_seed(Default::default()),
         }
     }
 
+    /// Creates a sampler seeded from a user-specified 64-bit seed.
     pub fn seed_from_u64(seed: u64) -> RandomSampler {
         RandomSampler {
             rng: StdRng::seed_from_u64(seed),

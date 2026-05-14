@@ -1,6 +1,9 @@
 use std::panic::Location;
 
-/// This crate specific `Error` type.
+/// Error type used by `rustuna_core`.
+///
+/// The error stores a coarse-grained [`ErrorKind`], an optional human-readable reason, and the
+/// call site where it was constructed.
 #[derive(Clone)]
 pub struct Error {
     pub kind: ErrorKind,
@@ -8,11 +11,13 @@ pub struct Error {
     pub location: &'static Location<'static>,
 }
 impl Error {
+    /// Creates a new error with the given kind.
     #[track_caller]
     pub fn new(kind: ErrorKind) -> Self {
         Self::with_reason(kind, String::new())
     }
 
+    /// Creates a new error with the given kind and reason.
     #[track_caller]
     pub fn with_reason<T: Into<String>>(kind: ErrorKind, reason: T) -> Self {
         Self {
@@ -41,7 +46,7 @@ impl core::fmt::Display for Error {
     }
 }
 
-/// ErrorKind represents the kind of error.
+/// Enumerates high-level error categories returned by `rustuna_core`.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum ErrorKind {

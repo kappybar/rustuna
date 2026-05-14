@@ -2,17 +2,25 @@ use std::collections::VecDeque;
 
 use crate::{Error, ErrorKind, Result};
 
+/// Queue abstraction used by [`crate::study::Study::enqueue_trial`].
+///
+/// Rustuna keeps queuing outside the storage layer so that users who do not use queued trials do
+/// not pay coordination overhead on every trial creation.
 pub trait TrialQueue: Send + Sync {
+    /// Pushes a trial ID into the queue.
     fn enqueue(&mut self, trial_id: u32) -> Result<()>;
+    /// Pops the next queued trial ID.
     fn dequeue(&mut self) -> Result<u32>;
 }
 
+/// In-memory queue implementation used by default.
 #[derive(Default)]
 pub struct InMemoryTrialQueue {
     queue: VecDeque<u32>,
 }
 
 impl InMemoryTrialQueue {
+    /// Creates an empty queue.
     pub fn new() -> Self {
         Self {
             queue: VecDeque::new(),

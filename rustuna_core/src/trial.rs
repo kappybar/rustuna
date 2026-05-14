@@ -8,7 +8,10 @@ use crate::storage::Storage;
 use crate::study::Direction;
 use crate::{Error, ErrorKind, Result};
 
-/// Trial is a struct that is equivalent to `optuna.trial.Trial`.
+/// A trial object used while evaluating an objective function.
+///
+/// This is the Rustuna counterpart of `optuna.trial.Trial`. It provides parameter suggestion
+/// APIs and access to user-defined trial attributes.
 pub struct Trial {
     pub id: u32,
     pub study_id: u32,
@@ -23,6 +26,7 @@ pub struct Trial {
     cached_trial: PersistedTrial,
 }
 impl Trial {
+    /// Constructs a trial from storage and sampler state.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         trial_id: u32,
@@ -54,6 +58,10 @@ impl Trial {
         }
     }
 
+    /// Suggests a parameter value from the given distribution.
+    ///
+    /// The returned value is in Rustuna's internal representation. Categorical parameters are
+    /// represented by zero-based indices.
     pub fn suggest(&mut self, name: &str, distribution: &Distribution) -> Result<f64> {
         if let Some(fixed_value) = self.fixed_params.get(name) {
             let result = if let Distribution::Categorical { cardinality } = distribution {
@@ -151,6 +159,7 @@ impl Trial {
     // Design Note:
     // suggest_float and suggest_int do not support `step` and `log` arguments to keep the API easy to use.
     // Users who want to use them need to call `suggest()` function directly.
+    /// Suggests a floating-point parameter from a linear range.
     pub fn suggest_float(&mut self, name: &str, low: f64, high: f64) -> Result<f64> {
         let distribution = Distribution::Float {
             low,
@@ -162,6 +171,7 @@ impl Trial {
         Ok(param_value)
     }
 
+    /// Suggests an integer parameter from a linear range with step `1`.
     pub fn suggest_int(&mut self, name: &str, low: i64, high: i64) -> Result<i64> {
         let distribution = Distribution::Int {
             low,
@@ -173,6 +183,7 @@ impl Trial {
         Ok(param_value as i64)
     }
 
+    /// Suggests a categorical parameter and returns a borrowed [`CategoryLabel`].
     pub fn suggest_categorical_enum<'a>(
         &'a mut self,
         name: &str,
@@ -194,6 +205,7 @@ impl Trial {
         Ok(c)
     }
 
+    /// Suggests a categorical parameter and returns a borrowed element from `choices`.
     pub fn suggest_categorical<'a, T>(&'a mut self, name: &str, choices: &'a [T]) -> Result<&'a T> {
         let distribution = Distribution::Categorical {
             cardinality: choices.len(),
@@ -210,11 +222,13 @@ impl Trial {
     // Note that `AttrKind::System` should not be exposed to users,
     // as it may be updated without going through the `Trial` object,
     // making it difficult to cache the value.
+    /// Returns a user attribute stored on the trial.
     pub fn get_user_attr(&mut self, key: &str) -> Option<&String> {
         let key = AttrKey::User(key.into());
         self.cached_trial.attrs.get(&key)
     }
 
+    /// Sets a single user attribute on the trial.
     pub fn set_user_attr(&mut self, key: &str, value: String) -> Result<()> {
         let mut guard = self
             .storage
@@ -229,6 +243,7 @@ impl Trial {
         Ok(())
     }
 
+    /// Sets multiple user attributes on the trial.
     pub fn set_user_attrs(&mut self, user_attrs: HashMap<String, String>) -> Result<()> {
         let mut attrs = Attrs::with_capacity(user_attrs.len());
         for (key, value) in &user_attrs {
@@ -250,8 +265,10 @@ impl Trial {
     }
 }
 
-/// PersistedTrial is a struct that represents a trial that has been persisted to storage.
-/// This is equivalent to `optuna.trial.FrozenTrial`.
+/// Storage-side representation of a trial.
+///
+/// This corresponds to Optuna's `FrozenTrial`, but it stores user and system attributes as
+/// strings in a unified attribute map.
 #[derive(Clone, Debug)]
 pub struct PersistedTrial {
     pub id: u32,
@@ -265,6 +282,7 @@ pub struct PersistedTrial {
     pub datetime_complete: Option<String>,
 }
 impl PersistedTrial {
+    /// Creates a new running trial with no parameters or attributes.
     pub fn new(id: u32, study_id: u32, number: u32) -> PersistedTrial {
         PersistedTrial {
             id,
@@ -279,6 +297,7 @@ impl PersistedTrial {
         }
     }
 
+    /// Returns whether the trial is already in a finished state.
     pub fn is_finished(&self) -> bool {
         matches!(
             self.state_values,
@@ -286,6 +305,7 @@ impl PersistedTrial {
         )
     }
 
+    /// Validates the internal consistency of the persisted trial.
     pub fn validate(&self) -> Result<()> {
         // TODO(c-bata): Consider introducing ErrorKind::TrialInvalid.
         if let TrialStateValues::Complete(values) = &self.state_values {
@@ -326,12 +346,18 @@ impl PersistedTrial {
     }
 }
 
+/// Trial state together with objective values when available.
 #[derive(PartialEq, Clone, Debug)]
 pub enum TrialStateValues {
+    /// Trial is running.
     Running,
+    /// Trial was pruned.
     Pruned,
+    /// Trial finished successfully with one or more objective values.
     Complete(Vec<f64>),
+    /// Trial failed with an error.
     Fail,
+    /// Trial is waiting in a queue.
     Waiting,
 }
 

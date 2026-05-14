@@ -1,25 +1,38 @@
 use crate::{Error, ErrorKind, Result};
 
+/// Parameter distribution used by samplers and storages.
+///
+/// This type is the Rustuna counterpart of Optuna distributions. Trial parameters are stored
+/// internally as `f64`, and categorical parameters are represented by zero-based indices.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Distribution {
+    /// Continuous range over floating-point values.
     Float {
         low: f64,
         high: f64,
         step: Option<f64>,
         log: bool,
     },
+    /// Integer range with optional logarithmic sampling.
     Int {
         low: i64,
         high: i64,
         step: i64,
         log: bool,
     },
-    Categorical {
-        cardinality: usize,
-    },
+    /// Categorical distribution represented only by the number of choices.
+    ///
+    /// Unlike Optuna's `CategoricalDistribution`, Rustuna does not store the choice values in
+    /// each distribution object. The actual labels are stored separately in study system
+    /// attributes.
+    Categorical { cardinality: usize },
 }
 
 impl Distribution {
+    /// Checks whether two distributions are compatible for the same parameter name.
+    ///
+    /// Rustuna follows the same basic rule as Optuna here: the distribution kind must stay the
+    /// same, and categorical cardinality or the `log` flag must not change across trials.
     pub fn check_compatibility(&self, other: &Distribution) -> Result<()> {
         match (self, other) {
             (
@@ -58,6 +71,7 @@ impl Distribution {
         }
     }
 
+    /// Returns whether the distribution can produce only a single value.
     pub fn is_single(&self) -> bool {
         match self {
             Distribution::Float {
@@ -85,6 +99,7 @@ impl Distribution {
         }
     }
 
+    /// Returns whether the internal representation is contained in this distribution.
     pub fn contains(&self, internal_value: f64) -> bool {
         match self {
             Distribution::Float { low, high, .. } => {
