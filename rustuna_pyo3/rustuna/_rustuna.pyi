@@ -803,7 +803,25 @@ class Sampler:
         mutation_prob: float | None = None,
         crossover_prob: float = 0.9,
         swapping_prob: float = 0.5,
-    ) -> Sampler: ...
+    ) -> Sampler:
+        """Create an NSGA-II sampler.
+
+        Prefer using `rustuna.NSGAIISampler` over this factory method.
+
+        Args:
+            seed: Seed for random number generator. If `None`, a random seed is used.
+            population_size: Number of individuals in the population. Defaults to `50`.
+            mutation_prob: Probability of mutating each parameter of a candidate. If `None`,
+                `1.0 / len(search_space)` is used. Defaults to `None`.
+            crossover_prob: Probability of performing crossover between two parents.
+                Defaults to `0.9`.
+            swapping_prob: Probability of swapping each parameter value during crossover.
+                Defaults to `0.5`.
+
+        Returns:
+            An NSGA-II sampler instance.
+        """
+        ...
     @property
     def support_joint_sampling(self) -> bool: ...
     def sample_joint(
