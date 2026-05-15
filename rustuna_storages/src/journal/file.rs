@@ -42,10 +42,16 @@ fn fsync_file(file: &File) -> std::io::Result<()> {
 }
 
 pub trait JournalFileLock: Send + Sync {
+    /// Acquires the file lock in a blocking manner.
     fn acquire(&self) -> Result<()>;
+    /// Releases the file lock.
     fn release(&self) -> Result<()>;
 }
 
+/// File-based backend for [`super::storage::JournalStorage`].
+///
+/// Logs are appended as newline-delimited JSON records. A pluggable lock implementation is used
+/// to coordinate concurrent writers across processes.
 pub struct JournalFileBackend {
     file_path: PathBuf,
     lock: Box<dyn JournalFileLock>,
@@ -53,6 +59,7 @@ pub struct JournalFileBackend {
 }
 
 impl JournalFileBackend {
+    /// Creates a file-backed journal backend.
     pub fn new(
         file_path: impl AsRef<Path>,
         lock: Option<Box<dyn JournalFileLock>>,
@@ -184,12 +191,19 @@ impl JournalBackend for JournalFileBackend {
     }
 }
 
+/// Lock implementation based on symlink creation.
+///
+/// This lock creates a symlink next to the journal file and removes it when the lock is released.
+/// Similar to Optuna's symlink-based journal lock, this variant is intended for environments
+/// where symlink creation provides a more portable inter-process exclusion mechanism than
+/// exclusive file creation.
 pub struct JournalFileSymlinkLock {
     lock_target_file: PathBuf,
     lock_file: PathBuf,
 }
 
 impl JournalFileSymlinkLock {
+    /// Creates a symlink-based lock next to the journal file.
     pub fn new(filepath: impl AsRef<Path>) -> Self {
         let filepath = filepath.as_ref().to_path_buf();
         JournalFileSymlinkLock {
@@ -200,6 +214,7 @@ impl JournalFileSymlinkLock {
 }
 
 impl JournalFileLock for JournalFileSymlinkLock {
+    /// Acquires the lock by creating a symlink in a blocking retry loop.
     fn acquire(&self) -> Result<()> {
         let mut sleep_secs = 0.001f64;
         loop {
@@ -220,6 +235,7 @@ impl JournalFileLock for JournalFileSymlinkLock {
         }
     }
 
+    /// Releases the lock by renaming and removing the symlink.
     fn release(&self) -> Result<()> {
         let rename_file = PathBuf::from(format!(
             "{}{}{}",
@@ -250,11 +266,17 @@ impl JournalFileLock for JournalFileSymlinkLock {
     }
 }
 
+/// Lock implementation based on exclusive file creation.
+///
+/// This lock creates a dedicated lock file with exclusive open semantics and removes it when the
+/// lock is released. Similar to Optuna's open-based journal lock, this variant is suitable for
+/// environments where `O_EXCL` style file creation can be relied on for process synchronization.
 pub struct JournalFileOpenLock {
     lock_file: PathBuf,
 }
 
 impl JournalFileOpenLock {
+    /// Creates an open-file-based lock next to the journal file.
     pub fn new(filepath: impl AsRef<Path>) -> Self {
         let filepath = filepath.as_ref().to_path_buf();
         JournalFileOpenLock {
@@ -264,6 +286,7 @@ impl JournalFileOpenLock {
 }
 
 impl JournalFileLock for JournalFileOpenLock {
+    /// Acquires the lock by creating the lock file in a blocking retry loop.
     fn acquire(&self) -> Result<()> {
         let mut sleep_secs = 0.001f64;
         loop {
@@ -285,6 +308,7 @@ impl JournalFileLock for JournalFileOpenLock {
         }
     }
 
+    /// Releases the lock by removing the created lock file.
     fn release(&self) -> Result<()> {
         let rename_file = PathBuf::from(format!(
             "{}{}{}",

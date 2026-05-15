@@ -3,7 +3,13 @@ use std::collections::HashMap;
 use rustuna_core::Result;
 use serde::{Deserialize, Serialize};
 
+/// Optional extension trait for storage backends that preserve Optuna compatibility data.
+///
+/// Rustuna itself stores trial intermediate values and attributes as strings, but converters that
+/// interoperate with Optuna sometimes need extra structured metadata. Backends implementing this
+/// trait can persist such compatibility-specific state directly.
 pub trait OptunaCompatibleStorage: Send + Sync {
+    /// Stores all intermediate values for a trial in a backend-specific format.
     fn set_trial_intermediate_values(
         &mut self,
         trial_id: u32,

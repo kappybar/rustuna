@@ -9,6 +9,11 @@ use rustuna_core::{Error, ErrorKind, Result};
 
 static SEQUENCE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// Directory-backed trial queue.
+///
+/// Each enqueued trial is represented by a file on disk. This backend is useful when multiple
+/// processes on the same filesystem need to share queued trial IDs without depending on a
+/// database server.
 pub struct DirectoryTrialQueue {
     pending_dir: PathBuf,
     processing_dir: PathBuf,

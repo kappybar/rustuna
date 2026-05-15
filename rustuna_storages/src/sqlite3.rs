@@ -10,6 +10,11 @@ use serde_json::{json, Number, Value};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+/// SQLite-backed storage backend.
+///
+/// This backend persists studies and trials in a local SQLite database and is typically wrapped
+/// by [`crate::cache::CachedStorage`] to provide the reference-based `Storage` API from
+/// `rustuna_core`.
 pub struct SQLite3Storage {
     conn: Mutex<Connection>,
 }
@@ -18,6 +23,7 @@ const SCHEMA_SQL: &str = include_str!("sqlite3_schema.sql");
 type TrialRow = (u32, u32, String, Option<String>, Option<String>);
 
 impl SQLite3Storage {
+    /// Opens a SQLite database file.
     pub fn new(file_path: &str) -> Result<SQLite3Storage> {
         let conn = Connection::open(file_path).map_err(|e| {
             Error::with_reason(
@@ -30,6 +36,7 @@ impl SQLite3Storage {
         })
     }
 
+    /// Creates the Rustuna schema if the database has not been initialized yet.
     pub fn create_database(&self) -> Result<()> {
         let conn = self
             .conn
