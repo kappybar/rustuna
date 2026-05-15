@@ -4,6 +4,9 @@ use rustuna_core::{Error, ErrorKind, Result};
 use std::path::Path;
 use std::sync::Mutex;
 
+/// SQLite-backed trial queue.
+///
+/// Multiple logical queues can share the same database file by using different namespaces.
 pub struct SQLite3TrialQueue {
     conn: Mutex<Connection>,
     namespace: String,

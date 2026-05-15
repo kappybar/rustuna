@@ -10,17 +10,25 @@ use rustuna_core::{Error, ErrorKind, Result};
 pub mod file;
 pub mod storage;
 
+/// Backend interface for journal-based storage.
+///
+/// Journal storage persists a log of storage operations and reconstructs the latest state by
+/// replaying those logs. Backends implementing this trait only need to support appending logs and
+/// reading them back in order.
 pub trait JournalBackend: Send + Sync {
+    /// Reads logs starting from `log_number_from` and passes them to `handler` in order.
     fn read_logs(
         &mut self,
         log_number_from: usize,
         handler: &mut dyn FnMut(JournalLog) -> Result<()>,
     ) -> Result<()>;
+    /// Appends one or more logs atomically if possible.
     fn append_logs(&mut self, logs: &[JournalLog]) -> Result<()>;
 }
 
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Operation kinds recorded in the journal log.
 pub enum JournalOperation {
     CreateStudy = 0,
     DeleteStudy = 1,
@@ -35,6 +43,7 @@ pub enum JournalOperation {
 }
 
 impl JournalOperation {
+    /// Decodes an operation code stored in a journal log.
     pub fn from_i32(value: i32) -> Result<Self> {
         match value {
             0 => Ok(JournalOperation::CreateStudy),
@@ -53,6 +62,7 @@ impl JournalOperation {
 }
 
 #[derive(Clone, Debug, Serialize)]
+/// One operation record written to a journal backend.
 pub struct JournalLog {
     pub op_code: i32,
     pub worker_id: String,
@@ -63,6 +73,7 @@ pub struct JournalLog {
 }
 
 impl JournalLog {
+    /// Returns the worker identifier that produced this log record.
     pub fn worker_id(&self) -> &str {
         self.worker_id.as_str()
     }

@@ -21,12 +21,17 @@ use crate::optuna::OptunaCompatibleStorage;
 
 use super::{JournalBackend, JournalLog, JournalOperation};
 
+/// Storage implementation backed by an append-only journal log.
+///
+/// Similar in spirit to Optuna's `JournalStorage`, this storage writes every state-changing
+/// operation as a journal record and reconstructs the latest snapshot by replaying logs.
 pub struct JournalStorage {
     backend: Box<dyn JournalBackend>,
     replay: JournalReplayState,
 }
 
 impl JournalStorage {
+    /// Creates a journal storage and synchronizes its in-memory replay state from the backend.
     pub fn new(backend: Box<dyn JournalBackend>) -> Result<Self> {
         let worker_id_prefix = format!("{}-{}-", unique_prefix(), std::process::id());
         let mut storage = JournalStorage {

@@ -11,6 +11,11 @@ use rustuna_core::{Error, ErrorKind, Result};
 
 use crate::optuna::OptunaCompatibleStorage;
 
+/// Backend interface for [`CachedStorage`].
+///
+/// Unlike `rustuna_core::storage::Storage`, this trait returns owned values instead of references.
+/// This allows the caching wrapper to materialize in-memory state and then hand out borrowed
+/// references required by the core storage interface.
 pub trait CachedStorageBackend: Send + Sync {
     // Design Note:
     // This trait is intended for backends that return owned values (not references) so that
@@ -68,8 +73,14 @@ pub trait CachedStorageBackend: Send + Sync {
     ) -> Result<Vec<PersistedTrial>>;
 }
 
+/// Convenience alias for cached backends that also support Optuna compatibility helpers.
 pub trait OptunaCachedStorageBackend: CachedStorageBackend + OptunaCompatibleStorage {}
 
+/// Caching storage wrapper over a backend that returns owned values.
+///
+/// This type plays a role similar to Optuna's `_CachedStorage`: the backend is responsible for
+/// persistence, while `CachedStorage` keeps studies and trials in memory and serves borrowed
+/// references to callers.
 pub struct CachedStorage {
     studies: Vec<PersistedStudy>,
     trials: HashMap<u32, HashMap<u32, PersistedTrial>>,
@@ -86,6 +97,7 @@ pub struct CachedStorage {
 }
 
 impl CachedStorage {
+    /// Creates a caching wrapper around the given backend.
     pub fn new(backend: Box<dyn OptunaCachedStorageBackend>) -> CachedStorage {
         CachedStorage {
             studies: Vec::new(),
