@@ -141,7 +141,7 @@ impl NumericalDistributionBuilder for DefaultNumericalDistributionBuilder {
         observations: &[f64],
         search_space: &Distribution,
     ) -> Distributions {
-        // Currently, we assume consider_prior=True, consider_endpoints=True, and consider_magic_clip=True.
+        // Currently, we assume consider_prior=True, consider_endpoints=False, and consider_magic_clip=True.
         let (low, high, step_opt, log) = match search_space {
             Distribution::Float {
                 low,
@@ -189,11 +189,22 @@ impl NumericalDistributionBuilder for DefaultNumericalDistributionBuilder {
                 .chain(std::iter::once(adj_high))
                 .collect::<Vec<_>>();
 
-            let sorted_sigmas = (1..(extended.len() - 1))
+            let n = extended.len();
+            let sorted_sigmas = (1..(n - 1))
                 .map(|i| {
                     let left_diff = extended[i] - extended[i - 1];
                     let right_diff = extended[i + 1] - extended[i];
-                    left_diff.max(right_diff)
+                    // consider_endpoints=False: boundary observations use only the neighbor
+                    // distance, not the distance to the endpoint.
+                    // Condition n >= 4 ensures at least 2 observations so both boundaries
+                    // have a non-endpoint neighbor.
+                    if n >= 4 && i == 1 {
+                        right_diff
+                    } else if n >= 4 && i == n - 2 {
+                        left_diff
+                    } else {
+                        left_diff.max(right_diff)
+                    }
                 })
                 .collect::<Vec<_>>();
 
