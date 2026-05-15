@@ -186,26 +186,17 @@ impl NumericalDistributionBuilder for DefaultNumericalDistributionBuilder {
 
             // consider_endpoints=False: boundary observations use only the neighbor distance.
             // When m == 1, no inter-observation neighbor exists, so fall back to endpoint distances.
-            let sorted_sigmas: Vec<f64> = if m == 1 {
-                vec![(sorted_obs[0] - adj_low).max(adj_high - sorted_obs[0])]
-            } else {
-                (0..m)
-                    .map(|j| {
-                        if j == 0 {
-                            sorted_obs[1] - sorted_obs[0]
-                        } else if j == m - 1 {
-                            sorted_obs[m - 1] - sorted_obs[m - 2]
-                        } else {
-                            (sorted_obs[j] - sorted_obs[j - 1])
-                                .max(sorted_obs[j + 1] - sorted_obs[j])
-                        }
-                    })
-                    .collect()
-            };
-
             sigmas.resize(m, 0.0);
-            for (&(orig_idx, _), &sigma) in idx_vals.iter().zip(sorted_sigmas.iter()) {
-                sigmas[orig_idx] = sigma;
+            for (j, &(orig_idx, _)) in idx_vals.iter().enumerate() {
+                sigmas[orig_idx] = if m == 1 {
+                    (sorted_obs[0] - adj_low).max(adj_high - sorted_obs[0])
+                } else if j == 0 {
+                    sorted_obs[1] - sorted_obs[0]
+                } else if j == m - 1 {
+                    sorted_obs[m - 1] - sorted_obs[m - 2]
+                } else {
+                    (sorted_obs[j] - sorted_obs[j - 1]).max(sorted_obs[j + 1] - sorted_obs[j])
+                };
             }
             // Sigma for prior
             sigmas.push(adj_high - adj_low);
