@@ -17,9 +17,16 @@ use rustuna_core::{Error, ErrorKind};
 
 const EPS: f64 = 1e-12;
 
+/// Configuration for [`TpeSampler`].
 pub struct TpeConfig {
+    /// Whether to use multivariate TPE for joint suggestions over the inferred search space.
+    ///
+    /// When this is `false`, parameters are sampled independently.
     pub multivariate: bool,
+
+    /// Number of completed trials to collect before switching from random sampling to TPE.
     pub n_startup_trials: usize,
+    /// Optional RNG seed.
     pub seed: Option<u64>,
 }
 impl Default for TpeConfig {
@@ -34,6 +41,58 @@ impl Default for TpeConfig {
 
 type SplitKey = (Vec<u32>, usize);
 type SplitValue = (Vec<u32>, Vec<u32>);
+/// Tree-structured Parzen Estimator sampler.
+///
+/// This sampler is the Rustuna counterpart of Optuna's `TPESampler`.
+///
+/// For each parameter, TPE fits one Parzen estimator `l(x)` to parameter values observed in
+/// promising trials and another Parzen estimator `g(x)` to the remaining trials, then chooses
+/// the value that maximizes the ratio `l(x) / g(x)`.
+///
+/// Rustuna uses random sampling until `n_startup_trials` completed trials are available in the
+/// same study, then switches to TPE-based suggestions. When `multivariate` is enabled, it uses
+/// multivariate TPE to jointly sample parameters from the inferred search space instead of
+/// sampling each parameter independently.
+///
+/// This sampler can also be used for multi-objective optimization. In that case, Rustuna splits
+/// completed trials into promising and non-promising sets using the multi-objective variant of
+/// TPE and a hypervolume-based weighting rule for promising trials.
+///
+/// For further information, see:
+///
+/// - [Algorithms for Hyper-Parameter Optimization](https://papers.nips.cc/paper/4443-algorithms-for-hyper-parameter-optimization.pdf)
+/// - [Making a Science of Model Search: Hyperparameter Optimization in Hundreds of Dimensions for Vision Architectures](http://proceedings.mlr.press/v28/bergstra13.pdf)
+/// - [Tree-Structured Parzen Estimator: Understanding Its Algorithm Components and Their Roles for Better Empirical Performance](https://arxiv.org/abs/2304.11127)
+/// - [Multiobjective Tree-Structured Parzen Estimator for Computationally Expensive Optimization Problems](https://doi.org/10.1145/3377930.3389817)
+/// - [Multiobjective Tree-Structured Parzen Estimator](https://doi.org/10.1613/jair.1.13188)
+///
+/// # Examples
+///
+/// ```no_run
+/// use rustuna_core::storage::InMemoryStorage;
+/// use rustuna_core::study::{create_study, Direction};
+/// use rustuna_core::Result;
+/// use rustuna_samplers::tpe::TpeSampler;
+///
+/// fn main() -> Result<()> {
+///     let storage = InMemoryStorage::new();
+///     let study = create_study(
+///         "simple-quadratic",
+///         storage,
+///         TpeSampler::new(),
+///         vec![Direction::Minimize],
+///     )?;
+///
+///     study.optimize(
+///         |mut trial| {
+///             let x = trial.suggest_float("x", -10.0, 10.0)?;
+///             Ok(vec![x * x])
+///         },
+///         10,
+///     )?;
+///     Ok(())
+/// }
+/// ```
 pub struct TpeSampler {
     rng: StdRng,
     multivariate: bool,
@@ -48,6 +107,7 @@ impl Default for TpeSampler {
     }
 }
 impl TpeSampler {
+    /// Creates a sampler from an explicit configuration.
     pub fn from_config(cfg: TpeConfig) -> TpeSampler {
         let mut rng = match cfg.seed {
             Some(s) => StdRng::seed_from_u64(s),
@@ -63,10 +123,18 @@ impl TpeSampler {
         }
     }
 
+    /// Creates a sampler with the default configuration.
+    ///
+    /// The default configuration enables multivariate TPE and uses random sampling for the first
+    /// 10 completed trials.
     pub fn new() -> TpeSampler {
         Self::from_config(TpeConfig::default())
     }
 
+    /// Creates a reproducibly seeded sampler.
+    ///
+    /// This helper keeps `multivariate` disabled, which is convenient for deterministic tests and
+    /// examples that only rely on independent sampling.
     pub fn seed_from_u64(seed: u64) -> TpeSampler {
         Self::from_config(TpeConfig {
             multivariate: false,
