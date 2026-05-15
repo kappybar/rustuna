@@ -4,6 +4,10 @@ use rustuna_core::study::Study;
 use rustuna_core::trial::{PersistedTrial, TrialStateValues};
 use rustuna_core::{Error, ErrorKind, Result};
 
+/// Computes parameter importances with the legacy fANOVA-based implementation.
+///
+/// This helper fits a random-forest model and returns one importance vector per objective.
+/// It is kept for compatibility, but new code should prefer [`crate::PedAnovaImportanceEvaluator`].
 pub fn get_param_importance(study: &Study) -> Result<Vec<Vec<f64>>> {
     let mut guard = study
         .storage

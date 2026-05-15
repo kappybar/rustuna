@@ -6,6 +6,57 @@ use rustuna_core::trial::PersistedTrial;
 use rustuna_core::Result;
 use std::collections::HashMap;
 
+/// PED-ANOVA importance evaluator.
+///
+/// This evaluator implements the PED-ANOVA hyperparameter importance algorithm.
+///
+/// PED-ANOVA fits Parzen estimators to completed trials that perform better than a
+/// user-specified baseline quantile and measures how much each parameter contributes to achieving
+/// values better than that baseline.
+///
+/// For further information, see
+/// [PED-ANOVA: Efficiently Quantifying Hyperparameter Importance in Arbitrary Subspaces](https://arxiv.org/abs/2304.10255).
+///
+/// The quality of the result depends on how many trials are included above the target quantile.
+/// In practice, it is preferable to have at least several top trials in the selected region.
+///
+/// `evaluate_on_local` controls whether importances are measured against the empirical search
+/// region explored during optimization or against the full search space. Local evaluation is
+/// especially useful when the effective search region changes during the study.
+///
+/// # Examples
+///
+/// ```no_run
+/// use rustuna_core::storage::InMemoryStorage;
+/// use rustuna_core::study::{create_study, Direction};
+/// use rustuna_core::sampler::RandomSampler;
+/// use rustuna_core::Result;
+/// use rustuna_importance::{get_param_importances, PedAnovaImportanceEvaluator};
+///
+/// fn main() -> Result<()> {
+///     let storage = InMemoryStorage::new();
+///     let study = create_study(
+///         "ped-anova",
+///         storage,
+///         RandomSampler::new(),
+///         vec![Direction::Minimize],
+///     )?;
+///
+///     study.optimize(
+///         |mut trial| {
+///             let x1 = trial.suggest_float("x1", -10.0, 10.0)?;
+///             let x2 = trial.suggest_float("x2", -10.0, 10.0)?;
+///             Ok(vec![x1 + x2 / 1000.0])
+///         },
+///         100,
+///     )?;
+///
+///     let evaluator = PedAnovaImportanceEvaluator::default();
+///     let importances = get_param_importances(&study, &evaluator)?;
+///     println!("{importances:?}");
+///     Ok(())
+/// }
+/// ```
 pub struct PedAnovaImportanceEvaluator {
     target_quantile: f64,
     region_quantile: f64,
@@ -29,6 +80,17 @@ impl Default for PedAnovaImportanceEvaluator {
 }
 
 impl PedAnovaImportanceEvaluator {
+    /// Creates a PED-ANOVA evaluator.
+    ///
+    /// `target_quantile` selects the top fraction of completed trials used as the target region.
+    /// For example, `0.1` evaluates which parameters were important for achieving the top 10% of
+    /// observed objective values.
+    ///
+    /// `region_quantile` selects the reference region against which the target region is compared.
+    /// The default behavior in [`Default`] compares against all completed trials.
+    ///
+    /// `evaluate_on_local` controls whether the reference density is estimated from the explored
+    /// region (`true`) or from the full search space (`false`).
     pub fn new(target_quantile: f64, region_quantile: f64, evaluate_on_local: bool) -> Self {
         Self {
             target_quantile,
@@ -120,6 +182,7 @@ impl PedAnovaImportanceEvaluator {
 }
 
 impl ImportanceEvaluator for PedAnovaImportanceEvaluator {
+    /// Evaluates parameter importances from completed trials in the study.
     fn evaluate_with(
         &self,
         study: &Study,
