@@ -182,31 +182,26 @@ impl NumericalDistributionBuilder for DefaultNumericalDistributionBuilder {
             let m = mus.len() - 1; // exclude prior
             let mut idx_vals: Vec<(usize, f64)> = (0..m).map(|i| (i, mus[i])).collect();
             idx_vals.sort_by(|a, b| a.1.total_cmp(&b.1));
-            let sorted_mus = idx_vals.iter().map(|&(_, v)| v);
+            let sorted_obs: Vec<f64> = idx_vals.iter().map(|&(_, v)| v).collect();
 
-            let extended = std::iter::once(adj_low)
-                .chain(sorted_mus)
-                .chain(std::iter::once(adj_high))
-                .collect::<Vec<_>>();
-
-            let n = extended.len();
-            let sorted_sigmas = (1..(n - 1))
-                .map(|i| {
-                    let left_diff = extended[i] - extended[i - 1];
-                    let right_diff = extended[i + 1] - extended[i];
-                    // consider_endpoints=False: boundary observations use only the neighbor
-                    // distance, not the distance to the endpoint.
-                    // Condition n >= 4 ensures at least 2 observations so both boundaries
-                    // have a non-endpoint neighbor.
-                    if n >= 4 && i == 1 {
-                        right_diff
-                    } else if n >= 4 && i == n - 2 {
-                        left_diff
-                    } else {
-                        left_diff.max(right_diff)
-                    }
-                })
-                .collect::<Vec<_>>();
+            // consider_endpoints=False: boundary observations use only the neighbor distance.
+            // When m == 1, no inter-observation neighbor exists, so fall back to endpoint distances.
+            let sorted_sigmas: Vec<f64> = if m == 1 {
+                vec![(sorted_obs[0] - adj_low).max(adj_high - sorted_obs[0])]
+            } else {
+                (0..m)
+                    .map(|j| {
+                        if j == 0 {
+                            sorted_obs[1] - sorted_obs[0]
+                        } else if j == m - 1 {
+                            sorted_obs[m - 1] - sorted_obs[m - 2]
+                        } else {
+                            (sorted_obs[j] - sorted_obs[j - 1])
+                                .max(sorted_obs[j + 1] - sorted_obs[j])
+                        }
+                    })
+                    .collect()
+            };
 
             sigmas.resize(m, 0.0);
             for (&(orig_idx, _), &sigma) in idx_vals.iter().zip(sorted_sigmas.iter()) {
