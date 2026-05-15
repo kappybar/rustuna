@@ -174,7 +174,7 @@ impl NumericalDistributionBuilder for DefaultNumericalDistributionBuilder {
             .chain(std::iter::once((adj_low + adj_high) / 2.0)) // Add prior
             .collect::<Vec<_>>();
 
-        let mut sigmas = Vec::with_capacity(mus.len());
+        let mut sigmas = Vec::with_capacity(mus.len() + 1);  // +1 for prior
         if mus.len() == 1 {
             // Case: prior only
             sigmas.push(adj_high - adj_low);
