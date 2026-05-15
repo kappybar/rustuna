@@ -141,7 +141,7 @@ impl NumericalDistributionBuilder for DefaultNumericalDistributionBuilder {
         observations: &[f64],
         search_space: &Distribution,
     ) -> Distributions {
-        // Currently, we assume consider_prior=True, consider_endpoints=True, and consider_magic_clip=True.
+        // Currently, we assume consider_prior=True, consider_endpoints=False, and consider_magic_clip=True.
         let (low, high, step_opt, log) = match search_space {
             Distribution::Float {
                 low,
@@ -174,7 +174,7 @@ impl NumericalDistributionBuilder for DefaultNumericalDistributionBuilder {
             .chain(std::iter::once((adj_low + adj_high) / 2.0)) // Add prior
             .collect::<Vec<_>>();
 
-        let mut sigmas = Vec::with_capacity(mus.len());
+        let mut sigmas = Vec::with_capacity(mus.len() + 1); // +1 for prior
         if mus.len() == 1 {
             // Case: prior only
             sigmas.push(adj_high - adj_low);
@@ -182,24 +182,21 @@ impl NumericalDistributionBuilder for DefaultNumericalDistributionBuilder {
             let m = mus.len() - 1; // exclude prior
             let mut idx_vals: Vec<(usize, f64)> = (0..m).map(|i| (i, mus[i])).collect();
             idx_vals.sort_by(|a, b| a.1.total_cmp(&b.1));
-            let sorted_mus = idx_vals.iter().map(|&(_, v)| v);
+            let sorted_obs: Vec<f64> = idx_vals.iter().map(|&(_, v)| v).collect();
 
-            let extended = std::iter::once(adj_low)
-                .chain(sorted_mus)
-                .chain(std::iter::once(adj_high))
-                .collect::<Vec<_>>();
-
-            let sorted_sigmas = (1..(extended.len() - 1))
-                .map(|i| {
-                    let left_diff = extended[i] - extended[i - 1];
-                    let right_diff = extended[i + 1] - extended[i];
-                    left_diff.max(right_diff)
-                })
-                .collect::<Vec<_>>();
-
+            // consider_endpoints=False: boundary observations use only the neighbor distance.
+            // When m == 1, no inter-observation neighbor exists, so fall back to endpoint distances.
             sigmas.resize(m, 0.0);
-            for (&(orig_idx, _), &sigma) in idx_vals.iter().zip(sorted_sigmas.iter()) {
-                sigmas[orig_idx] = sigma;
+            for (j, &(orig_idx, _)) in idx_vals.iter().enumerate() {
+                sigmas[orig_idx] = if m == 1 {
+                    (sorted_obs[0] - adj_low).max(adj_high - sorted_obs[0])
+                } else if j == 0 {
+                    sorted_obs[1] - sorted_obs[0]
+                } else if j == m - 1 {
+                    sorted_obs[m - 1] - sorted_obs[m - 2]
+                } else {
+                    (sorted_obs[j] - sorted_obs[j - 1]).max(sorted_obs[j + 1] - sorted_obs[j])
+                };
             }
             // Sigma for prior
             sigmas.push(adj_high - adj_low);
