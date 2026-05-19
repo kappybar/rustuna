@@ -1,3 +1,8 @@
+//! Hyperparameter importance evaluators for Rustuna.
+//!
+//! This crate provides utilities to estimate parameter importances from completed trials in a
+//! study. It currently includes PED-ANOVA and legacy fANOVA-based helper.
+
 mod common;
 pub mod fanova;
 mod ped_anova;

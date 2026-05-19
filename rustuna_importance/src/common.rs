@@ -4,6 +4,7 @@ use rustuna_core::trial::{PersistedTrial, TrialStateValues};
 use rustuna_core::{Error, ErrorKind, Result};
 use std::collections::HashMap;
 
+/// Options shared by parameter-importance evaluators.
 pub struct ImportanceOptions<'a> {
     // NOTE(kAIto47802): Currently, the `param` argument is not implemented.
     // We plan to implement it when we support condPED-ANOVA:
@@ -22,21 +23,31 @@ impl<'a> Default for ImportanceOptions<'a> {
 }
 
 impl<'a> ImportanceOptions<'a> {
+    /// Creates the default options.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Sets the target value used to evaluate importances.
+    ///
+    /// By default, evaluators use the first objective value of each completed trial. For
+    /// multi-objective studies, this target must be specified explicitly.
     pub fn with_target(mut self, target: &'a dyn Fn(&PersistedTrial) -> f64) -> Self {
         self.target = Some(target);
         self
     }
 
+    /// Sets whether the returned importances should be normalized to sum to `1.0`.
     pub fn normalize(mut self, normalize: bool) -> Self {
         self.normalize = normalize;
         self
     }
 }
 
+/// Evaluates parameter importances for completed trials in a study.
+///
+/// The returned map associates parameter names with non-negative importance values. By default,
+/// the importances are normalized to sum to `1.0`.
 pub fn get_param_importances(
     study: &Study,
     evaluator: &impl ImportanceEvaluator,
@@ -44,6 +55,9 @@ pub fn get_param_importances(
     get_param_importances_with(study, evaluator, ImportanceOptions::default())
 }
 
+/// Evaluates parameter importances with explicit options.
+///
+/// This variant allows callers to provide a custom target function and to disable normalization.
 pub fn get_param_importances_with(
     study: &Study,
     evaluator: &impl ImportanceEvaluator,
@@ -58,10 +72,14 @@ pub fn get_param_importances_with(
     }
 }
 
+/// Trait implemented by parameter-importance evaluators.
 pub trait ImportanceEvaluator {
+    /// Evaluates parameter importances with the default options.
     fn evaluate(&self, study: &Study) -> Result<HashMap<String, f64>> {
         self.evaluate_with(study, ImportanceOptions::default())
     }
+
+    /// Evaluates parameter importances with explicit options.
     fn evaluate_with(
         &self,
         study: &Study,
