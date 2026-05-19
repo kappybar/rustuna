@@ -14,8 +14,8 @@ use std::collections::HashMap;
 /// user-specified baseline quantile and measures how much each parameter contributes to achieving
 /// values better than that baseline.
 ///
-/// For further information, see
-/// [PED-ANOVA: Efficiently Quantifying Hyperparameter Importance in Arbitrary Subspaces](https://arxiv.org/abs/2304.10255).
+/// For further information, see the original paper
+/// [PED-ANOVA: Efficiently Quantifying Hyperparameter Importance in Arbitrary Subspaces](https://arxiv.org/abs/2304.10255) (IJCAI 2023).
 ///
 /// The quality of the result depends on how many trials are included above the target quantile.
 /// In practice, it is preferable to have at least several top trials in the selected region.
