@@ -38,12 +38,21 @@ impl<'a> NumericalDistributionBuilder for ScottNumericalDistributionBuilder<'a> 
             } => (*low, *high, *step, *log),
             _ => panic!("Unsupported distribution type for ScottNumericalDistributionBuilder"),
         };
-        let weights_sum = self.weights.iter().sum::<f64>();
+        let weights_cum = self.weights.iter().scan(0.0, |acc, &w| {
+            *acc += w;
+            Some(*acc)
+        }).collect::<Vec<_>>();
+        let weights_sum = weights_cum.last().cloned().unwrap_or(1.0);
         let n_observations = observations.len();
         let observations = if log {
             observations.iter().map(|v| v.ln()).collect()
         } else {
             observations.to_vec()
+        };
+        let (low, high) = if log {
+            (low.ln(), high.ln())
+        } else {
+            (low, high)
         };
 
         let mean_est = observations
