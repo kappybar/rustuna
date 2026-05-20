@@ -274,11 +274,11 @@ fn count_numerical_param_in_grid(
             v
         }
     });
-    let step_size = (high - low) / (n_steps as f64);
+    let step_size = (high - low) / (n_steps as f64 - 1.0);
     let mut counts = vec![0u32; n_steps];
     for v in param_values {
-        let idx = ((v - low) / step_size)
-            .floor()
+        let idx = ((v - low) / step_size - 0.5)
+            .ceil()
             .max(0.0)
             .min((n_steps - 1) as f64) as usize;
         counts[idx] += 1;
