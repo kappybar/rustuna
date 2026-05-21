@@ -132,11 +132,11 @@ impl TpeSampler {
 
     /// Creates a reproducibly seeded sampler.
     ///
-    /// This helper keeps `multivariate` disabled, which is convenient for deterministic tests and
-    /// examples that only rely on independent sampling.
+    /// This is equivalent to [`TpeSampler::new`] but initializes the internal random number
+    /// generator from the provided seed.
     pub fn seed_from_u64(seed: u64) -> TpeSampler {
         Self::from_config(TpeConfig {
-            multivariate: false,
+            multivariate: true,
             seed: Some(seed),
             n_startup_trials: 10,
         })

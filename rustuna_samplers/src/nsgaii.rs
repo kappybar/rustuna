@@ -70,7 +70,6 @@ impl NSGAIISampler {
     ///
     /// `population_size` is the number of individuals retained in each generation.
     /// `mutation_prob` is the probability of mutating each parameter when generating a child.
-    /// When it is `None`, Rustuna uses `1.0 / len(parent_trial.params)` for the chosen parent.
     /// `crossover_prob` is the probability of generating a child by crossover rather than
     /// cloning one parent. `swapping_prob` is the probability of taking each parameter from the
     /// second parent during crossover.
