@@ -126,8 +126,7 @@ def NSGAIISampler(
     Args:
         seed: Seed for random number generator. If `None`, a random seed is used.
         population_size: Number of individuals in the population. Defaults to `50`.
-        mutation_prob: Probability of mutating each parameter of a candidate. If `None`,
-            `1.0 / len(search_space)` is used. Defaults to `None`.
+        mutation_prob: Probability of mutating each parameter of a candidate.
         crossover_prob: Probability of performing crossover between two parents. Defaults to `0.9`.
         swapping_prob: Probability of swapping each parameter value during crossover.
             Defaults to `0.5`.

@@ -12,6 +12,46 @@ use rustuna_core::trial::{PersistedTrial, TrialStateValues};
 use rustuna_core::Result;
 use rustuna_core::{Error, ErrorKind};
 
+/// NSGA-II sampler for multi-objective optimization.
+///
+/// NSGA-II stands for Nondominated Sorting Genetic Algorithm II, a fast and elitist
+/// multi-objective genetic algorithm.
+///
+/// This sampler is the Rustuna counterpart of Optuna's `NSGAIISampler`. It tracks generations in
+/// trial system attributes, performs elite population selection using non-dominated sorting and
+/// crowding distance, and generates child solutions by crossover and mutation.
+///
+/// For further information, see
+/// [A fast and elitist multiobjective genetic algorithm: NSGA-II](https://doi.org/10.1109/4235.996017).
+///
+/// # Examples
+///
+/// ```no_run
+/// use rustuna_core::storage::InMemoryStorage;
+/// use rustuna_core::study::{create_study, Direction};
+/// use rustuna_core::Result;
+/// use rustuna_samplers::nsgaii::NSGAIISampler;
+///
+/// fn main() -> Result<()> {
+///     let storage = InMemoryStorage::new();
+///     let study = create_study(
+///         "bi-objective",
+///         storage,
+///         NSGAIISampler::new(50, None, 0.9, 0.5),
+///         vec![Direction::Minimize, Direction::Maximize],
+///     )?;
+///
+///     study.optimize(
+///         |mut trial| {
+///             let x = trial.suggest_float("x", -100.0, 100.0)?;
+///             let y = trial.suggest_float("y", -100.0, 100.0)?;
+///             Ok(vec![x * x + y * y, -((x - 2.0).powi(2) + y * y)])
+///         },
+///         100,
+///     )?;
+///     Ok(())
+/// }
+/// ```
 pub struct NSGAIISampler {
     rng: StdRng,
     population_size: usize,
@@ -26,6 +66,13 @@ impl Default for NSGAIISampler {
 }
 
 impl NSGAIISampler {
+    /// Creates an NSGA-II sampler.
+    ///
+    /// `population_size` is the number of individuals retained in each generation.
+    /// `mutation_prob` is the probability of mutating each parameter when generating a child.
+    /// `crossover_prob` is the probability of generating a child by crossover rather than
+    /// cloning one parent. `swapping_prob` is the probability of taking each parameter from the
+    /// second parent during crossover.
     pub fn new(
         population_size: usize,
         mutation_prob: Option<f64>,
@@ -40,6 +87,10 @@ impl NSGAIISampler {
             swapping_prob,
         }
     }
+    /// Creates a reproducibly seeded NSGA-II sampler.
+    ///
+    /// This is equivalent to [`NSGAIISampler::new`] but initializes the internal random number
+    /// generator from the provided seed.
     pub fn seed_from_u64(
         seed: u64,
         population_size: usize,
