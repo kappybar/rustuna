@@ -23,7 +23,6 @@ pub struct TpeConfig {
     ///
     /// When this is `false`, parameters are sampled independently.
     pub multivariate: bool,
-
     /// Number of completed trials to collect before switching from random sampling to TPE.
     pub n_startup_trials: usize,
     /// Optional RNG seed.
@@ -88,7 +87,7 @@ type SplitValue = (Vec<u32>, Vec<u32>);
 ///             let x = trial.suggest_float("x", -10.0, 10.0)?;
 ///             Ok(vec![x * x])
 ///         },
-///         10,
+///         100,
 ///     )?;
 ///     Ok(())
 /// }
