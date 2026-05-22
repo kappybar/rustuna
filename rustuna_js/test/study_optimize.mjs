@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert";
 
-import * as rustuna from "../pkg/rustuna.js";
+import * as rustuna from "../pkg/node/rustuna.js";
 import { type } from "node:os";
 
 test("optimize simple quadratic function", () => {

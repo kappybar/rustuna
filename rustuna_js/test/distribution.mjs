@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert";
 
-import * as rustuna from "../pkg/rustuna.js";
+import * as rustuna from "../pkg/node/rustuna.js";
 
 test("optimize simple quadratic function", () => {
 	const study = rustuna.create_study("test");
