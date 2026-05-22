@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>rustuna_js browser example</title>
+  </head>
+  <body>
+    <pre id="output"></pre>
+    <script type="module">
+      import init, { create_study } from "../../pkg/web/rustuna.js";
+
+      const output = document.getElementById("output");
+
+      async function main() {
+        await init();
+
+        const study = create_study("browser-example");
+        study.optimize((trial) => {
+          const x = trial.suggest_float("x", -10.0, 10.0);
+          const y = trial.suggest_int("y", -10, 10);
+          return (x - 3) ** 2 + (y + 2) ** 2;
+        }, 30);
+
+        output.textContent = JSON.stringify(study.best_trial.toJSON(), null, 2);
+      }
+
+      main().catch((error) => {
+        output.textContent = String(error);
+      });
+    </script>
+  </body>
+</html>
