@@ -124,8 +124,7 @@ impl PedAnovaImportanceEvaluator {
                 }
             })
             .collect::<Vec<_>>();
-        let num_top_trials =
-            ((quantile * trials.len() as f64).ceil() as usize) - 1;
+        let num_top_trials = ((quantile * trials.len() as f64).ceil() as usize) - 1;
         let threshold = {
             let (_, &mut threshold, _) = objective_values
                 .clone()
