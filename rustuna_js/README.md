@@ -27,26 +27,25 @@ console.log("best_trial.value: ", study.best_trial().value)
 
 ```
 $ cd rustuna_js/
-$ ./build.sh
+$ pnpm build
 ```
 
 #### Run examples
 
 ```
-$ ./build.sh
+$ pnpm build
 $ node dist/simple_quadratic.js
 ```
 
 #### Format
 
 ```
-$ npm i -g @biomejs/biome
+$ pnpm add -D @biomejs/biome
 $ biome format --write examples/*.ts test/*.mjs
 ```
 
 #### Test
 
 ```
-$ node --test
+$ pnpm test
 ```
-
