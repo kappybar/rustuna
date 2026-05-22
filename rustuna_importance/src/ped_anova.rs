@@ -131,7 +131,7 @@ impl PedAnovaImportanceEvaluator {
                 .select_nth_unstable_by(num_top_trials, |a, b| a.total_cmp(b));
             let (_, &mut threshold_min, _) = objective_values
                 .clone()
-                .select_nth_unstable_by(num_top_trials - 1, |a, b| a.total_cmp(b));
+                .select_nth_unstable_by(self.min_n_top_trials - 1, |a, b| a.total_cmp(b));
             threshold.max(threshold_min)
         };
         let top_trials = trials
