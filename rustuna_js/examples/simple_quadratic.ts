@@ -1,4 +1,4 @@
-import * as rustuna from "../pkg/rustuna.js";
+import * as rustuna from "../pkg/node/rustuna.js";
 
 const study = rustuna.create_study("test");
 

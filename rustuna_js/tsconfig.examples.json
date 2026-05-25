@@ -9,5 +9,5 @@
     "outDir": "./dist",
     "noEmitOnError": true
   },
-  "include": ["examples/**/*.ts", "pkg/**/*.d.ts"]
+  "include": ["examples/**/*.ts", "pkg/node/**/*.d.ts"]
 }

@@ -1,3 +1,49 @@
 {
-    "type": "commonjs"
+  "name": "rustuna",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "description": "JavaScript bindings for Rustuna",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/optuna/rustuna.git",
+    "directory": "rustuna_js"
+  },
+  "keywords": [
+    "hyperparameter-optimization",
+    "optuna",
+    "wasm"
+  ],
+  "type": "commonjs",
+  "main": "./pkg/node/rustuna.js",
+  "types": "./pkg/node/rustuna.d.ts",
+  "browser": "./pkg/web/rustuna.js",
+  "exports": {
+    ".": {
+      "types": "./pkg/node/rustuna.d.ts",
+      "browser": "./pkg/web/rustuna.js",
+      "default": "./pkg/node/rustuna.js"
+    },
+    "./node": {
+      "types": "./pkg/node/rustuna.d.ts",
+      "default": "./pkg/node/rustuna.js"
+    },
+    "./web": {
+      "types": "./pkg/web/rustuna.d.ts",
+      "default": "./pkg/web/rustuna.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "pkg/node",
+    "pkg/web",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "bash ./build.sh",
+    "build:node": "mkdir -p ./pkg/node && cargo build --target wasm32-unknown-unknown --release && wasm-bindgen ../target/wasm32-unknown-unknown/release/rustuna.wasm --out-dir ./pkg/node --target nodejs",
+    "build:web": "mkdir -p ./pkg/web && cargo build --target wasm32-unknown-unknown --release && wasm-bindgen ../target/wasm32-unknown-unknown/release/rustuna.wasm --out-dir ./pkg/web --target web",
+    "test": "node --test ./test/*.mjs"
+  }
 }
