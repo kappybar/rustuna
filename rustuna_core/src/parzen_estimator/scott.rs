@@ -75,8 +75,8 @@ impl<'a> NumericalDistributionBuilder for ScottNumericalDistributionBuilder<'a> 
             var.sqrt()
         };
 
-        let q1_idx = weights_cum.partition_point(|&v| v < weights_sum * 0.25);
-        let q3_idx = weights_cum.partition_point(|&v| v <= weights_sum * 0.75);
+        let q1_idx = weights_cum.partition_point(|&v| v < (weights_sum / 4.0).floor());
+        let q3_idx = weights_cum.partition_point(|&v| v <= (weights_sum * 3.0 / 4.0).floor());
         let iqr = observations[q3_idx.min(n_observations - 1)] - observations[q1_idx];
 
         let sigma_est = 1.059 * sigma_est.min(iqr / 1.34) * weights_sum.powf(-0.2);
