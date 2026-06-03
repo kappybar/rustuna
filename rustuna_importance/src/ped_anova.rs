@@ -235,7 +235,6 @@ fn partition_by_regime<'a>(
     let mut regime_trials: Vec<(Option<&'a Distribution>, Vec<&'a PersistedTrial>)> = vec![];
     for trial in trials {
         let dist = trial.distributions.get(param_name);
-
         if let Some((_, group_trials)) = regime_trials
             .iter_mut()
             .find(|(existing_regime, _)| *existing_regime == dist)
