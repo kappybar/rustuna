@@ -2,7 +2,7 @@ use rustuna_core::distribution::Distribution;
 use rustuna_core::study::Study;
 use rustuna_core::trial::{PersistedTrial, TrialStateValues};
 use rustuna_core::{Error, ErrorKind, Result};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Options shared by parameter-importance evaluators.
 pub struct ImportanceOptions<'a> {
@@ -166,24 +166,30 @@ pub(crate) fn get_filtered_trials(
     }
 }
 
-
-pub(crate) fn get_distributions(trials: &[PersistedTrial], params: &Option<Vec<String>>) -> Result<Vec<HashMap<String, Distribution>>> {
+pub(crate) fn get_distributions(
+    trials: &[PersistedTrial],
+    params: &Option<Vec<String>>,
+) -> Result<Vec<HashMap<String, Distribution>>> {
     if trials.is_empty() {
         return Err(Error::with_reason(
             ErrorKind::ImportanceEvaluatorError,
             "Cannot evaluate parameter importances without completed trials.",
-        ))
+        ));
     }
     if trials.len() == 1 {
         return Err(Error::with_reason(
             ErrorKind::ImportanceEvaluatorError,
             "Cannot evaluate parameter importances with only a single trial.",
-        ))
+        ));
     }
-    let params_set = params.as_ref().map(|p| p.iter().cloned().collect::<HashSet<_>>());
-    let dists = trials.iter()
+    let params_set = params
+        .as_ref()
+        .map(|p| p.iter().cloned().collect::<HashSet<_>>());
+    let dists = trials
+        .iter()
         .map(|t| {
-            t.distributions.iter()
+            t.distributions
+                .iter()
                 .filter(|(name, _)| params_set.as_ref().map_or(true, |s| s.contains(*name)))
                 .map(|(name, dist)| (name.clone(), dist.clone()))
                 .collect::<HashMap<_, _>>()
@@ -191,9 +197,6 @@ pub(crate) fn get_distributions(trials: &[PersistedTrial], params: &Option<Vec<S
         .collect::<Vec<_>>();
     Ok(dists)
 }
-
-
-
 
 #[cfg(test)]
 mod tests {
