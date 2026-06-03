@@ -6,11 +6,9 @@ use std::collections::HashMap;
 
 /// Options shared by parameter-importance evaluators.
 pub struct ImportanceOptions<'a> {
-    // NOTE(kAIto47802): Currently, the `param` argument is not implemented.
-    // We plan to implement it when we support condPED-ANOVA:
-    // - https://arxiv.org/abs/2601.20800
     pub target: Option<&'a dyn Fn(&PersistedTrial) -> f64>,
     pub normalize: bool,
+    pub params: Option<Vec<String>>,
 }
 
 impl<'a> Default for ImportanceOptions<'a> {
@@ -18,6 +16,7 @@ impl<'a> Default for ImportanceOptions<'a> {
         Self {
             target: None,
             normalize: true,
+            params: None,
         }
     }
 }
@@ -40,6 +39,12 @@ impl<'a> ImportanceOptions<'a> {
     /// Sets whether the returned importances should be normalized to sum to `1.0`.
     pub fn normalize(mut self, normalize: bool) -> Self {
         self.normalize = normalize;
+        self
+    }
+
+    /// Sets the list of parameter names to evaluate importances for.
+    pub fn with_params(mut self, params: Vec<String>) -> Self {
+        self.params = Some(params);
         self
     }
 }
