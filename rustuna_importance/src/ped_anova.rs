@@ -64,6 +64,7 @@ pub struct PedAnovaImportanceEvaluator {
     n_steps: usize,
     prior_weight: f64,
     min_n_top_trials: usize,
+    min_n_trials_in_regime: usize,
 }
 
 impl Default for PedAnovaImportanceEvaluator {
@@ -75,6 +76,7 @@ impl Default for PedAnovaImportanceEvaluator {
             n_steps: 50,
             prior_weight: 1.0,
             min_n_top_trials: 2,
+            min_n_trials_in_regime: 2,
         }
     }
 }
@@ -99,6 +101,7 @@ impl PedAnovaImportanceEvaluator {
             n_steps: 50,
             prior_weight: 1.0,
             min_n_top_trials: 2,
+            min_n_trials_in_regime: 2,
         }
     }
 
