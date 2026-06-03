@@ -167,6 +167,34 @@ pub(crate) fn get_filtered_trials(
 }
 
 
+pub(crate) fn get_distributions(trials: &[PersistedTrial], params: &Option<Vec<String>>) -> Result<Vec<HashMap<String, Distribution>>> {
+    if trials.is_empty() {
+        return Err(Error::with_reason(
+            ErrorKind::ImportanceEvaluatorError,
+            "Cannot evaluate parameter importances without completed trials.",
+        ))
+    }
+    if trials.len() == 1 {
+        return Err(Error::with_reason(
+            ErrorKind::ImportanceEvaluatorError,
+            "Cannot evaluate parameter importances with only a single trial.",
+        ))
+    }
+    let params_set = params.as_ref().map(|p| p.iter().cloned().collect::<HashSet<_>>());
+    let dists = trials.iter()
+        .map(|t| {
+            t.distributions.iter()
+                .filter(|(name, _)| params_set.as_ref().map_or(true, |s| s.contains(*name)))
+                .map(|(name, dist)| (name.clone(), dist.clone()))
+                .collect::<HashMap<_, _>>()
+        })
+        .collect::<Vec<_>>();
+    Ok(dists)
+}
+
+
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
