@@ -190,7 +190,7 @@ pub(crate) fn get_distributions(
         .map(|t| {
             t.distributions
                 .iter()
-                .filter(|(name, _)| params_set.as_ref().map_or(true, |s| s.contains(*name)))
+                .filter(|(name, _)| params_set.as_ref().is_none_or(|s| s.contains(*name)))
                 .map(|(name, dist)| (name.clone(), dist.clone()))
                 .collect::<HashMap<_, _>>()
         })
