@@ -166,16 +166,6 @@ pub(crate) fn get_filtered_trials(
     }
 }
 
-pub(crate) fn get_intersection_search_space(
-    trials: &[PersistedTrial],
-) -> HashMap<String, Distribution> {
-    let mut intersection_search_space = trials[0].distributions.clone();
-    for trial in &trials[1..] {
-        intersection_search_space
-            .retain(|k, v| trial.distributions.get(k).is_some_and(|v2| v2 == v));
-    }
-    intersection_search_space
-}
 
 #[cfg(test)]
 mod tests {
