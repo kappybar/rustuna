@@ -225,6 +225,28 @@ impl ImportanceEvaluator for PedAnovaImportanceEvaluator {
             .collect();
         Ok(importances)
     }
+
+fn partition_by_regime<'a>(
+    param_name: &str,
+    trials: &'a [&'a PersistedTrial],
+    min_n_trials_in_regime: usize,
+) -> Vec<(Option<&'a Distribution>, Vec<&'a PersistedTrial>)> {
+    // Distribution does not implement Eq or Hash, so we use Vec instead of HashMap.
+    let mut regime_trials: Vec<(Option<&'a Distribution>, Vec<&'a PersistedTrial>)> = vec![];
+    for trial in trials {
+        let dist = trial.distributions.get(param_name);
+
+        if let Some((_, group_trials)) = regime_trials
+            .iter_mut()
+            .find(|(existing_regime, _)| *existing_regime == dist)
+        {
+            group_trials.push(trial);
+        } else {
+            regime_trials.push((dist, vec![trial]));
+        }
+    }
+    regime_trials.retain(|(_, group_trials)| group_trials.len() >= min_n_trials_in_regime);
+    regime_trials
 }
 
 fn count_numerical_param_in_grid(
