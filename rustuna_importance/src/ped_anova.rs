@@ -223,28 +223,41 @@ impl ImportanceEvaluator for PedAnovaImportanceEvaluator {
 
         let target_trial_ids = target_trials.iter().map(|t| t.id).collect::<HashSet<_>>();
         let importances = params.into_iter().map(|name| {
-            let regime_trials = partition_by_regime(&name, &region_trials, self.min_n_trials_in_regime);
-            let importance = regime_trials.into_iter().map(|(dist, region_trials_regime)| {
-                let target_trials_regime = region_trials_regime
-                    .iter()
-                    .filter(|t| target_trial_ids.contains(&t.id))
-                    .copied()
-                    .collect::<Vec<_>>();
-                let regime_prob_target = target_trials_regime.len() as f64 / target_trials.len() as f64; // alpha_i
-                let regime_prob_region = region_trials_regime.len() as f64 / region_trials.len() as f64; // beta_i
-                match dist {
-                    Some(dist) if !dist.is_single() && !target_trials_regime.is_empty() =>
-                        regime_prob_target.powi(2) / regime_prob_region
-                        * self.compute_pearson_divergence(&name, dist, &target_trials_regime, &region_trials_regime),
-                    _ => 0.0
-                }
-            }).sum::<f64>();
+            let regime_trials =
+                partition_by_regime(&name, &region_trials, self.min_n_trials_in_regime);
+            let importance = regime_trials
+                .into_iter()
+                .map(|(dist, region_trials_regime)| {
+                    let target_trials_regime = region_trials_regime
+                        .iter()
+                        .filter(|t| target_trial_ids.contains(&t.id))
+                        .copied()
+                        .collect::<Vec<_>>();
+                    let regime_prob_target =
+                        target_trials_regime.len() as f64 / target_trials.len() as f64; // alpha_i
+                    let regime_prob_region =
+                        region_trials_regime.len() as f64 / region_trials.len() as f64; // beta_i
+                    match dist {
+                        Some(dist) if !dist.is_single() && !target_trials_regime.is_empty() => {
+                            regime_prob_target.powi(2) / regime_prob_region
+                                * self.compute_pearson_divergence(
+                                    &name,
+                                    dist,
+                                    &target_trials_regime,
+                                    &region_trials_regime,
+                                )
+                        }
+                        _ => 0.0,
+                    }
+                })
+                .sum::<f64>();
             (name, importance)
         });
-        Ok(importances.map(|(k, v)| (k, quantile.powi(2) * v)).collect())
+        Ok(importances
+            .map(|(k, v)| (k, quantile.powi(2) * v))
+            .collect())
     }
 }
-
 
 fn partition_by_regime<'a>(
     param_name: &str,
