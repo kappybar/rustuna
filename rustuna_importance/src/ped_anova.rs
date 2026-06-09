@@ -124,18 +124,20 @@ impl PedAnovaImportanceEvaluator {
                 }
             })
             .collect::<Vec<_>>();
-        let num_trials = trials.len();
-        let num_top_trials =
-            ((quantile * (num_trials as f64 - 1.0)).floor() as usize).min(num_trials - 1);
-
-        let (_, &mut threshold, _) = objective_values
-            .clone()
-            .select_nth_unstable_by(num_top_trials, |a, b| a.total_cmp(b));
+        let num_top_trials = ((quantile * trials.len() as f64).ceil() as usize).max(1) - 1;
+        let threshold = {
+            let (_, &mut threshold, _) = objective_values
+                .clone()
+                .select_nth_unstable_by(num_top_trials, |a, b| a.total_cmp(b));
+            let (_, &mut threshold_min, _) = objective_values
+                .clone()
+                .select_nth_unstable_by(self.min_n_top_trials - 1, |a, b| a.total_cmp(b));
+            threshold.max(threshold_min)
+        };
         let top_trials = trials
             .iter()
             .zip(objective_values.iter())
-            .filter(|(_, &v)| v <= threshold)
-            .map(|(t, _)| t)
+            .filter_map(|(t, &v)| (v <= threshold).then_some(t))
             .collect();
         top_trials
     }
@@ -274,11 +276,11 @@ fn count_numerical_param_in_grid(
             v
         }
     });
-    let step_size = (high - low) / (n_steps as f64);
+    let step_size = (high - low) / (n_steps as f64 - 1.0);
     let mut counts = vec![0u32; n_steps];
     for v in param_values {
-        let idx = ((v - low) / step_size)
-            .floor()
+        let idx = ((v - low) / step_size - 0.5)
+            .ceil()
             .max(0.0)
             .min((n_steps - 1) as f64) as usize;
         counts[idx] += 1;
