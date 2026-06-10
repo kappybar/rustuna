@@ -169,19 +169,7 @@ pub(crate) fn get_filtered_trials(
 pub(crate) fn get_distributions(
     trials: &[PersistedTrial],
     params: &Option<Vec<String>>,
-) -> Result<Vec<HashMap<String, Distribution>>> {
-    if trials.is_empty() {
-        return Err(Error::with_reason(
-            ErrorKind::ImportanceEvaluatorError,
-            "Cannot evaluate parameter importances without completed trials.",
-        ));
-    }
-    if trials.len() == 1 {
-        return Err(Error::with_reason(
-            ErrorKind::ImportanceEvaluatorError,
-            "Cannot evaluate parameter importances with only a single trial.",
-        ));
-    }
+) -> Vec<HashMap<String, Distribution>> {
     let params_set = params
         .as_ref()
         .map(|p| p.iter().cloned().collect::<HashSet<_>>());
@@ -195,7 +183,7 @@ pub(crate) fn get_distributions(
                 .collect::<HashMap<_, _>>()
         })
         .collect::<Vec<_>>();
-    Ok(dists)
+    dists
 }
 
 #[cfg(test)]
