@@ -339,16 +339,12 @@ impl PyStudy {
         study_id: u32,
         name: String,
         directions: Vec<PyDirection>,
-        storage: PyStorage,
-        sampler: PySampler,
+        storage: Py<PyAny>,
+        sampler: Py<PyAny>,
     ) -> PyResult<Self> {
         let directions: Vec<Direction> = directions.into_iter().map(|d| d.into()).collect();
-        let storage_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
-            Ok(Py::new(py, storage.clone())?.into_any())
-        })?;
-        let sampler_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
-            Ok(Py::new(py, sampler.clone())?.into_any())
-        })?;
+        let (storage_arc, storage_pyobj) = Python::attach(|py| resolve_storage_pyobj(py, storage))?;
+        let (sampler_arc, sampler_pyobj) = Python::attach(|py| resolve_sampler_pyobj(py, sampler))?;
         let trial_queue = PyTrialQueue {
             queue: Arc::new(RwLock::new(
                 rustuna_core::trial_queue::InMemoryTrialQueue::new(),
@@ -362,8 +358,8 @@ impl PyStudy {
             study_id,
             name,
             directions,
-            storage.storage,
-            sampler.sampler.clone(),
+            storage_arc,
+            sampler_arc,
             trial_queue_arc,
         );
         Ok(PyStudy {
