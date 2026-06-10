@@ -203,7 +203,7 @@ impl ImportanceEvaluator for PedAnovaImportanceEvaluator {
                 .iter()
                 .flat_map(|d| d.keys())
                 .cloned()
-                .collect::<HashSet<_>>()
+                .collect::<BTreeSet<_>>()
                 .into_iter()
                 .collect(),
         };
