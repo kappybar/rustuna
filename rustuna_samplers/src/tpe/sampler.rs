@@ -167,22 +167,23 @@ impl TpeSampler {
                 .map(|t| t.number)
                 .collect::<Vec<u32>>();
             let split_cache_key = (complete_trial_numbers.clone(), gamma);
-            let (good_trials, poor_trials) = if self.split_cache.contains_key(&split_cache_key) {
+            let (good_trials, poor_trials): (
+                Vec<&rustuna_core::trial::PersistedTrial>,
+                Vec<&rustuna_core::trial::PersistedTrial>,
+            ) = if self.split_cache.contains_key(&split_cache_key) {
                 let (good_nums, poor_nums) = self.split_cache.get(&split_cache_key).unwrap();
                 let good_trials = complete_trials
                     .iter()
                     .filter(|t| good_nums.contains(&t.number))
-                    .cloned()
                     .collect::<Vec<_>>();
                 let poor_trials = complete_trials
                     .iter()
                     .filter(|t| poor_nums.contains(&t.number))
-                    .cloned()
                     .collect::<Vec<_>>();
                 (good_trials, poor_trials)
             } else {
                 let (good_trials, poor_trials) =
-                    Self::split_trials_for_multi_objective(&complete_trials, directions, gamma);
+                    Self::split_trials_for_multi_objective(complete_trials, directions, gamma);
                 let good_nums = good_trials.iter().map(|t| t.number).collect();
                 let poor_nums = poor_trials.iter().map(|t| t.number).collect();
                 // We only cache the most recent split
@@ -211,13 +212,13 @@ impl TpeSampler {
         Ok(samples_good[best_idx].clone())
     }
 
-    fn split_trials_for_single_objective(
-        trials: &[rustuna_core::trial::PersistedTrial],
+    fn split_trials_for_single_objective<'a>(
+        trials: &'a [rustuna_core::trial::PersistedTrial],
         direction: &Direction,
         gamma: usize,
     ) -> (
-        Vec<rustuna_core::trial::PersistedTrial>,
-        Vec<rustuna_core::trial::PersistedTrial>,
+        Vec<&'a rustuna_core::trial::PersistedTrial>,
+        Vec<&'a rustuna_core::trial::PersistedTrial>,
     ) {
         let n = trials.len();
         assert!(
@@ -229,7 +230,7 @@ impl TpeSampler {
             return (Vec::new(), Vec::new());
         }
         if gamma == n {
-            return (trials.to_vec(), Vec::new());
+            return (trials.iter().collect(), Vec::new());
         }
 
         fn value_for(t: &rustuna_core::trial::PersistedTrial) -> f64 {
@@ -253,21 +254,21 @@ impl TpeSampler {
         let mut good_trials = Vec::with_capacity(gamma);
         let mut poor_trials = Vec::with_capacity(n - gamma);
         for &i in idx.iter().take(gamma) {
-            good_trials.push(trials[i].clone());
+            good_trials.push(&trials[i]);
         }
         for &i in idx.iter().skip(gamma) {
-            poor_trials.push(trials[i].clone());
+            poor_trials.push(&trials[i]);
         }
         (good_trials, poor_trials)
     }
 
-    fn split_trials_for_multi_objective(
-        trials: &[rustuna_core::trial::PersistedTrial],
+    fn split_trials_for_multi_objective<'a>(
+        trials: &'a [rustuna_core::trial::PersistedTrial],
         directions: &[Direction],
         gamma: usize,
     ) -> (
-        Vec<rustuna_core::trial::PersistedTrial>,
-        Vec<rustuna_core::trial::PersistedTrial>,
+        Vec<&'a rustuna_core::trial::PersistedTrial>,
+        Vec<&'a rustuna_core::trial::PersistedTrial>,
     ) {
         let n = trials.len();
         assert!(
@@ -279,7 +280,7 @@ impl TpeSampler {
             return (Vec::new(), Vec::new());
         }
         if gamma == n {
-            return (trials.to_vec(), Vec::new());
+            return (trials.iter().collect(), Vec::new());
         }
 
         // Assume minimization (negate value if maximization)
@@ -313,7 +314,7 @@ impl TpeSampler {
         {
             if let Some(indices) = rank_to_indices.get(&current_rank) {
                 for &i in indices.iter() {
-                    good_trials.push(trials[i].clone());
+                    good_trials.push(&trials[i]);
                 }
             }
             current_rank += 1;
@@ -349,12 +350,12 @@ impl TpeSampler {
                 hss_subset_size,
             );
             for &i in selected_indices.iter() {
-                good_trials.push(trials[i].clone());
+                good_trials.push(&trials[i]);
             }
         }
         for trial in trials.iter() {
             if !good_trials.iter().any(|t| t.number == trial.number) {
-                poor_trials.push(trial.clone());
+                poor_trials.push(trial);
             }
         }
 
@@ -405,7 +406,7 @@ impl TpeSampler {
     }
 
     fn build_parzen_estimator(
-        trials: &[rustuna_core::trial::PersistedTrial],
+        trials: &[&rustuna_core::trial::PersistedTrial],
         search_space: &HashMap<String, Distribution>,
         is_multi_objective: bool,
     ) -> ParzenEstimator {
