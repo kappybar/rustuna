@@ -414,26 +414,24 @@ impl TpeSampler {
 
         let n_params = sorted_keys.len();
         let n_trials = trials.len();
-        let mut observations: HashMap<String, Vec<f64>> = HashMap::with_capacity(n_params);
 
-        // Handle conditional parameters
-        let mut active_counts = HashMap::new();
-        for key in sorted_keys.iter() {
-            let mut vals = Vec::with_capacity(n_trials);
-            for (idx, t) in trials.iter().enumerate() {
+        let mut observations_vec: Vec<Vec<f64>> = (0..n_params)
+            .map(|_| Vec::with_capacity(n_trials))
+            .collect();
+        let mut active_counts: Vec<u32> = vec![0; n_trials];
+
+        for (param_idx, key) in sorted_keys.iter().enumerate() {
+            for (trial_idx, t) in trials.iter().enumerate() {
                 if let Some(&v) = t.internal_params.get(*key) {
-                    vals.push(v);
-                    active_counts
-                        .entry(idx)
-                        .and_modify(|e| *e += 1)
-                        .or_insert(1);
+                    observations_vec[param_idx].push(v);
+                    active_counts[trial_idx] += 1;
                 }
             }
-            observations.insert((*key).clone(), vals);
         }
-        let active_indices = (0..n_trials)
-            .filter(|idx| active_counts.get(idx) == Some(&n_params))
-            .collect::<Vec<usize>>();
+        let n_params_u32 = n_params as u32;
+        let active_indices: Vec<usize> = (0..n_trials)
+            .filter(|&idx| active_counts[idx] == n_params_u32)
+            .collect();
         let weights = if !is_multi_objective {
             Self::weights_for_single_objective(trials.len())
         } else {
@@ -441,6 +439,11 @@ impl TpeSampler {
         };
         let active_weights: Vec<f64> = active_indices.iter().map(|&i| weights[i]).collect();
         let prior_weight = 1.0;
+        let observations: HashMap<String, Vec<f64>> = sorted_keys
+            .iter()
+            .zip(observations_vec)
+            .map(|(k, v)| ((*k).clone(), v))
+            .collect();
         ParzenEstimator::new(&observations, search_space, &active_weights, prior_weight)
     }
 }
