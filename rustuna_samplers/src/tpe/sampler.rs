@@ -145,19 +145,9 @@ impl TpeSampler {
     fn sample(
         &mut self,
         ctx: &Context,
-        storage: Arc<RwLock<dyn Storage>>,
+        complete_trials: &[rustuna_core::trial::PersistedTrial],
         search_space: &HashMap<String, Distribution>,
     ) -> Result<HashMap<String, f64>> {
-        let mut guard = storage
-            .write()
-            .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
-        let trials = guard.get_trials(ctx.study_id)?.clone();
-        drop(guard);
-
-        let complete_trials: Vec<_> = trials
-            .into_iter()
-            .filter(|t| matches!(t.state_values, TrialStateValues::Complete(_)))
-            .collect();
         let is_multi_objective = ctx.directions.len() > 1;
 
         let (pe_good, pe_poor) = if !is_multi_objective {
@@ -481,7 +471,7 @@ impl Sampler for TpeSampler {
         }
 
         let search_space = HashMap::from([(name.to_string(), distribution.clone())]);
-        let params = self.sample(ctx, storage, &search_space)?;
+        let params = self.sample(ctx, &complete_trials, &search_space)?;
         Ok(params[name])
     }
 
@@ -509,7 +499,7 @@ impl Sampler for TpeSampler {
             let params = HashMap::new();
             return Ok(params);
         }
-        let params = self.sample(ctx, storage, search_space)?;
+        let params = self.sample(ctx, &complete_trials, search_space)?;
         Ok(params)
     }
 
