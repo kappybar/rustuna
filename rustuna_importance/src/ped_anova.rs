@@ -406,6 +406,7 @@ fn build_parzen_estimator_on_grid(
 mod tests {
     use super::*;
     use crate::test_utils;
+    use crate::test_utils::ObjectiveType;
     use rustuna_core::study::Direction;
     use rustuna_core::Result;
 
@@ -413,7 +414,7 @@ mod tests {
     fn test_n_trials_equal_to_min_n_top_trials() -> Result<()> {
         let evaluator = PedAnovaImportanceEvaluator::default();
         let study =
-            test_utils::get_study(42, evaluator.min_n_top_trials, false, Direction::Minimize)?;
+            test_utils::get_study(42, evaluator.min_n_top_trials, ObjectiveType::Single, Direction::Minimize)?;
         let importances = evaluator.evaluate(&study)?;
         assert!(
             importances.values().all(|v| v.abs() <= 1e-12),
@@ -424,8 +425,8 @@ mod tests {
 
     #[test]
     fn test_direction() -> Result<()> {
-        let study_minimize = test_utils::get_study(42, 20, false, Direction::Minimize)?;
-        let study_maximize = test_utils::get_study(42, 20, false, Direction::Maximize)?;
+        let study_minimize = test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Minimize)?;
+        let study_maximize = test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Maximize)?;
         let evaluator = PedAnovaImportanceEvaluator::default();
         let importances_minimize = evaluator.evaluate(&study_minimize)?;
         let importances_maximize = evaluator.evaluate(&study_maximize)?;
@@ -435,7 +436,7 @@ mod tests {
 
     #[test]
     fn test_target_quantile() -> Result<()> {
-        let study = test_utils::get_study(42, 20, false, Direction::Minimize)?;
+        let study = test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Minimize)?;
         let evaluator_default = PedAnovaImportanceEvaluator::default();
         let evaluator = PedAnovaImportanceEvaluator::new(0.3, 1.0, true);
         let importances_default = evaluator_default.evaluate(&study)?;
@@ -446,7 +447,7 @@ mod tests {
 
     #[test]
     fn test_region_quantile_less_than_one() -> Result<()> {
-        let study = test_utils::get_study(42, 20, false, Direction::Minimize)?;
+        let study = test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Minimize)?;
         let evaluator_default = PedAnovaImportanceEvaluator::default();
         let evaluator = PedAnovaImportanceEvaluator::new(0.1, 0.5, true);
         let importances_default = evaluator_default.evaluate(&study)?;
@@ -457,7 +458,7 @@ mod tests {
 
     #[test]
     fn test_evaluate_on_local() -> Result<()> {
-        let study = test_utils::get_study(42, 20, false, Direction::Minimize)?;
+        let study = test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Minimize)?;
         let evaluator_default = PedAnovaImportanceEvaluator::default();
         let evaluator = PedAnovaImportanceEvaluator::new(0.1, 1.0, false);
         let importances_default = evaluator_default.evaluate(&study)?;
