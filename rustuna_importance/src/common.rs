@@ -2,15 +2,13 @@ use rustuna_core::distribution::Distribution;
 use rustuna_core::study::Study;
 use rustuna_core::trial::{PersistedTrial, TrialStateValues};
 use rustuna_core::{Error, ErrorKind, Result};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Options shared by parameter-importance evaluators.
 pub struct ImportanceOptions<'a> {
-    // NOTE(kAIto47802): Currently, the `param` argument is not implemented.
-    // We plan to implement it when we support condPED-ANOVA:
-    // - https://arxiv.org/abs/2601.20800
     pub target: Option<&'a dyn Fn(&PersistedTrial) -> f64>,
     pub normalize: bool,
+    pub params: Option<Vec<String>>,
 }
 
 impl<'a> Default for ImportanceOptions<'a> {
@@ -18,6 +16,7 @@ impl<'a> Default for ImportanceOptions<'a> {
         Self {
             target: None,
             normalize: true,
+            params: None,
         }
     }
 }
@@ -40,6 +39,12 @@ impl<'a> ImportanceOptions<'a> {
     /// Sets whether the returned importances should be normalized to sum to `1.0`.
     pub fn normalize(mut self, normalize: bool) -> Self {
         self.normalize = normalize;
+        self
+    }
+
+    /// Sets the list of parameter names to evaluate importances for.
+    pub fn with_params(mut self, params: Vec<String>) -> Self {
+        self.params = Some(params);
         self
     }
 }
@@ -161,15 +166,24 @@ pub(crate) fn get_filtered_trials(
     }
 }
 
-pub(crate) fn get_intersection_search_space(
+pub(crate) fn get_distributions(
     trials: &[PersistedTrial],
-) -> HashMap<String, Distribution> {
-    let mut intersection_search_space = trials[0].distributions.clone();
-    for trial in &trials[1..] {
-        intersection_search_space
-            .retain(|k, v| trial.distributions.get(k).is_some_and(|v2| v2 == v));
-    }
-    intersection_search_space
+    params: &Option<Vec<String>>,
+) -> Vec<HashMap<String, Distribution>> {
+    let params_set = params
+        .as_ref()
+        .map(|p| p.iter().cloned().collect::<HashSet<_>>());
+    let dists = trials
+        .iter()
+        .map(|t| {
+            t.distributions
+                .iter()
+                .filter(|(name, _)| params_set.as_ref().is_none_or(|s| s.contains(*name)))
+                .map(|(name, dist)| (name.clone(), dist.clone()))
+                .collect::<HashMap<_, _>>()
+        })
+        .collect::<Vec<_>>();
+    dists
 }
 
 #[cfg(test)]
@@ -177,16 +191,18 @@ mod tests {
     use super::*;
     use crate::ped_anova::PedAnovaImportanceEvaluator;
     use crate::test_utils;
+    use crate::test_utils::ObjectiveType;
     use rustuna_core::sampler::RandomSampler;
     use rustuna_core::storage::InMemoryStorage;
     use rustuna_core::study::{self, Direction};
     use rustuna_core::trial::PersistedTrial;
     use rustuna_core::{ErrorKind, Result};
     use std::collections::HashSet;
+
     #[test]
     fn test_error_multi_objective_wo_target() -> Result<()> {
         let evaluators = vec![PedAnovaImportanceEvaluator::default()];
-        let study = test_utils::get_study(42, 5, true, Direction::Minimize)?;
+        let study = test_utils::get_study(42, 5, ObjectiveType::Multi, Direction::Minimize)?;
         for evaluator in evaluators {
             let err = get_param_importances(&study, &evaluator).unwrap_err();
             assert!(matches!(err.kind, ErrorKind::ImportanceEvaluatorError));
@@ -197,7 +213,7 @@ mod tests {
     #[test]
     fn test_evaluator_error_multi_objective_wo_target() -> Result<()> {
         let evaluators = vec![PedAnovaImportanceEvaluator::default()];
-        let study = test_utils::get_study(42, 5, true, Direction::Minimize)?;
+        let study = test_utils::get_study(42, 5, ObjectiveType::Multi, Direction::Minimize)?;
         for evaluator in evaluators {
             let err = evaluator.evaluate(&study).unwrap_err();
             assert!(matches!(err.kind, ErrorKind::ImportanceEvaluatorError));
@@ -208,7 +224,7 @@ mod tests {
     #[test]
     fn test_get_param_importances() -> Result<()> {
         let evaluators = vec![PedAnovaImportanceEvaluator::default()];
-        let study = test_utils::get_study(42, 20, false, Direction::Minimize)?;
+        let study = test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Minimize)?;
         for evaluator in evaluators {
             for normalize in [true, false] {
                 let importances = get_param_importances_with(
@@ -237,7 +253,7 @@ mod tests {
     #[test]
     fn test_get_param_importances_with_target() -> Result<()> {
         let evaluators = vec![PedAnovaImportanceEvaluator::default()];
-        let study = test_utils::get_study(42, 20, false, Direction::Minimize)?;
+        let study = test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Minimize)?;
         let target =
             |t: &PersistedTrial| -> f64 { t.internal_params["x1"] + t.internal_params["x2"] };
         for evaluator in evaluators {
@@ -280,7 +296,7 @@ mod tests {
     #[test]
     fn test_evaluator_evaluate_with_target() -> Result<()> {
         let evaluators = vec![PedAnovaImportanceEvaluator::default()];
-        let study = test_utils::get_study(42, 20, false, Direction::Minimize)?;
+        let study = test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Minimize)?;
         let target =
             |t: &PersistedTrial| -> f64 { t.internal_params["x1"] + t.internal_params["x2"] };
         for evaluator in evaluators {
