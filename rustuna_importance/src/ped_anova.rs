@@ -465,4 +465,23 @@ mod tests {
         assert_ne!(importances_default, importances);
         Ok(())
     }
+
+    #[test]
+    fn test_conditional() -> Result<()> {
+        let study = test_utils::get_study(42, 20, ObjectiveType::Conditional, Direction::Minimize)?;
+        let evaluator = PedAnovaImportanceEvaluator::default();
+        let importances = evaluator.evaluate(&study)?;
+        assert!(importances.contains_key("c"));
+        assert!(importances.contains_key("x"));
+        assert!(importances.contains_key("y"));
+        assert_ne!(
+            importances,
+            HashMap::from([
+                ("c".to_string(), 0.0),
+                ("x".to_string(), 0.0),
+                ("y".to_string(), 0.0),
+            ])
+        );
+        Ok(())
+    }
 }
