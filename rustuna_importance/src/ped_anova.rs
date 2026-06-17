@@ -413,8 +413,12 @@ mod tests {
     #[test]
     fn test_n_trials_equal_to_min_n_top_trials() -> Result<()> {
         let evaluator = PedAnovaImportanceEvaluator::default();
-        let study =
-            test_utils::get_study(42, evaluator.min_n_top_trials, ObjectiveType::Single, Direction::Minimize)?;
+        let study = test_utils::get_study(
+            42,
+            evaluator.min_n_top_trials,
+            ObjectiveType::Single,
+            Direction::Minimize,
+        )?;
         let importances = evaluator.evaluate(&study)?;
         assert!(
             importances.values().all(|v| v.abs() <= 1e-12),
@@ -425,8 +429,10 @@ mod tests {
 
     #[test]
     fn test_direction() -> Result<()> {
-        let study_minimize = test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Minimize)?;
-        let study_maximize = test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Maximize)?;
+        let study_minimize =
+            test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Minimize)?;
+        let study_maximize =
+            test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Maximize)?;
         let evaluator = PedAnovaImportanceEvaluator::default();
         let importances_minimize = evaluator.evaluate(&study_minimize)?;
         let importances_maximize = evaluator.evaluate(&study_maximize)?;
