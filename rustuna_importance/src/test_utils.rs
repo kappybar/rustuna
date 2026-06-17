@@ -79,17 +79,27 @@ fn multi_objective(mut trial: Trial) -> Result<Vec<f64>> {
     Ok(vec![x1.powi(4) + x2 + x3, x4.pow(2) as f64 - x5 + x6])
 }
 
+fn conditional_objective(mut trial: Trial) -> Result<Vec<f64>> {
+    let c = trial.suggest_float("c", 0.0, 1.0)?;
+    if c < 0.5 {
+        let x = trial.suggest_float("x", 0.0, 10.0)?;
+        Ok(vec![x])
+    } else {
+        let y = trial.suggest_float("y", -10.0, 0.0)?;
+        Ok(vec![y])
+    }
+}
+
 pub(crate) fn get_study(
     seed: u64,
     n_trials: usize,
-    is_multi_objective: bool,
+    objective_type: ObjectiveType,
     direction: Direction,
 ) -> Result<Study> {
     let storage = InMemoryStorage::new();
-    let directions = if is_multi_objective {
-        vec![direction.clone(), direction]
-    } else {
-        vec![direction]
+    let directions = match objective_type {
+        ObjectiveType::Multi => vec![direction.clone(), direction],
+        _ => vec![direction],
     };
     let study = study::create_study(
         "test-study",
@@ -98,10 +108,10 @@ pub(crate) fn get_study(
         directions,
     )?;
     study.optimize(
-        if is_multi_objective {
-            multi_objective
-        } else {
-            single_objective
+        match objective_type {
+            ObjectiveType::Single => single_objective,
+            ObjectiveType::Multi => multi_objective,
+            ObjectiveType::Conditional => conditional_objective,
         },
         n_trials,
     )?;
