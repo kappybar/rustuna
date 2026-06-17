@@ -145,26 +145,16 @@ impl TpeSampler {
     fn sample(
         &mut self,
         ctx: &Context,
-        storage: Arc<RwLock<dyn Storage>>,
+        complete_trials: &[&rustuna_core::trial::PersistedTrial],
         search_space: &HashMap<String, Distribution>,
     ) -> Result<HashMap<String, f64>> {
-        let mut guard = storage
-            .write()
-            .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
-        let trials = guard.get_trials(ctx.study_id)?.clone();
-        drop(guard);
-
-        let complete_trials: Vec<_> = trials
-            .into_iter()
-            .filter(|t| matches!(t.state_values, TrialStateValues::Complete(_)))
-            .collect();
         let is_multi_objective = ctx.directions.len() > 1;
 
         let (pe_good, pe_poor) = if !is_multi_objective {
             let gamma = Self::gamma_for_single_objective(complete_trials.len());
             let direction: &Direction = &ctx.directions[0];
             let (good_trials, poor_trials) =
-                Self::split_trials_for_single_objective(&complete_trials, direction, gamma);
+                Self::split_trials_for_single_objective(complete_trials, direction, gamma);
             (
                 Self::build_parzen_estimator(&good_trials, search_space, is_multi_objective),
                 Self::build_parzen_estimator(&poor_trials, search_space, is_multi_objective),
@@ -177,22 +167,25 @@ impl TpeSampler {
                 .map(|t| t.number)
                 .collect::<Vec<u32>>();
             let split_cache_key = (complete_trial_numbers.clone(), gamma);
-            let (good_trials, poor_trials) = if self.split_cache.contains_key(&split_cache_key) {
+            let (good_trials, poor_trials): (
+                Vec<&rustuna_core::trial::PersistedTrial>,
+                Vec<&rustuna_core::trial::PersistedTrial>,
+            ) = if self.split_cache.contains_key(&split_cache_key) {
                 let (good_nums, poor_nums) = self.split_cache.get(&split_cache_key).unwrap();
                 let good_trials = complete_trials
                     .iter()
+                    .copied()
                     .filter(|t| good_nums.contains(&t.number))
-                    .cloned()
                     .collect::<Vec<_>>();
                 let poor_trials = complete_trials
                     .iter()
+                    .copied()
                     .filter(|t| poor_nums.contains(&t.number))
-                    .cloned()
                     .collect::<Vec<_>>();
                 (good_trials, poor_trials)
             } else {
                 let (good_trials, poor_trials) =
-                    Self::split_trials_for_multi_objective(&complete_trials, directions, gamma);
+                    Self::split_trials_for_multi_objective(complete_trials, directions, gamma);
                 let good_nums = good_trials.iter().map(|t| t.number).collect();
                 let poor_nums = poor_trials.iter().map(|t| t.number).collect();
                 // We only cache the most recent split
@@ -221,13 +214,13 @@ impl TpeSampler {
         Ok(samples_good[best_idx].clone())
     }
 
-    fn split_trials_for_single_objective(
-        trials: &[rustuna_core::trial::PersistedTrial],
+    fn split_trials_for_single_objective<'a>(
+        trials: &[&'a rustuna_core::trial::PersistedTrial],
         direction: &Direction,
         gamma: usize,
     ) -> (
-        Vec<rustuna_core::trial::PersistedTrial>,
-        Vec<rustuna_core::trial::PersistedTrial>,
+        Vec<&'a rustuna_core::trial::PersistedTrial>,
+        Vec<&'a rustuna_core::trial::PersistedTrial>,
     ) {
         let n = trials.len();
         assert!(
@@ -251,8 +244,8 @@ impl TpeSampler {
 
         let mut idx: Vec<usize> = (0..n).collect();
         idx.select_nth_unstable_by(gamma, |&i, &j| {
-            let vi = value_for(&trials[i]);
-            let vj = value_for(&trials[j]);
+            let vi = value_for(trials[i]);
+            let vj = value_for(trials[j]);
             let ord = vi.partial_cmp(&vj).unwrap_or(Ordering::Equal);
             match direction {
                 Direction::Minimize => ord,
@@ -263,21 +256,21 @@ impl TpeSampler {
         let mut good_trials = Vec::with_capacity(gamma);
         let mut poor_trials = Vec::with_capacity(n - gamma);
         for &i in idx.iter().take(gamma) {
-            good_trials.push(trials[i].clone());
+            good_trials.push(trials[i]);
         }
         for &i in idx.iter().skip(gamma) {
-            poor_trials.push(trials[i].clone());
+            poor_trials.push(trials[i]);
         }
         (good_trials, poor_trials)
     }
 
-    fn split_trials_for_multi_objective(
-        trials: &[rustuna_core::trial::PersistedTrial],
+    fn split_trials_for_multi_objective<'a>(
+        trials: &[&'a rustuna_core::trial::PersistedTrial],
         directions: &[Direction],
         gamma: usize,
     ) -> (
-        Vec<rustuna_core::trial::PersistedTrial>,
-        Vec<rustuna_core::trial::PersistedTrial>,
+        Vec<&'a rustuna_core::trial::PersistedTrial>,
+        Vec<&'a rustuna_core::trial::PersistedTrial>,
     ) {
         let n = trials.len();
         assert!(
@@ -323,7 +316,7 @@ impl TpeSampler {
         {
             if let Some(indices) = rank_to_indices.get(&current_rank) {
                 for &i in indices.iter() {
-                    good_trials.push(trials[i].clone());
+                    good_trials.push(trials[i]);
                 }
             }
             current_rank += 1;
@@ -359,12 +352,12 @@ impl TpeSampler {
                 hss_subset_size,
             );
             for &i in selected_indices.iter() {
-                good_trials.push(trials[i].clone());
+                good_trials.push(trials[i]);
             }
         }
-        for trial in trials.iter() {
+        for &trial in trials.iter() {
             if !good_trials.iter().any(|t| t.number == trial.number) {
-                poor_trials.push(trial.clone());
+                poor_trials.push(trial);
             }
         }
 
@@ -415,7 +408,7 @@ impl TpeSampler {
     }
 
     fn build_parzen_estimator(
-        trials: &[rustuna_core::trial::PersistedTrial],
+        trials: &[&rustuna_core::trial::PersistedTrial],
         search_space: &HashMap<String, Distribution>,
         is_multi_objective: bool,
     ) -> ParzenEstimator {
@@ -424,26 +417,24 @@ impl TpeSampler {
 
         let n_params = sorted_keys.len();
         let n_trials = trials.len();
-        let mut observations: HashMap<String, Vec<f64>> = HashMap::with_capacity(n_params);
 
-        // Handle conditional parameters
-        let mut active_counts = HashMap::new();
-        for key in sorted_keys.iter() {
-            let mut vals = Vec::with_capacity(n_trials);
-            for (idx, t) in trials.iter().enumerate() {
+        let mut observations_vec: Vec<Vec<f64>> = (0..n_params)
+            .map(|_| Vec::with_capacity(n_trials))
+            .collect();
+        let mut active_counts: Vec<u32> = vec![0; n_trials];
+
+        for (param_idx, key) in sorted_keys.iter().enumerate() {
+            for (trial_idx, t) in trials.iter().enumerate() {
                 if let Some(&v) = t.internal_params.get(*key) {
-                    vals.push(v);
-                    active_counts
-                        .entry(idx)
-                        .and_modify(|e| *e += 1)
-                        .or_insert(1);
+                    observations_vec[param_idx].push(v);
+                    active_counts[trial_idx] += 1;
                 }
             }
-            observations.insert((*key).clone(), vals);
         }
-        let active_indices = (0..n_trials)
-            .filter(|idx| active_counts.get(idx) == Some(&n_params))
-            .collect::<Vec<usize>>();
+        let n_params_u32 = n_params as u32;
+        let active_indices: Vec<usize> = (0..n_trials)
+            .filter(|&idx| active_counts[idx] == n_params_u32)
+            .collect();
         let weights = if !is_multi_objective {
             Self::weights_for_single_objective(trials.len())
         } else {
@@ -451,6 +442,11 @@ impl TpeSampler {
         };
         let active_weights: Vec<f64> = active_indices.iter().map(|&i| weights[i]).collect();
         let prior_weight = 1.0;
+        let observations: HashMap<String, Vec<f64>> = sorted_keys
+            .iter()
+            .zip(observations_vec)
+            .map(|(k, v)| ((*k).clone(), v))
+            .collect();
         ParzenEstimator::new(&observations, search_space, &active_weights, prior_weight)
     }
 }
@@ -463,26 +459,23 @@ impl Sampler for TpeSampler {
         name: &str,
         distribution: &Distribution,
     ) -> Result<f64> {
-        let mut guard = storage
-            .write()
-            .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
-        let trials = guard.get_trials(ctx.study_id)?.clone();
-        drop(guard);
-
-        let complete_trials: Vec<_> = trials
-            .into_iter()
-            .filter(|t| matches!(t.state_values, TrialStateValues::Complete(_)))
-            .collect();
-        if complete_trials.len() < self.n_startup_trials {
-            let params =
-                self.random_sampler
-                    .sample_independent(ctx, storage, name, distribution)?;
-            return Ok(params);
+        {
+            let mut guard = storage
+                .write()
+                .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
+            let trials = guard.get_trials(ctx.study_id)?;
+            let complete_trials: Vec<&rustuna_core::trial::PersistedTrial> = trials
+                .iter()
+                .filter(|t| matches!(t.state_values, TrialStateValues::Complete(_)))
+                .collect();
+            if complete_trials.len() >= self.n_startup_trials {
+                let search_space = HashMap::from([(name.to_string(), distribution.clone())]);
+                let params = self.sample(ctx, &complete_trials, &search_space)?;
+                return Ok(params[name]);
+            }
         }
-
-        let search_space = HashMap::from([(name.to_string(), distribution.clone())]);
-        let params = self.sample(ctx, storage, &search_space)?;
-        Ok(params[name])
+        self.random_sampler
+            .sample_independent(ctx, storage, name, distribution)
     }
 
     fn support_joint_sampling(&self) -> bool {
@@ -498,19 +491,15 @@ impl Sampler for TpeSampler {
         let mut guard = storage
             .write()
             .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
-        let trials = guard.get_trials(ctx.study_id)?.clone();
-        drop(guard);
-
-        let complete_trials: Vec<_> = trials
-            .into_iter()
+        let trials = guard.get_trials(ctx.study_id)?;
+        let complete_trials: Vec<&rustuna_core::trial::PersistedTrial> = trials
+            .iter()
             .filter(|t| matches!(t.state_values, TrialStateValues::Complete(_)))
             .collect();
         if complete_trials.len() < self.n_startup_trials {
-            let params = HashMap::new();
-            return Ok(params);
+            return Ok(HashMap::new());
         }
-        let params = self.sample(ctx, storage, search_space)?;
-        Ok(params)
+        self.sample(ctx, &complete_trials, search_space)
     }
 
     fn after_trial(
