@@ -4,6 +4,13 @@ use rustuna_core::storage::InMemoryStorage;
 use rustuna_core::study::{self, Direction, Study};
 use rustuna_core::trial::Trial;
 use rustuna_core::Result;
+
+pub(crate) enum ObjectiveType {
+    Single,
+    Multi,
+    Conditional,
+}
+
 fn single_objective(mut trial: Trial) -> Result<Vec<f64>> {
     let x1 = trial.suggest_float("x1", 0.1, 3.0)?;
     let x2 = trial.suggest(
