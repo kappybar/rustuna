@@ -191,16 +191,18 @@ mod tests {
     use super::*;
     use crate::ped_anova::PedAnovaImportanceEvaluator;
     use crate::test_utils;
+    use crate::test_utils::ObjectiveType;
     use rustuna_core::sampler::RandomSampler;
     use rustuna_core::storage::InMemoryStorage;
     use rustuna_core::study::{self, Direction};
     use rustuna_core::trial::PersistedTrial;
     use rustuna_core::{ErrorKind, Result};
     use std::collections::HashSet;
+
     #[test]
     fn test_error_multi_objective_wo_target() -> Result<()> {
         let evaluators = vec![PedAnovaImportanceEvaluator::default()];
-        let study = test_utils::get_study(42, 5, true, Direction::Minimize)?;
+        let study = test_utils::get_study(42, 5, ObjectiveType::Multi, Direction::Minimize)?;
         for evaluator in evaluators {
             let err = get_param_importances(&study, &evaluator).unwrap_err();
             assert!(matches!(err.kind, ErrorKind::ImportanceEvaluatorError));
@@ -211,7 +213,7 @@ mod tests {
     #[test]
     fn test_evaluator_error_multi_objective_wo_target() -> Result<()> {
         let evaluators = vec![PedAnovaImportanceEvaluator::default()];
-        let study = test_utils::get_study(42, 5, true, Direction::Minimize)?;
+        let study = test_utils::get_study(42, 5, ObjectiveType::Multi, Direction::Minimize)?;
         for evaluator in evaluators {
             let err = evaluator.evaluate(&study).unwrap_err();
             assert!(matches!(err.kind, ErrorKind::ImportanceEvaluatorError));
@@ -222,7 +224,7 @@ mod tests {
     #[test]
     fn test_get_param_importances() -> Result<()> {
         let evaluators = vec![PedAnovaImportanceEvaluator::default()];
-        let study = test_utils::get_study(42, 20, false, Direction::Minimize)?;
+        let study = test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Minimize)?;
         for evaluator in evaluators {
             for normalize in [true, false] {
                 let importances = get_param_importances_with(
@@ -251,7 +253,7 @@ mod tests {
     #[test]
     fn test_get_param_importances_with_target() -> Result<()> {
         let evaluators = vec![PedAnovaImportanceEvaluator::default()];
-        let study = test_utils::get_study(42, 20, false, Direction::Minimize)?;
+        let study = test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Minimize)?;
         let target =
             |t: &PersistedTrial| -> f64 { t.internal_params["x1"] + t.internal_params["x2"] };
         for evaluator in evaluators {
@@ -294,7 +296,7 @@ mod tests {
     #[test]
     fn test_evaluator_evaluate_with_target() -> Result<()> {
         let evaluators = vec![PedAnovaImportanceEvaluator::default()];
-        let study = test_utils::get_study(42, 20, false, Direction::Minimize)?;
+        let study = test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Minimize)?;
         let target =
             |t: &PersistedTrial| -> f64 { t.internal_params["x1"] + t.internal_params["x2"] };
         for evaluator in evaluators {
