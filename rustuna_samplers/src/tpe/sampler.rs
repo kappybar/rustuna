@@ -1,6 +1,6 @@
 use core::panic;
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 use super::multi_objective;
@@ -242,14 +242,28 @@ impl TpeSampler {
             }
         }
 
+        // NaN trials must always land in `poor_trials` regardless of `direction`:
+        // a NaN observation is a failed evaluation, and feeding it into the Parzen
+        // estimator would corrupt the `good_trials` model. Using
+        // `partial_cmp(...).unwrap_or(Equal)` would let NaN keep its original
+        // position in the partial sort and so non-deterministically slip into the
+        // good half. Treat NaN as strictly worse than any finite value, in both
+        // directions.
         let mut idx: Vec<usize> = (0..n).collect();
         idx.select_nth_unstable_by(gamma, |&i, &j| {
             let vi = value_for(trials[i]);
             let vj = value_for(trials[j]);
-            let ord = vi.partial_cmp(&vj).unwrap_or(Ordering::Equal);
-            match direction {
-                Direction::Minimize => ord,
-                Direction::Maximize => ord.reverse(),
+            match (vi.is_nan(), vj.is_nan()) {
+                (true, true) => Ordering::Equal,
+                (true, false) => Ordering::Greater,
+                (false, true) => Ordering::Less,
+                (false, false) => {
+                    let ord = vi.partial_cmp(&vj).expect("non-NaN partial_cmp must succeed");
+                    match direction {
+                        Direction::Minimize => ord,
+                        Direction::Maximize => ord.reverse(),
+                    }
+                }
             }
         });
 
@@ -286,11 +300,11 @@ impl TpeSampler {
         }
 
         // Assume minimization (negate value if maximization)
-        let loss_values = trials
+        let loss_values: Vec<Vec<f64>> = trials
             .iter()
             .map(|t| {
                 let vals = match &t.state_values {
-                    TrialStateValues::Complete(v) => v.clone(),
+                    TrialStateValues::Complete(v) => v.as_slice(),
                     _ => panic!("Unexpected non-complete trial found during TPE sampling"),
                 };
                 vals.iter()
@@ -299,10 +313,11 @@ impl TpeSampler {
                         Direction::Minimize => val,
                         Direction::Maximize => -val,
                     })
-                    .collect::<Vec<f64>>()
+                    .collect()
             })
-            .collect::<Vec<Vec<f64>>>();
-        let nondomination_ranks = multi_objective::fast_non_dominated_sort(&loss_values);
+            .collect();
+        let nondomination_ranks =
+            multi_objective::fast_non_dominated_sort_partial(&loss_values, gamma);
         let mut rank_to_indices: HashMap<usize, Vec<usize>> = HashMap::new();
         for (i, &rank) in nondomination_ranks.iter().enumerate() {
             rank_to_indices.entry(rank).or_default().push(i);
@@ -331,32 +346,99 @@ impl TpeSampler {
                 .collect::<Vec<&[f64]>>();
             let rank_i_indices = rank_to_indices.get(&current_rank).unwrap();
 
+            // Partition rank-i rows by their inf signature so HSSP only sees finite
+            // points against a finite reference. NDS has already certified every row
+            // here as Pareto-incomparable within the rank — a `+inf` row is not
+            // dominated, it just has zero hypervolume contribution against any finite
+            // reference (the point lies outside the reference box). The split below
+            // is a static realization of HV-greedy ordering, not a dominance call:
+            //
+            //   * Any `-inf` → inclusive HV factor `ref - (-inf) = +inf`, so HV-greedy
+            //     would pick these first. Take them up-front.
+            //   * Any `+inf` (and no `-inf`) → at least one factor `ref - point <= 0`,
+            //     so the inclusive HV is 0 and HV-greedy picks these last. Defer to
+            //     padding once the finite candidates are exhausted.
+            //   * All finite → regular HSSP candidates.
+            //
+            // Doing the split here also protects HSSP from numerical poison: a `-inf`
+            // would propagate `+inf` through the lazy contributions, and a `+inf`
+            // would blow up the reference itself if naively folded into the worst.
             let n_dims = directions.len();
-            let mut worst_point = vec![f64::NEG_INFINITY; n_dims];
-            for loss_val in rank_i_loss_vals.iter() {
-                for d in 0..n_dims {
-                    if loss_val[d] > worst_point[d] {
-                        worst_point[d] = loss_val[d];
-                    }
+            let mut neg_inf_local: Vec<usize> = Vec::new();
+            let mut finite_local: Vec<usize> = Vec::new();
+            let mut pos_inf_local: Vec<usize> = Vec::new();
+            for (local, loss_val) in rank_i_loss_vals.iter().enumerate() {
+                let has_neg_inf = loss_val.contains(&f64::NEG_INFINITY);
+                let has_pos_inf = loss_val.contains(&f64::INFINITY);
+                if has_neg_inf {
+                    neg_inf_local.push(local);
+                } else if has_pos_inf {
+                    pos_inf_local.push(local);
+                } else {
+                    finite_local.push(local);
                 }
             }
-            let mut reference_point = Vec::with_capacity(n_dims);
-            for &w in worst_point.iter() {
-                let r = (1.1 * w).max(0.9 * w);
-                reference_point.push(if r == 0.0 { EPS } else { r });
+
+            let mut remaining = hss_subset_size;
+            for &local in neg_inf_local.iter().take(remaining) {
+                good_trials.push(trials[rank_i_indices[local]]);
             }
-            let selected_indices = multi_objective::hypervolume_subset_selection(
-                &rank_i_loss_vals,
-                rank_i_indices,
-                &reference_point,
-                hss_subset_size,
-            );
-            for &i in selected_indices.iter() {
-                good_trials.push(trials[i]);
+            remaining = remaining.saturating_sub(neg_inf_local.len());
+
+            if remaining > 0 && !finite_local.is_empty() {
+                let finite_rows: Vec<&[f64]> =
+                    finite_local.iter().map(|&l| rank_i_loss_vals[l]).collect();
+                let finite_indices: Vec<usize> = finite_local
+                    .iter()
+                    .map(|&l| rank_i_indices[l])
+                    .collect();
+                let mut worst_point = vec![f64::NEG_INFINITY; n_dims];
+                let mut dim_has_finite = vec![false; n_dims];
+                for row in finite_rows.iter() {
+                    for d in 0..n_dims {
+                        let v = row[d];
+                        if v > worst_point[d] {
+                            worst_point[d] = v;
+                            dim_has_finite[d] = true;
+                        }
+                    }
+                }
+                if dim_has_finite.iter().all(|&b| b) {
+                    let mut reference_point = Vec::with_capacity(n_dims);
+                    for &w in worst_point.iter() {
+                        let r = (1.1 * w).max(0.9 * w);
+                        reference_point.push(if r == 0.0 { EPS } else { r });
+                    }
+                    let take = remaining.min(finite_rows.len());
+                    let selected_indices = multi_objective::hypervolume_subset_selection(
+                        &finite_rows,
+                        &finite_indices,
+                        &reference_point,
+                        take,
+                    );
+                    for &i in selected_indices.iter() {
+                        good_trials.push(trials[i]);
+                    }
+                    remaining = remaining.saturating_sub(take);
+                } else {
+                    // No finite candidates contributed to some dimension's worst
+                    // (only possible when the finite subset is empty for that dim,
+                    // which the outer guard already excluded). Defensive fallback.
+                    let take = remaining.min(finite_local.len());
+                    for &local in finite_local.iter().take(take) {
+                        good_trials.push(trials[rank_i_indices[local]]);
+                    }
+                    remaining = remaining.saturating_sub(take);
+                }
+            }
+
+            for &local in pos_inf_local.iter().take(remaining) {
+                good_trials.push(trials[rank_i_indices[local]]);
             }
         }
+        let good_numbers: HashSet<u32> = good_trials.iter().map(|t| t.number).collect();
         for &trial in trials.iter() {
-            if !good_trials.iter().any(|t| t.number == trial.number) {
+            if !good_numbers.contains(&trial.number) {
                 poor_trials.push(trial);
             }
         }
@@ -372,6 +454,23 @@ impl TpeSampler {
 
     fn gamma_for_multi_objective(n: usize) -> usize {
         (0.1 * n as f64).ceil() as usize
+    }
+
+    /// Keep only trials whose `Complete` values are fully finite-or-±inf. Trials
+    /// carrying NaN are dropped here, before the `n_startup_trials` gate, so they
+    /// neither inflate `gamma` nor leak into `good_trials`. In the all-NaN /
+    /// finite-count-below-startup case the resulting empty / short list naturally
+    /// falls through to the random sampler via the existing startup gate.
+    fn usable_complete_trials(
+        trials: &[rustuna_core::trial::PersistedTrial],
+    ) -> Vec<&rustuna_core::trial::PersistedTrial> {
+        trials
+            .iter()
+            .filter(|t| match &t.state_values {
+                TrialStateValues::Complete(v) => !v.iter().any(|x| x.is_nan()),
+                _ => false,
+            })
+            .collect()
     }
 
     fn weights_for_single_objective(x: usize) -> Vec<f64> {
@@ -464,10 +563,8 @@ impl Sampler for TpeSampler {
                 .write()
                 .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
             let trials = guard.get_trials(ctx.study_id)?;
-            let complete_trials: Vec<&rustuna_core::trial::PersistedTrial> = trials
-                .iter()
-                .filter(|t| matches!(t.state_values, TrialStateValues::Complete(_)))
-                .collect();
+            let complete_trials: Vec<&rustuna_core::trial::PersistedTrial> =
+                Self::usable_complete_trials(trials);
             if complete_trials.len() >= self.n_startup_trials {
                 let search_space = HashMap::from([(name.to_string(), distribution.clone())]);
                 let params = self.sample(ctx, &complete_trials, &search_space)?;
@@ -492,10 +589,8 @@ impl Sampler for TpeSampler {
             .write()
             .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
         let trials = guard.get_trials(ctx.study_id)?;
-        let complete_trials: Vec<&rustuna_core::trial::PersistedTrial> = trials
-            .iter()
-            .filter(|t| matches!(t.state_values, TrialStateValues::Complete(_)))
-            .collect();
+        let complete_trials: Vec<&rustuna_core::trial::PersistedTrial> =
+            Self::usable_complete_trials(trials);
         if complete_trials.len() < self.n_startup_trials {
             return Ok(HashMap::new());
         }
@@ -604,5 +699,200 @@ mod tests {
             .unwrap();
         let best_trial_numbers = get_pareto_front(&study);
         assert!(best_trial_numbers.is_ok());
+    }
+
+    /// A `+inf` observation (failed evaluation) must not propagate into the reference
+    /// point; the sampler builds the reference from the worst *finite* value per
+    /// dimension and falls back to input-order selection if a dimension has no finite
+    /// observation at all.
+    #[test]
+    fn multi_objective_handles_plus_inf_objective_values() {
+        let storage = InMemoryStorage::new();
+        let directions = vec![Direction::Minimize, Direction::Minimize];
+        let study = create_study(
+            "inf-bi-objective",
+            storage,
+            TpeSampler::seed_from_u64(0),
+            directions,
+        )
+        .unwrap();
+        study
+            .optimize(
+                |mut t| {
+                    let x = t.suggest_float("x", 0.0, 10.0)?;
+                    let y = t.suggest_float("y", 0.0, 10.0)?;
+                    // Inject `+inf` for some trials to mimic an objective that
+                    // occasionally fails / overflows.
+                    let f0 = if (t.number as usize) % 7 == 0 {
+                        f64::INFINITY
+                    } else {
+                        (x - 3.0).powi(2) + (y - 5.0).powi(2)
+                    };
+                    let f1 = (x - 7.0).powi(2) + (y - 2.0).powi(2);
+                    Ok(vec![f0, f1])
+                },
+                80,
+            )
+            .unwrap();
+        // Sampler must not panic / hang; the Pareto front should still come from the
+        // finite-valued trials.
+        let pareto = get_pareto_front(&study).unwrap();
+        assert!(!pareto.is_empty());
+    }
+
+    /// When every completed trial is NaN the sampler must not feed NaN observations
+    /// into the Parzen estimator; the entry-side `usable_complete_trials` filter
+    /// drops NaN trials before the startup gate so the sampler falls back to random
+    /// sampling cleanly.
+    #[test]
+    fn all_nan_observations_fall_back_to_random_sampling() {
+        let storage = InMemoryStorage::new();
+        let directions = vec![Direction::Minimize];
+        let study = create_study(
+            "all-nan-single-objective",
+            storage,
+            TpeSampler::seed_from_u64(0),
+            directions,
+        )
+        .unwrap();
+        study
+            .optimize(
+                |mut t| {
+                    let _x = t.suggest_float("x", 0.0, 10.0)?;
+                    Ok(vec![f64::NAN])
+                },
+                40,
+            )
+            .unwrap();
+    }
+
+    /// Multi-objective sibling of [`all_nan_observations_fall_back_to_random_sampling`].
+    #[test]
+    fn all_nan_observations_multi_objective_falls_back_cleanly() {
+        let storage = InMemoryStorage::new();
+        let directions = vec![Direction::Minimize, Direction::Minimize];
+        let study = create_study(
+            "all-nan-bi-objective",
+            storage,
+            TpeSampler::seed_from_u64(0),
+            directions,
+        )
+        .unwrap();
+        study
+            .optimize(
+                |mut t| {
+                    let _x = t.suggest_float("x", 0.0, 10.0)?;
+                    Ok(vec![f64::NAN, f64::NAN])
+                },
+                40,
+            )
+            .unwrap();
+    }
+
+    /// Single-objective NaN trials must always land in `poor_trials` so the good-half
+    /// Parzen estimator never sees a failed evaluation, regardless of `direction`.
+    #[test]
+    fn single_objective_nan_is_treated_as_worst() {
+        let storage = InMemoryStorage::new();
+        let directions = vec![Direction::Minimize];
+        let study = create_study(
+            "nan-single-objective",
+            storage,
+            TpeSampler::seed_from_u64(0),
+            directions,
+        )
+        .unwrap();
+        study
+            .optimize(
+                |mut t| {
+                    let x = t.suggest_float("x", 0.0, 10.0)?;
+                    // Some trials report NaN (failed evaluation).
+                    let v = if (t.number as usize) % 5 == 3 {
+                        f64::NAN
+                    } else {
+                        (x - 4.0).powi(2)
+                    };
+                    Ok(vec![v])
+                },
+                60,
+            )
+            .unwrap();
+        // Sampler must not panic; the best trial must come from the finite half.
+        let best_number = get_best_trial(&study).unwrap();
+        let trials = study.get_trials().unwrap();
+        let best = trials.iter().find(|t| t.number == best_number).unwrap();
+        let v = match &best.state_values {
+            TrialStateValues::Complete(vs) => vs[0],
+            _ => unreachable!("best trial must be complete"),
+        };
+        assert!(v.is_finite(), "best trial value should be finite, got {v}");
+    }
+
+    /// A `-inf` loss value must not poison HSSP via `ref - point = +inf`. The sampler
+    /// classifies any row that contains `-inf` as "infinitely good" and picks those
+    /// first, then runs HSSP on the finite remainder.
+    #[test]
+    fn multi_objective_handles_neg_inf_objective_values() {
+        let storage = InMemoryStorage::new();
+        let directions = vec![Direction::Minimize, Direction::Minimize];
+        let study = create_study(
+            "neg-inf-bi-objective",
+            storage,
+            TpeSampler::seed_from_u64(0),
+            directions,
+        )
+        .unwrap();
+        study
+            .optimize(
+                |mut t| {
+                    let x = t.suggest_float("x", 0.0, 10.0)?;
+                    let y = t.suggest_float("y", 0.0, 10.0)?;
+                    // A handful of trials report `-inf` for the first objective.
+                    let f0 = if (t.number as usize) % 11 == 5 {
+                        f64::NEG_INFINITY
+                    } else {
+                        (x - 3.0).powi(2) + (y - 5.0).powi(2)
+                    };
+                    let f1 = (x - 7.0).powi(2) + (y - 2.0).powi(2);
+                    Ok(vec![f0, f1])
+                },
+                80,
+            )
+            .unwrap();
+        let pareto = get_pareto_front(&study).unwrap();
+        assert!(!pareto.is_empty());
+    }
+
+    /// Even when every rank-i candidate carries a non-finite value the sampler must
+    /// keep making progress: `+inf` reaches the "no finite candidate" branch and pads
+    /// from the `+inf` group; `-inf` is taken first via the `-inf` group.
+    #[test]
+    fn multi_objective_all_non_finite_falls_back_cleanly() {
+        let storage = InMemoryStorage::new();
+        let directions = vec![Direction::Minimize, Direction::Minimize];
+        let study = create_study(
+            "all-non-finite-bi-objective",
+            storage,
+            TpeSampler::seed_from_u64(0),
+            directions,
+        )
+        .unwrap();
+        study
+            .optimize(
+                |mut t| {
+                    let _x = t.suggest_float("x", 0.0, 10.0)?;
+                    let _y = t.suggest_float("y", 0.0, 10.0)?;
+                    // Half of the trials are `+inf` (failed) and half are `-inf`
+                    // (impossibly good); no finite observations anywhere.
+                    let v = if (t.number as usize) % 2 == 0 {
+                        f64::INFINITY
+                    } else {
+                        f64::NEG_INFINITY
+                    };
+                    Ok(vec![v, v])
+                },
+                40,
+            )
+            .unwrap();
     }
 }
