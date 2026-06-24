@@ -429,7 +429,7 @@ mod tests {
         // gracefully: argmax keeps picking +INF candidates and the returned subset
         // still has the requested size with no panics.
         let huge = 1e160;
-        let pts = vec![
+        let pts = [
             vec![0.0, 0.0, 0.0, 0.0],
             vec![huge / 2.0, 0.0, 0.0, 0.0],
             vec![0.0, huge / 2.0, 0.0, 0.0],

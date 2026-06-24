@@ -337,7 +337,7 @@ mod tests {
         // 3D ranks for 6 points: pts 0, 1, 2 should land in earlier fronts; with
         // n_below = 2 we only need front 0, so the remaining points get a sentinel
         // rank strictly greater than every emitted rank.
-        let pts = vec![
+        let pts = [
             vec![0.0, 0.0, 0.0], // front 0
             vec![1.0, 0.0, 0.0], // dominated by 0 → front 1
             vec![0.0, 1.0, 0.0], // dominated by 0 → front 1
@@ -369,7 +369,7 @@ mod tests {
 
     #[test]
     fn partial_sort_with_n_below_equal_to_n_assigns_every_rank_precisely() {
-        let pts = vec![
+        let pts = [
             vec![0.0, 0.0, 0.0],
             vec![1.0, 0.0, 0.0],
             vec![0.0, 1.0, 0.0],
@@ -389,7 +389,7 @@ mod tests {
         // Two identical (0, 0) points must share rank 0 since neither dominates the
         // other; (1, 1) is then rank 1. The patience-sort fast path must carry the
         // previous point's rank forward on exact duplicates.
-        let pts = vec![vec![0.0, 0.0], vec![0.0, 0.0], vec![1.0, 1.0]];
+        let pts = [vec![0.0, 0.0], vec![0.0, 0.0], vec![1.0, 1.0]];
         let refs: Vec<&[f64]> = pts.iter().map(|r| r.as_slice()).collect();
         let ranks = fast_non_dominated_sort_partial(&refs, refs.len());
         assert_eq!(ranks, vec![0, 0, 1]);
@@ -399,7 +399,7 @@ mod tests {
     fn duplicate_loss_vectors_share_rank_3d() {
         // Same invariant in the general-M peel-onion: exact duplicates must share a
         // rank, so the strict-dominance check has to be enforced inside Kung's sweep.
-        let pts = vec![
+        let pts = [
             vec![0.0, 0.0, 0.0],
             vec![0.0, 0.0, 0.0],
             vec![1.0, 1.0, 1.0],
@@ -423,7 +423,7 @@ mod tests {
     fn nan_rows_get_sentinel_rank_worse_than_clean_rows() {
         // NaN policy: a NaN-containing trial must be ranked *worse* than any clean
         // trial. Rank 0 (Pareto-optimal) is reserved for clean rows.
-        let pts = vec![
+        let pts = [
             vec![0.0, 0.0],
             vec![1.0, f64::NAN], // NaN → sentinel rank
             vec![0.5, 0.5],
@@ -444,7 +444,7 @@ mod tests {
     #[test]
     fn filter_pareto_front_drops_nan_rows() {
         // NaN policy: rows with NaN are never on the Pareto front; they're dropped.
-        let pts = vec![
+        let pts = [
             vec![1.0, 2.0],
             vec![f64::NAN, 0.5], // dropped
             vec![0.5, 0.5],      // dominates the others
@@ -460,7 +460,7 @@ mod tests {
 
     #[test]
     fn filter_pareto_front_keeps_only_non_dominated() {
-        let pts = vec![
+        let pts = [
             vec![1.0, 2.0],
             vec![2.0, 1.0],
             vec![3.0, 3.0], // dominated by 0 and 1

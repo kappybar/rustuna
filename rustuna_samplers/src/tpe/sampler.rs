@@ -723,7 +723,7 @@ mod tests {
                     let y = t.suggest_float("y", 0.0, 10.0)?;
                     // Inject `+inf` for some trials to mimic an objective that
                     // occasionally fails / overflows.
-                    let f0 = if (t.number as usize) % 7 == 0 {
+                    let f0 = if (t.number as usize).is_multiple_of(7) {
                         f64::INFINITY
                     } else {
                         (x - 3.0).powi(2) + (y - 5.0).powi(2)
@@ -884,7 +884,7 @@ mod tests {
                     let _y = t.suggest_float("y", 0.0, 10.0)?;
                     // Half of the trials are `+inf` (failed) and half are `-inf`
                     // (impossibly good); no finite observations anywhere.
-                    let v = if (t.number as usize) % 2 == 0 {
+                    let v = if (t.number as usize).is_multiple_of(2) {
                         f64::INFINITY
                     } else {
                         f64::NEG_INFINITY
