@@ -258,7 +258,9 @@ impl TpeSampler {
                 (true, false) => Ordering::Greater,
                 (false, true) => Ordering::Less,
                 (false, false) => {
-                    let ord = vi.partial_cmp(&vj).expect("non-NaN partial_cmp must succeed");
+                    let ord = vi
+                        .partial_cmp(&vj)
+                        .expect("non-NaN partial_cmp must succeed");
                     match direction {
                         Direction::Minimize => ord,
                         Direction::Maximize => ord.reverse(),
@@ -388,10 +390,8 @@ impl TpeSampler {
             if remaining > 0 && !finite_local.is_empty() {
                 let finite_rows: Vec<&[f64]> =
                     finite_local.iter().map(|&l| rank_i_loss_vals[l]).collect();
-                let finite_indices: Vec<usize> = finite_local
-                    .iter()
-                    .map(|&l| rank_i_indices[l])
-                    .collect();
+                let finite_indices: Vec<usize> =
+                    finite_local.iter().map(|&l| rank_i_indices[l]).collect();
                 let mut worst_point = vec![f64::NEG_INFINITY; n_dims];
                 let mut dim_has_finite = vec![false; n_dims];
                 for row in finite_rows.iter() {

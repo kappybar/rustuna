@@ -89,8 +89,7 @@ where
             .collect();
         let clean_orig: Vec<usize> = clean_idx.iter().map(|&i| rank_i_indices[i]).collect();
         let take = subset_size.min(clean_idx.len());
-        let mut out =
-            hypervolume_subset_selection(&clean_rows, &clean_orig, reference_point, take);
+        let mut out = hypervolume_subset_selection(&clean_rows, &clean_orig, reference_point, take);
         for &i in &nan_idx {
             if out.len() >= subset_size {
                 break;
@@ -484,9 +483,9 @@ mod tests {
         // NaN policy: greedy runs on the clean subset; if `subset_size` exceeds the
         // number of clean rows, the remainder is padded with NaN rows in input order.
         let refs: Vec<&[f64]> = vec![
-            &[1.0, 2.0],       // clean
-            &[f64::NAN, 1.0],  // NaN — only chosen as padding
-            &[0.5, 0.5],       // clean
+            &[1.0, 2.0],      // clean
+            &[f64::NAN, 1.0], // NaN — only chosen as padding
+            &[0.5, 0.5],      // clean
         ];
         let indices = vec![10usize, 11, 12];
         let refp = vec![5.0, 5.0];

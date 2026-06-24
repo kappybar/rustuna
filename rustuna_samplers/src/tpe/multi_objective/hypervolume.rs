@@ -375,7 +375,11 @@ mod tests {
         // M=3 fast path must drop points with coords >= reference (otherwise their
         // inflated cell widths over-count). Verify the result matches the
         // closed-form on the in-reference subset.
-        let pts = [vec![0.0, 0.0, 1.0], vec![0.0, 1.0, 0.0], vec![3.0, 0.0, 0.0]];
+        let pts = [
+            vec![0.0, 0.0, 1.0],
+            vec![0.0, 1.0, 0.0],
+            vec![3.0, 0.0, 0.0],
+        ];
         let refs: Vec<&[f64]> = pts.iter().map(|v| v.as_slice()).collect();
         let ref_point = vec![2.0, 2.0, 2.0];
         let hv = compute_hypervolume(&refs, &ref_point);

@@ -81,12 +81,7 @@ where
         }
         let clean_rows: Vec<&[f64]> = clean.iter().map(|&i| loss_values[i].as_ref()).collect();
         let sub_ranks = fast_non_dominated_sort_partial(&clean_rows, n_below);
-        let sentinel = sub_ranks
-            .iter()
-            .copied()
-            .max()
-            .map(|r| r + 1)
-            .unwrap_or(0);
+        let sentinel = sub_ranks.iter().copied().max().map(|r| r + 1).unwrap_or(0);
         for (sub_i, &orig) in clean.iter().enumerate() {
             ranks[orig] = sub_ranks[sub_i];
         }
