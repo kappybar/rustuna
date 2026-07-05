@@ -93,4 +93,5 @@ fn main() -> Result<()> {
 - `rustuna_js` : The JavaScript binding.
 - `rustuna_pyo3` : The Python binding.
 - `rustuna_samplers` : A collection of Rustuna samplers.
+- `rustuna_storage` : A collection of Rustuna storage implementations.
 - `rustuna_importance` : A collection of hyperparameter importance evaluators.

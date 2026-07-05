@@ -653,7 +653,7 @@ dependencies = [
  "rustuna_core",
  "rustuna_importance",
  "rustuna_samplers",
- "rustuna_storages",
+ "rustuna_storage",
 ]
 
 [[package]]
@@ -665,7 +665,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustuna_storages"
+name = "rustuna_storage"
 version = "0.1.0"
 dependencies = [
  "chrono",

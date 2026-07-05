@@ -26,7 +26,7 @@ impl SQLite3TrialQueue {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use rustuna_storages::sqlite3_queue::SQLite3TrialQueue;
+    /// use rustuna_storage::sqlite3_queue::SQLite3TrialQueue;
     /// let queue = SQLite3TrialQueue::new("/path/to/queue.db", "study-1").unwrap();
     /// ```
     pub fn new(db_path: impl AsRef<Path>, namespace: impl Into<String>) -> Result<Self> {

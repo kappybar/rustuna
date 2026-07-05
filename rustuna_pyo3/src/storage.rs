@@ -9,11 +9,11 @@ use rustuna_core::distribution::Distribution;
 use rustuna_core::storage::{InMemoryStorage, Storage};
 use rustuna_core::study::Direction;
 use rustuna_core::trial::TrialStateValues;
-use rustuna_storages::cache::CachedStorage;
-use rustuna_storages::journal::file::{JournalFileBackend, JournalFileSymlinkLock};
-use rustuna_storages::journal::storage::JournalStorage;
-use rustuna_storages::optuna::OptunaCompatibleStorage;
-use rustuna_storages::sqlite3::SQLite3Storage;
+use rustuna_storage::cache::CachedStorage;
+use rustuna_storage::journal::file::{JournalFileBackend, JournalFileSymlinkLock};
+use rustuna_storage::journal::storage::JournalStorage;
+use rustuna_storage::optuna::OptunaCompatibleStorage;
+use rustuna_storage::sqlite3::SQLite3Storage;
 
 use crate::attrs::{pyobj_to_attrs_with_kind, AttrKind};
 use crate::distribution::{category_label_to_pyobject, pyobject_to_category_label, PyDistribution};

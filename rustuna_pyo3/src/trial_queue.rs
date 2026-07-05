@@ -3,8 +3,8 @@ use pyo3::prelude::*;
 use pyo3::types::PyType;
 use rustuna_core::trial_queue::{InMemoryTrialQueue, TrialQueue};
 use rustuna_core::{Error, ErrorKind, Result};
-use rustuna_storages::directory_queue::DirectoryTrialQueue;
-use rustuna_storages::sqlite3_queue::SQLite3TrialQueue;
+use rustuna_storage::directory_queue::DirectoryTrialQueue;
+use rustuna_storage::sqlite3_queue::SQLite3TrialQueue;
 use std::sync::{Arc, RwLock};
 
 use crate::exception::err_to_exceptions;

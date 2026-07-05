@@ -34,6 +34,6 @@ jobs:
           python -m pip install -U pip
           pip install --progress-bar off optuna
       - name: Run tests which require Python and Optuna
-        working-directory: rustuna_storages
+        working-directory: rustuna_storage
         run: |
           cargo test -- --ignored
