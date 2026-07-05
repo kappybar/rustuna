@@ -1,5 +1,5 @@
 [package]
-name = "rustuna_samplers"
+name = "rustuna_sampler"
 version.workspace = true
 edition.workspace = true
 description.workspace = true

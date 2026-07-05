@@ -9,7 +9,7 @@ use pyo3::{prelude::*, types::PyType};
 use rustuna_core::sampler::{Context as SamplerContext, RandomSampler, Sampler};
 use rustuna_core::storage::Storage;
 use rustuna_core::trial::TrialStateValues;
-use rustuna_samplers::tpe::{TpeConfig, TpeSampler};
+use rustuna_sampler::tpe::{TpeConfig, TpeSampler};
 
 use crate::distribution::PyDistribution;
 use crate::pyobject_storage::PyPyObjectStorage;
@@ -69,14 +69,14 @@ impl PySampler {
         swapping_prob: f64,
     ) -> PyResult<Self> {
         let rs_sampler = match seed {
-            Some(seed) => rustuna_samplers::nsgaii::NSGAIISampler::seed_from_u64(
+            Some(seed) => rustuna_sampler::nsgaii::NSGAIISampler::seed_from_u64(
                 seed,
                 population_size,
                 mutation_prob,
                 crossover_prob,
                 swapping_prob,
             ),
-            None => rustuna_samplers::nsgaii::NSGAIISampler::new(
+            None => rustuna_sampler::nsgaii::NSGAIISampler::new(
                 population_size,
                 mutation_prob,
                 crossover_prob,

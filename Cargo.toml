@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "rustuna_core",
-    "rustuna_samplers",
+    "rustuna_sampler",
     "rustuna_storage",
     "rustuna_importance",
     "rustuna_js",
@@ -20,7 +20,7 @@ license = "MIT"
 
 [workspace.dependencies]
 rustuna_core = { path = "./rustuna_core" }
-rustuna_samplers = { path = "./rustuna_samplers" }
+rustuna_sampler = { path = "./rustuna_sampler" }
 rustuna_importance = { path = "./rustuna_importance" }
 rustuna_storage = { path = "./rustuna_storage" }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }

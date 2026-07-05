@@ -652,12 +652,12 @@ dependencies = [
  "pyo3",
  "rustuna_core",
  "rustuna_importance",
- "rustuna_samplers",
+ "rustuna_sampler",
  "rustuna_storage",
 ]
 
 [[package]]
-name = "rustuna_samplers"
+name = "rustuna_sampler"
 version = "0.1.0"
 dependencies = [
  "rand",

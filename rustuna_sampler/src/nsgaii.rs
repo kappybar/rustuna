@@ -30,7 +30,7 @@ use rustuna_core::{Error, ErrorKind};
 /// use rustuna_core::storage::InMemoryStorage;
 /// use rustuna_core::study::{create_study, Direction};
 /// use rustuna_core::Result;
-/// use rustuna_samplers::nsgaii::NSGAIISampler;
+/// use rustuna_sampler::nsgaii::NSGAIISampler;
 ///
 /// fn main() -> Result<()> {
 ///     let storage = InMemoryStorage::new();

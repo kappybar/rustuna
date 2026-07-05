@@ -14,7 +14,7 @@ use rustuna_core::study::{
     create_study_with_arc, get_best_trial, get_pareto_front, Direction, PersistedStudy, Study,
 };
 use rustuna_core::trial::TrialStateValues;
-use rustuna_samplers::tpe::TpeSampler;
+use rustuna_sampler::tpe::TpeSampler;
 
 use crate::attrs::pyobj_to_attrs;
 use crate::attrs::{convert_pydict_to_fixed_params, pyobj_to_attrs_with_kind, AttrKind};

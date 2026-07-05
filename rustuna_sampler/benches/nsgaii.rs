@@ -8,7 +8,7 @@ mod tests {
 
     use rustuna_core::storage::InMemoryStorage;
     use rustuna_core::study::{create_study, Direction};
-    use rustuna_samplers::nsgaii::NSGAIISampler;
+    use rustuna_sampler::nsgaii::NSGAIISampler;
 
     #[bench]
     fn bench_nsgaii(b: &mut Bencher) {
