@@ -17,7 +17,7 @@ crate-type = ["cdylib"]
 pyo3 = { version = "0.27", features = ["extension-module", "chrono"] }
 chrono = { workspace = true }
 rustuna_core = { workspace = true }
-rustuna_samplers = { workspace = true }
-rustuna_storages = { workspace = true }
+rustuna_sampler = { workspace = true }
+rustuna_storage = { workspace = true }
 rustuna_importance = { workspace = true }
 fanova = { workspace = true }

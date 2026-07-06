@@ -1,18 +1,22 @@
-use std::path::Path;
 use std::process::Command;
 
 use rustuna_core::distribution::Distribution;
 use rustuna_core::storage::Storage;
 use rustuna_core::trial::TrialStateValues;
 use rustuna_core::{Error, ErrorKind, Result};
-use rustuna_storages::cache::{CachedStorage, CachedStorageBackend};
-use rustuna_storages::sqlite3::SQLite3Storage;
+use rustuna_storage::journal::file::JournalFileBackend;
+use rustuna_storage::journal::storage::JournalStorage;
 
-fn run_optuna_script(python: &str, db_path: &Path, script: &str) -> Result<()> {
+fn run_optuna_python_script(python: &str, journal_path: &str, script: &str) -> Result<()> {
     let output = Command::new(python)
-        .args(["-c", script, db_path.to_string_lossy().as_ref()])
+        .args(["-c", script, journal_path])
         .output()
-        .map_err(|_| Error::new(ErrorKind::Unexpected))?;
+        .map_err(|e| {
+            Error::with_reason(
+                ErrorKind::Unexpected,
+                format!("Failed to execute Python: {e}"),
+            )
+        })?;
     if output.status.success() {
         return Ok(());
     }
@@ -22,25 +26,38 @@ fn run_optuna_script(python: &str, db_path: &Path, script: &str) -> Result<()> {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    Err(Error::new(ErrorKind::Unexpected))
+    Err(Error::with_reason(
+        ErrorKind::Unexpected,
+        format!("Optuna script failed with status: {}", output.status),
+    ))
 }
 
 #[test]
-#[ignore = "Requires external Python + Optuna to populate SQLite for integration test"]
-fn load_studies_from_optuna_sqlite() -> Result<()> {
+#[ignore = "Requires external Python + Optuna to populate journal for integration test"]
+fn load_studies_from_optuna_journal() -> Result<()> {
     let python = std::env::var("PYTHON_BIN").unwrap_or_else(|_| "python3".to_string());
-    let dir = tempfile::tempdir().map_err(|_| Error::new(ErrorKind::Unexpected))?;
-    let db_path = dir.path().join("optuna.sqlite3");
-    let script = r#"
-import optuna, sys
+    let dir = tempfile::tempdir().map_err(|e| {
+        Error::with_reason(
+            ErrorKind::Unexpected,
+            format!("Failed to create temp dir: {e}"),
+        )
+    })?;
+    let journal_path = dir.path().join("optuna.journal");
 
-storage = "sqlite:///" + sys.argv[1]
+    let script = r#"
+import sys
+from optuna.storages import JournalStorage
+from optuna.storages.journal import JournalFileBackend
+import optuna
+
+backend = JournalFileBackend(sys.argv[1])
+storage = JournalStorage(backend)
 optuna.create_study(storage=storage, study_name="test-0")
 optuna.create_study(storage=storage, study_name="test-1", directions=["maximize", "minimize"])
 "#;
-    run_optuna_script(&python, &db_path, script)?;
+    run_optuna_python_script(&python, journal_path.to_string_lossy().as_ref(), script)?;
 
-    let mut storage = SQLite3Storage::new(db_path.to_string_lossy().as_ref())?;
+    let mut storage = JournalStorage::new(Box::new(JournalFileBackend::new(&journal_path, None)?))?;
     let studies = storage.get_studies()?;
     assert_eq!(studies.len(), 2);
     assert_eq!(studies[0].name, "test-0");
@@ -65,13 +82,22 @@ optuna.create_study(storage=storage, study_name="test-1", directions=["maximize"
 }
 
 #[test]
-#[ignore = "Requires external Python + Optuna to populate SQLite for integration test"]
-fn load_trial() -> Result<()> {
+#[ignore = "Requires external Python + Optuna to populate journal for integration test"]
+fn load_trial_from_optuna_journal() -> Result<()> {
     let python = std::env::var("PYTHON_BIN").unwrap_or_else(|_| "python3".to_string());
-    let dir = tempfile::tempdir().map_err(|_| Error::new(ErrorKind::Unexpected))?;
-    let db_path = dir.path().join("optuna.sqlite3");
+    let dir = tempfile::tempdir().map_err(|e| {
+        Error::with_reason(
+            ErrorKind::Unexpected,
+            format!("Failed to create temp dir: {e}"),
+        )
+    })?;
+    let journal_path = dir.path().join("optuna.journal");
+
     let script = r#"
-import optuna, sys
+import sys
+from optuna.storages import JournalStorage
+from optuna.storages.journal import JournalFileBackend
+import optuna
 
 def objective(trial: optuna.Trial) -> float:
     x = trial.suggest_float("x", 1, 10, log=True)
@@ -79,22 +105,23 @@ def objective(trial: optuna.Trial) -> float:
     trial.suggest_categorical("z", [True, False, "foo", 10])
     return x ** 2 + y
 
-storage = "sqlite:///" + sys.argv[1]
+backend = JournalFileBackend(sys.argv[1])
+storage = JournalStorage(backend)
 study = optuna.create_study(storage=storage)
 study.optimize(objective, n_trials=10)
 "#;
 
-    run_optuna_script(&python, &db_path, script)?;
+    run_optuna_python_script(&python, journal_path.to_string_lossy().as_ref(), script)?;
 
-    let mut storage = SQLite3Storage::new(db_path.to_string_lossy().as_ref())?;
-    let studies = storage.get_studies()?;
-    assert_eq!(studies.len(), 1);
+    let mut storage = JournalStorage::new(Box::new(JournalFileBackend::new(&journal_path, None)?))?;
+    let study_id = {
+        let studies = storage.get_studies()?;
+        assert_eq!(studies.len(), 1);
+        studies[0].id
+    };
 
-    let trials = storage.get_trials_diff(studies[0].id, &[], -1)?;
-    let trial0 = trials
-        .into_iter()
-        .find(|trial| trial.number == 0)
-        .expect("trial number 0 should exist");
+    let trial_id = storage.get_trials(study_id)?[0].id;
+    let trial0 = storage.get_trial(trial_id)?;
     assert_eq!(trial0.number, 0);
 
     // Distributions
@@ -128,13 +155,22 @@ study.optimize(objective, n_trials=10)
 }
 
 #[test]
-#[ignore = "Requires external Python + Optuna to populate SQLite for integration test"]
-fn get_trials() -> Result<()> {
+#[ignore = "Requires external Python + Optuna to populate journal for integration test"]
+fn get_trials_from_optuna_journal() -> Result<()> {
     let python = std::env::var("PYTHON_BIN").unwrap_or_else(|_| "python3".to_string());
-    let dir = tempfile::tempdir().map_err(|_| Error::new(ErrorKind::Unexpected))?;
-    let db_path = dir.path().join("optuna.sqlite3");
+    let dir = tempfile::tempdir().map_err(|e| {
+        Error::with_reason(
+            ErrorKind::Unexpected,
+            format!("Failed to create temp dir: {e}"),
+        )
+    })?;
+    let journal_path = dir.path().join("optuna.journal");
+
     let script = r#"
-import optuna, sys
+import sys
+from optuna.storages import JournalStorage
+from optuna.storages.journal import JournalFileBackend
+import optuna
 
 def objective(trial: optuna.Trial) -> float:
     x = trial.suggest_float("x", 1, 10, log=True)
@@ -143,15 +179,14 @@ def objective(trial: optuna.Trial) -> float:
     trial.set_user_attr("key", "value")
     return x ** 2 + y
 
-storage = "sqlite:///" + sys.argv[1]
-study = optuna.create_study(storage=storage, study_name="foo", load_if_exists=True)
+backend = JournalFileBackend(sys.argv[1])
+storage = JournalStorage(backend)
+study = optuna.create_study(storage=storage, study_name="foo")
 study.optimize(objective, n_trials=10)
 "#;
     // Evaluate 10 trials
-    run_optuna_script(&python, &db_path, script)?;
-    let mut storage = CachedStorage::new(Box::new(SQLite3Storage::new(
-        db_path.to_string_lossy().as_ref(),
-    )?));
+    run_optuna_python_script(&python, journal_path.to_string_lossy().as_ref(), script)?;
+    let mut storage = JournalStorage::new(Box::new(JournalFileBackend::new(&journal_path, None)?))?;
     let study_id = {
         let studies = storage.get_studies()?;
         assert_eq!(studies.len(), 1);
@@ -160,8 +195,31 @@ study.optimize(objective, n_trials=10)
     let trials = storage.get_trials(study_id)?;
     assert_eq!(trials.len(), 10);
 
-    // Evaluate more 10 trials
-    run_optuna_script(&python, &db_path, script)?;
+    // Evaluate more 10 trials with load_if_exists=True
+    let script_continue = r#"
+import sys
+from optuna.storages import JournalStorage
+from optuna.storages.journal import JournalFileBackend
+import optuna
+
+def objective(trial: optuna.Trial) -> float:
+    x = trial.suggest_float("x", 1, 10, log=True)
+    y = trial.suggest_int("y", -10, 10)
+    trial.suggest_categorical("z", [True, False, "foo", 10])
+    trial.set_user_attr("key", "value")
+    return x ** 2 + y
+
+backend = JournalFileBackend(sys.argv[1])
+storage = JournalStorage(backend)
+study = optuna.create_study(storage=storage, study_name="foo", load_if_exists=True)
+study.optimize(objective, n_trials=10)
+"#;
+    run_optuna_python_script(
+        &python,
+        journal_path.to_string_lossy().as_ref(),
+        script_continue,
+    )?;
+    let mut storage = JournalStorage::new(Box::new(JournalFileBackend::new(&journal_path, None)?))?;
     let trials = storage.get_trials(study_id)?;
     assert_eq!(trials.len(), 20);
     assert_eq!(trials[0].distributions.len(), 3);

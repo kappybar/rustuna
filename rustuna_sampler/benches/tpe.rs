@@ -8,7 +8,7 @@ mod tests {
 
     use rustuna_core::storage::InMemoryStorage;
     use rustuna_core::study::{create_study, Direction};
-    use rustuna_samplers::tpe::TpeSampler;
+    use rustuna_sampler::tpe::TpeSampler;
 
     #[bench]
     fn bench_tpe(b: &mut Bencher) {

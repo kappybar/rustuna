@@ -9,7 +9,7 @@ use rustuna_core::objective_single::get_best_trial;
 use rustuna_core::storage::InMemoryStorage;
 use rustuna_core::study::{Direction, create_study};
 use rustuna_core::Result;
-use rustuna_samplers::tpe::TpeSampler;
+use rustuna_sampler::tpe::TpeSampler;
 
 fn main() -> Result<()> {
     let storage = InMemoryStorage::new();

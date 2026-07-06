@@ -1,5 +1,5 @@
 [package]
-name = "rustuna_storages"
+name = "rustuna_storage"
 version.workspace = true
 edition.workspace = true
 description.workspace = true

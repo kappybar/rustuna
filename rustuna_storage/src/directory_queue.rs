@@ -34,7 +34,7 @@ impl DirectoryTrialQueue {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use rustuna_storages::directory_queue::DirectoryTrialQueue;
+    /// use rustuna_storage::directory_queue::DirectoryTrialQueue;
     /// let queue = DirectoryTrialQueue::new("/path/to/storage/queue/1").unwrap();
     /// ```
     pub fn new(base_dir: impl AsRef<Path>) -> Result<Self> {
