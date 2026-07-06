@@ -16,9 +16,6 @@ use rustuna_core::study_cache::StudyCache;
 use rustuna_core::trial::{PersistedTrial, TrialStateValues};
 use rustuna_core::{Error, ErrorKind, Result};
 
-use crate::optuna::IntermediateValueEntry;
-use crate::optuna::OptunaCompatibleStorage;
-
 use super::{JournalBackend, JournalLog, JournalOperation};
 
 /// Storage implementation backed by an append-only journal log.
@@ -210,15 +207,13 @@ impl Storage for JournalStorage {
                     user_attrs.insert(key.to_string(), value.clone());
                 }
                 AttrKey::System(key) => {
-                    if key.as_str() != "intermediate_values" {
-                        system_attrs.insert(key.to_string(), value.clone());
-                    }
+                    system_attrs.insert(key.to_string(), value.clone());
                 }
             }
         }
 
-        let mut params = HashMap::new();
-        let mut distributions = HashMap::new();
+        let mut params = HashMap::with_capacity(template.distributions.len());
+        let mut distributions = HashMap::with_capacity(template.distributions.len());
         for (param_name, distribution) in &template.distributions {
             let param_value = template.internal_params.get(param_name).ok_or_else(|| {
                 Error::with_reason(
@@ -232,37 +227,13 @@ impl Storage for JournalStorage {
             distributions.insert(param_name.clone(), dist_json);
         }
 
-        let intermediate_entries = intermediate_entries_from_attrs(template)?;
-        let intermediate_values = intermediate_entries
-            .iter()
-            .map(|entry| {
-                let value = match entry.value_type.as_str() {
-                    "FINITE" => Value::Number(
-                        Number::from_f64(entry.value.unwrap_or(0.0)).ok_or_else(|| {
-                            Error::with_reason(
-                                ErrorKind::StorageError,
-                                format!(
-                                    "Failed to convert intermediate value to JSON: step={}",
-                                    entry.step
-                                ),
-                            )
-                        })?,
-                    ),
-                    "NAN" => Value::String("NaN".to_string()),
-                    "INF_POS" => Value::String("Infinity".to_string()),
-                    "INF_NEG" => Value::String("-Infinity".to_string()),
-                    _ => {
-                        return Err(Error::with_reason(
-                            ErrorKind::StorageError,
-                            format!("Invalid intermediate value type: {}", entry.value_type),
-                        ));
-                    }
-                };
-                Ok((entry.step.to_string(), value))
-            })
-            .collect::<Result<HashMap<_, _>>>()?;
+        let mut intermediate_values_json =
+            HashMap::with_capacity(template.intermediate_values.len());
+        for (step, value) in &template.intermediate_values {
+            intermediate_values_json.insert(step.to_string(), value_to_json(*value));
+        }
 
-        let mut fields = HashMap::new();
+        let mut fields = HashMap::with_capacity(10);
         fields.insert("study_id".to_string(), to_raw(&study_id)?);
         fields.insert("state".to_string(), to_raw(&state_code)?);
         if let Some(values_raw) = values_raw {
@@ -276,7 +247,7 @@ impl Storage for JournalStorage {
         fields.insert("system_attrs".to_string(), to_raw(&system_attrs)?);
         fields.insert(
             "intermediate_values".to_string(),
-            to_raw(&intermediate_values)?,
+            to_raw(&intermediate_values_json)?,
         );
         fields.insert(
             "datetime_start".to_string(),
@@ -426,6 +397,37 @@ impl Storage for JournalStorage {
             );
         }
         self.write_log(JournalOperation::SetTrialStateValues, fields)?;
+        self.sync_with_backend()?;
+        Ok(())
+    }
+
+    fn set_trial_intermediate_values(
+        &mut self,
+        trial_id: u32,
+        intermediate_values: HashMap<u32, f64>,
+    ) -> Result<()> {
+        if intermediate_values.is_empty() {
+            return Ok(());
+        }
+        self.sync_with_backend()?;
+        self.replay.ensure_trial_updatable(trial_id)?;
+        let worker_id = self.worker_id();
+        let mut logs = Vec::with_capacity(intermediate_values.len());
+        for (step, value) in intermediate_values {
+            let mut fields = HashMap::new();
+            fields.insert("trial_id".to_string(), to_raw(&trial_id)?);
+            fields.insert("step".to_string(), to_raw(&step)?);
+            fields.insert(
+                "intermediate_value".to_string(),
+                to_raw(&value_to_json(value))?,
+            );
+            logs.push(JournalLog {
+                op_code: JournalOperation::SetTrialIntermediateValue as i32,
+                worker_id: worker_id.clone(),
+                fields,
+            });
+        }
+        self.backend.append_logs(&logs)?;
         self.sync_with_backend()?;
         Ok(())
     }
@@ -651,39 +653,6 @@ impl Storage for JournalStorage {
         let cache = self.replay.study_caches.entry(study_id).or_default();
         cache.update(trials);
         Ok(cache.get_joint_search_space())
-    }
-}
-
-impl OptunaCompatibleStorage for JournalStorage {
-    fn set_trial_intermediate_values(
-        &mut self,
-        trial_id: u32,
-        intermediate_values: HashMap<u32, f64>,
-    ) -> Result<()> {
-        if intermediate_values.is_empty() {
-            return Ok(());
-        }
-        self.sync_with_backend()?;
-        self.replay.ensure_trial_updatable(trial_id)?;
-        let worker_id = self.worker_id();
-        let mut logs = Vec::with_capacity(intermediate_values.len());
-        for (step, value) in intermediate_values {
-            let mut fields = HashMap::new();
-            fields.insert("trial_id".to_string(), to_raw(&trial_id)?);
-            fields.insert("step".to_string(), to_raw(&step)?);
-            fields.insert(
-                "intermediate_value".to_string(),
-                to_raw(&value_to_json(value))?,
-            );
-            logs.push(JournalLog {
-                op_code: JournalOperation::SetTrialIntermediateValue as i32,
-                worker_id: worker_id.clone(),
-                fields,
-            });
-        }
-        self.backend.append_logs(&logs)?;
-        self.sync_with_backend()?;
-        Ok(())
     }
 }
 
@@ -983,14 +952,9 @@ impl JournalReplayState {
             }
         }
         if let Some(values) = intermediate_values {
-            let entries = intermediate_entries_from_raw(&values)?;
-            let json = serde_json::to_string(&entries).map_err(|_| {
-                Error::with_reason(
-                    ErrorKind::StorageError,
-                    "Failed to serialize intermediate values",
-                )
-            })?;
-            attrs.insert(AttrKey::System("intermediate_values".into()), json);
+            trial
+                .intermediate_values
+                .extend(intermediate_values_from_raw(&values)?);
         }
         trial.attrs = attrs;
 
@@ -1200,17 +1164,7 @@ impl JournalReplayState {
                 ),
             )
         })?;
-        let mut entries = intermediate_entries_from_attrs(trial)?;
-        upsert_intermediate_entry(&mut entries, step, value);
-        let json = serde_json::to_string(&entries).map_err(|_| {
-            Error::with_reason(
-                ErrorKind::StorageError,
-                "Failed to serialize intermediate values",
-            )
-        })?;
-        trial
-            .attrs
-            .insert(AttrKey::System("intermediate_values".into()), json);
+        trial.intermediate_values.insert(step, value);
         Ok(())
     }
 
@@ -1659,61 +1613,6 @@ fn json_map(entries: Vec<(&str, Value)>) -> Map<String, Value> {
     map
 }
 
-fn intermediate_entries_from_attrs(trial: &PersistedTrial) -> Result<Vec<IntermediateValueEntry>> {
-    let raw = trial
-        .attrs
-        .get(&AttrKey::System("intermediate_values".into()))
-        .cloned();
-    match raw {
-        None => Ok(Vec::new()),
-        Some(json) => serde_json::from_str(&json).map_err(|_| {
-            Error::with_reason(
-                ErrorKind::StorageError,
-                "Failed to parse intermediate values JSON",
-            )
-        }),
-    }
-}
-
-fn upsert_intermediate_entry(entries: &mut Vec<IntermediateValueEntry>, step: u32, value: f64) {
-    if let Some(entry) = entries.iter_mut().find(|e| e.step == step) {
-        *entry = intermediate_entry(step, value);
-        return;
-    }
-    entries.push(intermediate_entry(step, value));
-    entries.sort_by_key(|e| e.step);
-}
-
-fn intermediate_entry(step: u32, value: f64) -> IntermediateValueEntry {
-    if value.is_nan() {
-        IntermediateValueEntry {
-            step,
-            value: None,
-            value_type: "NAN".to_string(),
-        }
-    } else if value.is_infinite() {
-        if value.is_sign_positive() {
-            IntermediateValueEntry {
-                step,
-                value: None,
-                value_type: "INF_POS".to_string(),
-            }
-        } else {
-            IntermediateValueEntry {
-                step,
-                value: None,
-                value_type: "INF_NEG".to_string(),
-            }
-        }
-    } else {
-        IntermediateValueEntry {
-            step,
-            value: Some(value),
-            value_type: "FINITE".to_string(),
-        }
-    }
-}
-
 fn unique_prefix() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1907,10 +1806,8 @@ fn parse_f64_vec_raw(values: &[Box<RawValue>]) -> Result<Vec<f64>> {
     values.iter().map(|v| parse_f64_raw(v)).collect()
 }
 
-fn intermediate_entries_from_raw(
-    map: &HashMap<String, Box<RawValue>>,
-) -> Result<Vec<IntermediateValueEntry>> {
-    let mut entries = Vec::with_capacity(map.len());
+fn intermediate_values_from_raw(map: &HashMap<String, Box<RawValue>>) -> Result<HashMap<u32, f64>> {
+    let mut values = HashMap::new();
     for (k, v) in map {
         let step: u32 = k.parse().map_err(|_| {
             Error::with_reason(
@@ -1919,10 +1816,9 @@ fn intermediate_entries_from_raw(
             )
         })?;
         let value = parse_f64_raw(v)?;
-        entries.push(intermediate_entry(step, value));
+        values.insert(step, value);
     }
-    entries.sort_by_key(|e| e.step);
-    Ok(entries)
+    Ok(values)
 }
 
 fn value_to_json(value: f64) -> Value {
@@ -2223,6 +2119,30 @@ mod tests {
         storage.set_trial_state_values(trial_id, TrialStateValues::Complete(vec![1.0]))?;
         let trial = storage.get_trial(trial_id)?;
         assert!(matches!(trial.state_values, TrialStateValues::Complete(_)));
+        Ok(())
+    }
+
+    #[test]
+    fn set_trial_intermediate_values_replays_to_trial_field() -> Result<()> {
+        let (mut storage, logs) = new_storage()?;
+        let study_id = storage.create_new_study("s", vec![Direction::Minimize])?.id;
+        let trial_id = storage.create_new_trial(study_id)?.id;
+
+        let mut values = HashMap::new();
+        values.insert(0, 0.1);
+        values.insert(1, f64::INFINITY);
+        values.insert(2, f64::NAN);
+        storage.set_trial_intermediate_values(trial_id, values)?;
+
+        let backend = InMemoryJournalBackend { logs: logs.clone() };
+        let mut reloaded = JournalStorage::new(Box::new(backend))?;
+        let trial = reloaded.get_trial(trial_id)?;
+        assert_eq!(trial.intermediate_values[&0], 0.1);
+        assert_eq!(trial.intermediate_values[&1], f64::INFINITY);
+        assert!(trial.intermediate_values[&2].is_nan());
+        assert!(!trial
+            .attrs
+            .contains_key(&AttrKey::System("intermediate_values".into())));
         Ok(())
     }
 

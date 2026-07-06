@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from rustuna._protocols import OptunaStorageProtocol, StorageProtocol
+from rustuna._protocols import StorageProtocol
 from rustuna._rustuna import Storage
 
 __all__ = [
     "InMemoryStorage",
     "JournalStorage",
-    "OptunaStorageProtocol",
     "SQLite3Storage",
     "StorageProtocol",
 ]
@@ -23,7 +22,7 @@ def InMemoryStorage() -> StorageProtocol:
 
 
 # TODO(c-bata): Replace JournalFileStorage with a Python concrete class.
-def JournalFileStorage(file_path: str) -> OptunaStorageProtocol:
+def JournalFileStorage(file_path: str) -> StorageProtocol:
     """Create a Journal storage with its file backend.
 
     Args:
@@ -36,9 +35,7 @@ def JournalFileStorage(file_path: str) -> OptunaStorageProtocol:
 
 
 # TODO(c-bata): Replace InMemoryStorage with a Python concrete class.
-def SQLite3Storage(
-    file_path: str, *, create_database: bool = True
-) -> OptunaStorageProtocol:
+def SQLite3Storage(file_path: str, *, create_database: bool = True) -> StorageProtocol:
     """Create a SQLite3 storage.
 
     Args:

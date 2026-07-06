@@ -12,7 +12,6 @@ use rustuna_core::trial::TrialStateValues;
 use rustuna_storage::cache::CachedStorage;
 use rustuna_storage::journal::file::{JournalFileBackend, JournalFileSymlinkLock};
 use rustuna_storage::journal::storage::JournalStorage;
-use rustuna_storage::optuna::OptunaCompatibleStorage;
 use rustuna_storage::sqlite3::SQLite3Storage;
 
 use crate::attrs::{pyobj_to_attrs_with_kind, AttrKind};
@@ -26,7 +25,6 @@ use crate::trial::{PyPersistedTrial, PyTrialState};
 #[pyo3(module = "rustuna")]
 pub struct PyStorage {
     pub storage: Arc<RwLock<dyn Storage>>,
-    pub optuna_compatible: Option<Arc<RwLock<dyn OptunaCompatibleStorage>>>,
     pub kind: &'static str,
 }
 
@@ -36,7 +34,6 @@ impl PyStorage {
     fn in_memory(_cls: &Bound<'_, PyType>) -> PyResult<Self> {
         Ok(PyStorage {
             storage: Arc::new(RwLock::new(InMemoryStorage::new())),
-            optuna_compatible: None,
             kind: "in_memory",
         })
     }
@@ -56,7 +53,6 @@ impl PyStorage {
         let arc_storage = Arc::new(RwLock::new(CachedStorage::new(Box::new(backend))));
         Ok(PyStorage {
             storage: arc_storage.clone(),
-            optuna_compatible: Some(arc_storage),
             kind: "sqlite3",
         })
     }
@@ -75,7 +71,6 @@ impl PyStorage {
         let arc_storage = Arc::new(RwLock::new(storage));
         Ok(PyStorage {
             storage: arc_storage.clone(),
-            optuna_compatible: Some(arc_storage),
             kind: "journal",
         })
     }
@@ -395,14 +390,12 @@ impl PyStorage {
         step: u32,
         intermediate_value: f64,
     ) -> PyResult<()> {
-        let optuna_storage = self.optuna_compatible.as_ref().ok_or_else(|| {
-            PyRuntimeError::new_err("This storage does not support Optuna-compatible operations")
-        })?;
-        let mut guard = optuna_storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
         let mut intermediate_values = std::collections::HashMap::new();
         intermediate_values.insert(step, intermediate_value);
+
+        let mut guard = self.storage.write().map_err(|e| {
+            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
+        })?;
         guard
             .set_trial_intermediate_values(trial_id, intermediate_values)
             .map_err(err_to_exceptions)?;

@@ -163,7 +163,6 @@ fn into_storage_pyobj(
         None => {
             let storage = PyStorage {
                 storage: Arc::new(RwLock::new(InMemoryStorage::new())),
-                optuna_compatible: None,
                 kind: "in_memory",
             };
             let storage_arc = storage.storage.clone();
