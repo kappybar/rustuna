@@ -1,5 +1,4 @@
-use crate::cache::{CachedStorageBackend, OptunaCachedStorageBackend};
-use crate::optuna::{IntermediateValueEntry, OptunaCompatibleStorage};
+use crate::cache::CachedStorageBackend;
 use rusqlite::{params, Connection, Error as RusqliteError, OptionalExtension};
 use rustuna_core::attr::{AttrKey, Attrs, CategoryLabel};
 use rustuna_core::distribution::Distribution;
@@ -291,6 +290,10 @@ impl CachedStorageBackend for SQLite3Storage {
 
         if !template.attrs.is_empty() {
             self.set_trial_attrs(trial_id, template.attrs.clone(), false)?;
+        }
+
+        if !template.intermediate_values.is_empty() {
+            self.set_trial_intermediate_values(trial_id, template.intermediate_values.clone())?;
         }
 
         if !matches!(template.state_values, TrialStateValues::Running) {
@@ -765,55 +768,13 @@ impl CachedStorageBackend for SQLite3Storage {
             attrs.insert(AttrKey::System(key.into()), value);
         }
 
-        // Intermediate values
-        let mut stmt = guard
-            .prepare("SELECT step, intermediate_value, intermediate_value_type FROM trial_intermediate_values WHERE trial_id = ? ORDER BY step")
-            .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {e}")))?;
-        let intermediate_rows = stmt
-            .query_map(params![trial_id], |row| {
-                Ok((
-                    row.get::<_, u32>(0)?,
-                    row.get::<_, Option<f64>>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            })
-            .map_err(|e| {
-                Error::with_reason(
-                    ErrorKind::StorageError,
-                    format!("Database query failed: {e}"),
-                )
-            })?;
-        let mut intermediate_entries = Vec::new();
-        for row in intermediate_rows {
-            let (step, stored_value, value_type) = row.map_err(|e| {
-                Error::with_reason(
-                    ErrorKind::StorageError,
-                    format!("Database query failed: {e}"),
-                )
-            })?;
-            intermediate_entries.push(IntermediateValueEntry {
-                step,
-                value: stored_value,
-                value_type,
-            });
-        }
-        if !intermediate_entries.is_empty() {
-            let intermediate_json = serde_json::to_string(&intermediate_entries).map_err(|e| {
-                Error::with_reason(
-                    ErrorKind::StorageError,
-                    format!("JSON serialization failed: {e}"),
-                )
-            })?;
-            attrs.insert(
-                AttrKey::System("intermediate_values".into()),
-                intermediate_json,
-            );
-        }
+        let intermediate_values = read_intermediate_values(&guard, trial_id)?;
 
         let mut trial = PersistedTrial::new(trial_id, study_id, number);
         trial.state_values = state_values;
         trial.internal_params = internal_params;
         trial.distributions = distributions;
+        trial.intermediate_values = intermediate_values;
         trial.attrs = attrs;
         trial.datetime_start = datetime_start;
         trial.datetime_complete = datetime_complete;
@@ -1075,6 +1036,83 @@ impl CachedStorageBackend for SQLite3Storage {
         Ok(())
     }
 
+    fn set_trial_intermediate_values(
+        &mut self,
+        trial_id: u32,
+        intermediate_values: HashMap<u32, f64>,
+    ) -> Result<()> {
+        if intermediate_values.is_empty() {
+            return Ok(());
+        }
+
+        let guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
+
+        // TODO(c-bata): Check if Optuna enables PRAGMA foreign_keys and if we can skip this check
+        // Explicitly check trial existence and state since the schema might be created by Optuna
+        let trial_state: Option<String> = guard
+            .query_row(
+                "SELECT state FROM trials WHERE trial_id = ?",
+                params![trial_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {e}"),
+                )
+            })?;
+
+        let state = trial_state.ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
+
+        if matches!(state.as_str(), "COMPLETE" | "FAIL" | "PRUNED") {
+            return Err(Error::new(ErrorKind::TrialAlreadyFinished));
+        }
+
+        let placeholders = intermediate_values
+            .iter()
+            .map(|_| "(?, ?, ?, ?)")
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "INSERT INTO trial_intermediate_values (trial_id, step, intermediate_value, intermediate_value_type) VALUES {placeholders} \
+             ON CONFLICT(trial_id, step) DO UPDATE SET intermediate_value=excluded.intermediate_value, intermediate_value_type=excluded.intermediate_value_type"
+        );
+
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        for (step, value) in &intermediate_values {
+            let (stored_value, value_type) = if value.is_nan() {
+                (None, "NAN")
+            } else if value.is_infinite() {
+                if value.is_sign_positive() {
+                    (None, "INF_POS")
+                } else {
+                    (None, "INF_NEG")
+                }
+            } else {
+                (Some(*value), "FINITE")
+            };
+
+            params.push(Box::new(trial_id));
+            params.push(Box::new(*step));
+            params.push(Box::new(stored_value));
+            params.push(Box::new(value_type.to_string()));
+        }
+
+        let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        guard.execute(&sql, param_refs.as_slice()).map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Database query failed: {e}"),
+            )
+        })?;
+
+        Ok(())
+    }
+
     fn get_trials_diff(
         &mut self,
         study_id: u32,
@@ -1276,56 +1314,13 @@ impl CachedStorageBackend for SQLite3Storage {
                 attrs.insert(AttrKey::System(key.into()), value);
             }
 
-            // Intermediate values
-            let mut intermediate_stmt = guard
-                .prepare("SELECT step, intermediate_value, intermediate_value_type FROM trial_intermediate_values WHERE trial_id = ? ORDER BY step")
-                .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {e}")))?;
-            let intermediate_rows = intermediate_stmt
-                .query_map(params![trial_id], |row| {
-                    Ok((
-                        row.get::<_, u32>(0)?,
-                        row.get::<_, Option<f64>>(1)?,
-                        row.get::<_, String>(2)?,
-                    ))
-                })
-                .map_err(|e| {
-                    Error::with_reason(
-                        ErrorKind::StorageError,
-                        format!("Database query failed: {e}"),
-                    )
-                })?;
-            let mut intermediate_entries = Vec::new();
-            for row in intermediate_rows {
-                let (step, stored_value, value_type) = row.map_err(|e| {
-                    Error::with_reason(
-                        ErrorKind::StorageError,
-                        format!("Database query failed: {e}"),
-                    )
-                })?;
-                intermediate_entries.push(IntermediateValueEntry {
-                    step,
-                    value: stored_value,
-                    value_type,
-                });
-            }
-            if !intermediate_entries.is_empty() {
-                let intermediate_json =
-                    serde_json::to_string(&intermediate_entries).map_err(|e| {
-                        Error::with_reason(
-                            ErrorKind::StorageError,
-                            format!("JSON serialization failed: {e}"),
-                        )
-                    })?;
-                attrs.insert(
-                    AttrKey::System("intermediate_values".into()),
-                    intermediate_json,
-                );
-            }
+            let intermediate_values = read_intermediate_values(&guard, trial_id)?;
 
             let mut trial = PersistedTrial::new(trial_id, study_id, number);
             trial.state_values = state_values;
             trial.internal_params = internal_params;
             trial.distributions = distributions;
+            trial.intermediate_values = intermediate_values;
             trial.attrs = attrs;
             trial.datetime_start = datetime_start;
             trial.datetime_complete = datetime_complete;
@@ -1437,87 +1432,6 @@ impl CachedStorageBackend for SQLite3Storage {
         Ok(())
     }
 }
-
-impl OptunaCompatibleStorage for SQLite3Storage {
-    fn set_trial_intermediate_values(
-        &mut self,
-        trial_id: u32,
-        intermediate_values: HashMap<u32, f64>,
-    ) -> Result<()> {
-        if intermediate_values.is_empty() {
-            return Ok(());
-        }
-
-        let guard = self
-            .conn
-            .lock()
-            .map_err(|_| Error::new(ErrorKind::StorageError))?;
-
-        // TODO(c-bata): Check if Optuna enables PRAGMA foreign_keys and if we can skip this check
-        // Explicitly check trial existence and state since the schema might be created by Optuna
-        let trial_state: Option<String> = guard
-            .query_row(
-                "SELECT state FROM trials WHERE trial_id = ?",
-                params![trial_id],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|e| {
-                Error::with_reason(
-                    ErrorKind::StorageError,
-                    format!("Database query failed: {e}"),
-                )
-            })?;
-
-        let state = trial_state.ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
-
-        if matches!(state.as_str(), "COMPLETE" | "FAIL" | "PRUNED") {
-            return Err(Error::new(ErrorKind::TrialAlreadyFinished));
-        }
-
-        let placeholders = intermediate_values
-            .iter()
-            .map(|_| "(?, ?, ?, ?)")
-            .collect::<Vec<_>>()
-            .join(", ");
-        let sql = format!(
-        "INSERT INTO trial_intermediate_values (trial_id, step, intermediate_value, intermediate_value_type) VALUES {placeholders} \
-         ON CONFLICT(trial_id, step) DO UPDATE SET intermediate_value=excluded.intermediate_value, intermediate_value_type=excluded.intermediate_value_type"
-    );
-
-        let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-        for (step, value) in &intermediate_values {
-            let (stored_value, value_type) = if value.is_nan() {
-                (None, "NAN")
-            } else if value.is_infinite() {
-                if value.is_sign_positive() {
-                    (None, "INF_POS")
-                } else {
-                    (None, "INF_NEG")
-                }
-            } else {
-                (Some(*value), "FINITE")
-            };
-
-            params.push(Box::new(trial_id));
-            params.push(Box::new(*step));
-            params.push(Box::new(stored_value));
-            params.push(Box::new(value_type.to_string()));
-        }
-
-        let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-        guard.execute(&sql, param_refs.as_slice()).map_err(|e| {
-            Error::with_reason(
-                ErrorKind::StorageError,
-                format!("Database query failed: {e}"),
-            )
-        })?;
-
-        Ok(())
-    }
-}
-
-impl OptunaCachedStorageBackend for SQLite3Storage {}
 
 fn distribution_to_json(distribution: &Distribution, labels: Option<&[CategoryLabel]>) -> String {
     let (name, attributes) = match distribution {
@@ -1747,6 +1661,61 @@ fn value_to_category_label(v: &Value) -> Option<CategoryLabel> {
         }
         Value::String(s) => Some(CategoryLabel::String(s.clone())),
         _ => None,
+    }
+}
+
+fn read_intermediate_values(conn: &Connection, trial_id: u32) -> Result<HashMap<u32, f64>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT step, intermediate_value, intermediate_value_type \
+             FROM trial_intermediate_values WHERE trial_id = ? ORDER BY step",
+        )
+        .map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Database query failed: {e}"),
+            )
+        })?;
+    let rows = stmt
+        .query_map(params![trial_id], |row| {
+            Ok((
+                row.get::<_, u32>(0)?,
+                row.get::<_, Option<f64>>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Database query failed: {e}"),
+            )
+        })?;
+
+    let mut values = HashMap::new();
+    for row in rows {
+        let (step, stored_value, value_type) = row.map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Database query failed: {e}"),
+            )
+        })?;
+        values.insert(step, decode_intermediate_value(stored_value, &value_type)?);
+    }
+    Ok(values)
+}
+
+fn decode_intermediate_value(stored_value: Option<f64>, value_type: &str) -> Result<f64> {
+    match value_type {
+        "FINITE" => stored_value.ok_or_else(|| {
+            Error::with_reason(ErrorKind::StorageError, "Finite intermediate value is NULL")
+        }),
+        "NAN" => Ok(f64::NAN),
+        "INF_POS" => Ok(f64::INFINITY),
+        "INF_NEG" => Ok(f64::NEG_INFINITY),
+        _ => Err(Error::with_reason(
+            ErrorKind::StorageError,
+            format!("Invalid intermediate value type: {value_type}"),
+        )),
     }
 }
 
@@ -2254,60 +2223,32 @@ mod tests {
 
         // Verify trial 1
         let trial1_result = storage.get_trial(trial1.id)?;
-        let intermediate_json = trial1_result
+        assert_eq!(trial1_result.intermediate_values.len(), 2);
+        assert_eq!(trial1_result.intermediate_values[&0], 0.3);
+        assert_eq!(trial1_result.intermediate_values[&2], 0.4);
+        assert!(!trial1_result
             .attrs
-            .get(&AttrKey::System("intermediate_values".into()))
-            .expect("intermediate_values should exist");
-        let intermediate_entries: Vec<IntermediateValueEntry> =
-            serde_json::from_str(intermediate_json).expect("Failed to parse intermediate values");
-        assert_eq!(intermediate_entries.len(), 2);
-        assert_eq!(intermediate_entries[0].step, 0);
-        assert_eq!(intermediate_entries[0].value, Some(0.3));
-        assert_eq!(intermediate_entries[0].value_type, "FINITE");
-        assert_eq!(intermediate_entries[1].step, 2);
-        assert_eq!(intermediate_entries[1].value, Some(0.4));
-        assert_eq!(intermediate_entries[1].value_type, "FINITE");
+            .contains_key(&AttrKey::System("intermediate_values".into())));
 
         // Verify trial 2 (no intermediate values)
         let trial2_result = storage.get_trial(trial2.id)?;
+        assert!(trial2_result.intermediate_values.is_empty());
         assert!(!trial2_result
             .attrs
             .contains_key(&AttrKey::System("intermediate_values".into())));
 
         // Verify trial 3
         let trial3_result = storage.get_trial(trial3.id)?;
-        let intermediate_json = trial3_result
-            .attrs
-            .get(&AttrKey::System("intermediate_values".into()))
-            .expect("intermediate_values should exist");
-        let intermediate_entries: Vec<IntermediateValueEntry> =
-            serde_json::from_str(intermediate_json).expect("Failed to parse intermediate values");
-        assert_eq!(intermediate_entries.len(), 4);
-        assert_eq!(intermediate_entries[0].step, 0);
-        assert_eq!(intermediate_entries[0].value, Some(0.1));
-        assert_eq!(intermediate_entries[0].value_type, "FINITE");
-        assert_eq!(intermediate_entries[1].step, 1);
-        assert_eq!(intermediate_entries[1].value, Some(0.4));
-        assert_eq!(intermediate_entries[1].value_type, "FINITE");
-        assert_eq!(intermediate_entries[2].step, 2);
-        assert_eq!(intermediate_entries[2].value, Some(0.5));
-        assert_eq!(intermediate_entries[2].value_type, "FINITE");
-        assert_eq!(intermediate_entries[3].step, 3);
-        assert_eq!(intermediate_entries[3].value, None);
-        assert_eq!(intermediate_entries[3].value_type, "INF_POS");
+        assert_eq!(trial3_result.intermediate_values.len(), 4);
+        assert_eq!(trial3_result.intermediate_values[&0], 0.1);
+        assert_eq!(trial3_result.intermediate_values[&1], 0.4);
+        assert_eq!(trial3_result.intermediate_values[&2], 0.5);
+        assert_eq!(trial3_result.intermediate_values[&3], f64::INFINITY);
 
         // Verify trial 4 (NaN value)
         let trial4_result = storage.get_trial(trial4.id)?;
-        let intermediate_json = trial4_result
-            .attrs
-            .get(&AttrKey::System("intermediate_values".into()))
-            .expect("intermediate_values should exist");
-        let intermediate_entries: Vec<IntermediateValueEntry> =
-            serde_json::from_str(intermediate_json).expect("Failed to parse intermediate values");
-        assert_eq!(intermediate_entries.len(), 1);
-        assert_eq!(intermediate_entries[0].step, 0);
-        assert_eq!(intermediate_entries[0].value, None);
-        assert_eq!(intermediate_entries[0].value_type, "NAN");
+        assert_eq!(trial4_result.intermediate_values.len(), 1);
+        assert!(trial4_result.intermediate_values[&0].is_nan());
 
         // Test overwriting existing step
         let mut values1_update = HashMap::new();
@@ -2315,19 +2256,9 @@ mod tests {
         storage.set_trial_intermediate_values(trial1.id, values1_update)?;
 
         let trial1_updated = storage.get_trial(trial1.id)?;
-        let intermediate_json = trial1_updated
-            .attrs
-            .get(&AttrKey::System("intermediate_values".into()))
-            .expect("intermediate_values should exist");
-        let intermediate_entries: Vec<IntermediateValueEntry> =
-            serde_json::from_str(intermediate_json).expect("Failed to parse intermediate values");
-        assert_eq!(intermediate_entries.len(), 2);
-        assert_eq!(intermediate_entries[0].step, 0);
-        assert_eq!(intermediate_entries[0].value, Some(0.2));
-        assert_eq!(intermediate_entries[0].value_type, "FINITE");
-        assert_eq!(intermediate_entries[1].step, 2);
-        assert_eq!(intermediate_entries[1].value, Some(0.4));
-        assert_eq!(intermediate_entries[1].value_type, "FINITE");
+        assert_eq!(trial1_updated.intermediate_values.len(), 2);
+        assert_eq!(trial1_updated.intermediate_values[&0], 0.2);
+        assert_eq!(trial1_updated.intermediate_values[&2], 0.4);
 
         // Test non-existent trial
         let non_existent_trial_id = trial4.id + 1000;

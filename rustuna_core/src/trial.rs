@@ -277,6 +277,11 @@ pub struct PersistedTrial {
     pub state_values: TrialStateValues,
     pub internal_params: HashMap<String, f64>,
     pub distributions: HashMap<String, Distribution>,
+    /// Intermediate values reported for Optuna-compatible storage migration.
+    ///
+    /// Rustuna does not currently provide pruner support. This field exists to preserve Optuna
+    /// trial data and may be used by future pruning APIs.
+    pub intermediate_values: HashMap<u32, f64>,
     pub attrs: Attrs,
     pub datetime_start: Option<String>,
     pub datetime_complete: Option<String>,
@@ -291,6 +296,7 @@ impl PersistedTrial {
             state_values: TrialStateValues::Running,
             internal_params: HashMap::new(),
             distributions: HashMap::new(),
+            intermediate_values: HashMap::new(),
             attrs: Attrs::new(),
             datetime_start: None,
             datetime_complete: None,

@@ -93,6 +93,11 @@ class ToRustunaStorage:
             values=values,
         )
 
+    def set_trial_intermediate_value(
+        self, trial_id: int, step: int, intermediate_value: float
+    ) -> None:
+        self._storage.set_trial_intermediate_value(trial_id, step, intermediate_value)
+
     def get_studies(self) -> list[rustuna.study.PersistedStudy]:
         frozen_studies = self._storage.get_all_studies()
         return [to_persisted_study(s) for s in frozen_studies]
@@ -195,7 +200,7 @@ class ToRustunaStorage:
 
 
 class ToOptunaStorage(BaseStorage):
-    def __init__(self, storage: rustuna.storages.OptunaStorageProtocol) -> None:
+    def __init__(self, storage: rustuna.storages.StorageProtocol) -> None:
         self._storage = storage
         self._trial_cache: dict[int, FrozenTrialLike] = {}
 

@@ -131,8 +131,10 @@ fn study_attrs_from_distributions(distributions: &HashMap<String, PyDistribution
         distributions = None,
         user_attrs = None,
         system_attrs = None,
+        intermediate_values = None,
     )
 )]
+#[allow(clippy::too_many_arguments)]
 pub fn py_create_trial(
     state: PyTrialState,
     value: Option<f64>,
@@ -141,6 +143,7 @@ pub fn py_create_trial(
     distributions: Option<HashMap<String, PyDistribution>>,
     user_attrs: Option<HashMap<String, String>>,
     system_attrs: Option<HashMap<String, String>>,
+    intermediate_values: Option<HashMap<u32, f64>>,
 ) -> PyResult<PyPersistedTrial> {
     let mut trial = PersistedTrial::new(0, 0, 0);
     trial.state_values = state_values_from_py(&state, value, values)?;
@@ -152,6 +155,7 @@ pub fn py_create_trial(
         .into_iter()
         .map(|(name, distribution)| (name, distribution.distribution))
         .collect();
+    trial.intermediate_values = intermediate_values.unwrap_or_default();
     trial.attrs = build_trial_attrs(
         user_attrs.unwrap_or_default(),
         system_attrs.unwrap_or_default(),
@@ -493,7 +497,7 @@ impl PyPersistedTrial {
 #[pymethods]
 impl PyPersistedTrial {
     #[new]
-    #[pyo3(signature = (*, trial_id, study_id, number, state, value=None, values=None, params=None, distributions=None, user_attrs=None, system_attrs=None, datetime_start=None, datetime_complete=None))]
+    #[pyo3(signature = (*, trial_id, study_id, number, state, value=None, values=None, params=None, distributions=None, user_attrs=None, system_attrs=None, intermediate_values=None, datetime_start=None, datetime_complete=None))]
     #[allow(clippy::too_many_arguments)]
     pub fn py_new(
         trial_id: u32,
@@ -506,6 +510,7 @@ impl PyPersistedTrial {
         distributions: Option<HashMap<String, PyDistribution>>,
         user_attrs: Option<HashMap<String, String>>,
         system_attrs: Option<HashMap<String, String>>,
+        intermediate_values: Option<HashMap<u32, f64>>,
         datetime_start: Option<NaiveDateTime>,
         datetime_complete: Option<NaiveDateTime>,
     ) -> PyResult<Self> {
@@ -519,6 +524,7 @@ impl PyPersistedTrial {
             .into_iter()
             .map(|(name, dist)| (name, dist.distribution))
             .collect();
+        trial.intermediate_values = intermediate_values.unwrap_or_default();
         trial.attrs = build_trial_attrs(
             user_attrs.unwrap_or_default(),
             system_attrs.unwrap_or_default(),
@@ -614,6 +620,11 @@ impl PyPersistedTrial {
             Some(raw) => Ok(Some(parse_naive_datetime(raw)?)),
             None => Ok(None),
         })
+    }
+
+    #[getter]
+    fn intermediate_values(&self) -> PyResult<HashMap<u32, f64>> {
+        self.with_trial(|trial| Ok(trial.intermediate_values.clone()))
     }
 
     #[getter]
@@ -792,6 +803,12 @@ pub fn pyobject_to_persisted_trial(
     };
     persisted_trial.datetime_start = datetime_start.map(|dt| dt.to_string());
     persisted_trial.datetime_complete = datetime_complete.map(|dt| dt.to_string());
+
+    let intermediate_values = match trial.getattr("intermediate_values") {
+        Ok(value) => value.extract::<HashMap<u32, f64>>()?,
+        Err(_) => HashMap::new(),
+    };
+    persisted_trial.intermediate_values = intermediate_values;
 
     let src_internal_params = trial.getattr("internal_params")?;
     if !src_internal_params.is_instance_of::<PyDict>() {

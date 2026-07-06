@@ -9,10 +9,9 @@ from collections.abc import (
     Sequence,
     ValuesView,
 )
-from typing import Any, Literal, Protocol, TypedDict, TypeVar, overload
+from typing import Any, Literal, TypedDict, TypeVar, overload
 
 from ._protocols import (
-    OptunaStorageProtocol,
     SamplerProtocol,
     StorageProtocol,
     TrialQueueProtocol,
@@ -209,6 +208,7 @@ class PersistedTrial:
         value: An objective value of the Trial (only available when single objective optimization).
         params: Dictionary that contains suggested parameters.
         distributions: Dictionary that contains the distributions of params.
+        intermediate_values: Dictionary that contains reported intermediate values.
         user_attrs: Dictionary that contains the attributes of the Trial set with set_user_attr.
         system_attrs: Dictionary that contains the attributes of the Trial set with set_system_attr.
         internal_params: Dictionary that contains internal representations of the parameters.
@@ -227,6 +227,7 @@ class PersistedTrial:
         values: list[float] | None = None,
         params: dict[str, CategoricalChoiceType] | None = None,
         distributions: dict[str, Distribution] | None = None,
+        intermediate_values: dict[int, float] | None = None,
         user_attrs: dict[str, str] | None = None,
         system_attrs: dict[str, str] | None = None,
         datetime_start: datetime.datetime | None = None,
@@ -246,6 +247,8 @@ class PersistedTrial:
     def value(self) -> float | None: ...
     @property
     def distributions(self) -> dict[str, Distribution]: ...
+    @property
+    def intermediate_values(self) -> dict[int, float]: ...
     @property
     def user_attrs(self) -> AttrsDictView: ...
     @property
@@ -299,6 +302,7 @@ def create_trial(
     values: Sequence[float] | None = None,
     params: dict[str, Any] | None = None,
     distributions: dict[str, Distribution] | None = None,
+    intermediate_values: dict[int, float] | None = None,
     user_attrs: dict[str, str] | None = None,
     system_attrs: dict[str, str] | None = None,
 ) -> PersistedTrial:
@@ -660,6 +664,9 @@ class PyObjectStorage:
     def set_study_user_attrs(self, study_id: int, attrs: dict[str, str]) -> None: ...
     def set_trial_system_attrs(self, trial_id: int, attrs: dict[str, str]) -> None: ...
     def set_trial_user_attrs(self, trial_id: int, attrs: dict[str, str]) -> None: ...
+    def set_trial_intermediate_value(
+        self, trial_id: int, step: int, intermediate_value: float
+    ) -> None: ...
     def set_category_labels(
         self,
         study_id: int,
@@ -672,9 +679,6 @@ class PyObjectStorage:
         param_name: str,
         cardinality: int,
     ) -> list[CategoricalChoiceType] | None: ...
-    def set_trial_intermediate_value(
-        self, trial_id: int, step: int, intermediate_value: float
-    ) -> None: ...
 
 class Storage:
     """Storage for persisting optimization history."""
@@ -684,12 +688,12 @@ class Storage:
     @classmethod
     def sqlite3(
         cls, file_path: str, *, create_database: bool = True
-    ) -> OptunaStorageProtocol: ...
+    ) -> StorageProtocol: ...
     @classmethod
     def journal_file(
         cls,
         file_path: str,
-    ) -> OptunaStorageProtocol: ...
+    ) -> StorageProtocol: ...
     def create_new_study(
         self, study_name: str, directions: list[StudyDirection]
     ) -> PersistedStudy: ...
@@ -728,6 +732,9 @@ class Storage:
     def set_study_user_attrs(self, study_id: int, attrs: dict[str, str]) -> None: ...
     def set_trial_system_attrs(self, trial_id: int, attrs: dict[str, str]) -> None: ...
     def set_trial_user_attrs(self, trial_id: int, attrs: dict[str, str]) -> None: ...
+    def set_trial_intermediate_value(
+        self, trial_id: int, step: int, intermediate_value: float
+    ) -> None: ...
     def set_category_labels(
         self,
         study_id: int,
@@ -740,9 +747,6 @@ class Storage:
         param_name: str,
         cardinality: int,
     ) -> list[CategoricalChoiceType] | None: ...
-    def set_trial_intermediate_value(
-        self, trial_id: int, step: int, intermediate_value: float
-    ) -> None: ...
 
 # Sampler
 class SamplerContext:
