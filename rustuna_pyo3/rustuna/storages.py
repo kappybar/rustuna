@@ -35,9 +35,7 @@ def JournalFileStorage(file_path: str) -> StorageProtocol:
 
 
 # TODO(c-bata): Replace InMemoryStorage with a Python concrete class.
-def SQLite3Storage(
-    file_path: str, *, create_database: bool = True
-) -> StorageProtocol:
+def SQLite3Storage(file_path: str, *, create_database: bool = True) -> StorageProtocol:
     """Create a SQLite3 storage.
 
     Args:
