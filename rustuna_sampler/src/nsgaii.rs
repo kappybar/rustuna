@@ -133,10 +133,11 @@ impl NSGAIISampler {
         ctx: &Context,
         trials: &[Option<PersistedTrial>],
     ) -> Result<(i32, Vec<u32>)> {
+        let generation_key = AttrKey::System("generation".into());
         let mut generation_to_population_numbers =
             HashMap::<usize, Vec<u32>>::with_capacity(trials.len());
         for trial in trials.iter().flatten() {
-            let generation_or_none = trial.attrs.get(&AttrKey::System("generation".into()));
+            let generation_or_none = trial.attrs.get(&generation_key);
             if generation_or_none.is_none() {
                 continue;
             }
