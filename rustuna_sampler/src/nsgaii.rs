@@ -363,6 +363,7 @@ fn fast_non_dominated_sort(
     trials: &[Option<PersistedTrial>],
     population_numbers: &Vec<u32>,
 ) -> Result<Vec<Vec<u32>>> {
+    let n = population_numbers.len();
     let population_values = population_numbers
         .iter()
         .map(|n| {
@@ -377,16 +378,12 @@ fn fast_non_dominated_sort(
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let mut dominated_count = HashMap::<u32, u32>::with_capacity(population_numbers.len());
-    let mut dominates_list = HashMap::<u32, Vec<u32>>::with_capacity(population_numbers.len());
-    for p in population_numbers {
-        dominated_count.insert(*p, 0);
-        dominates_list.insert(*p, vec![]);
-    }
+    let mut dominated_count = vec![0u32; n];
+    let mut dominates_list: Vec<Vec<usize>> = vec![vec![]; n];
 
-    for (i, p) in population_numbers.iter().enumerate() {
-        for (j, q) in population_numbers.iter().enumerate() {
-            if p >= q {
+    for (i, _) in population_numbers.iter().enumerate() {
+        for (j, _) in population_numbers.iter().enumerate() {
+            if i >= j {
                 continue;
             }
             if dominates(
@@ -394,43 +391,48 @@ fn fast_non_dominated_sort(
                 &population_values[j],
                 &ctx.directions,
             ) {
-                dominates_list.entry(*p).or_default().push(*q);
-                *dominated_count.entry(*q).or_insert(0) += 1;
+                dominates_list[i].push(j);
+                dominated_count[j] += 1;
             } else if dominates(
                 &population_values[j],
                 &population_values[i],
                 &ctx.directions,
             ) {
-                dominates_list.entry(*q).or_default().push(*p);
-                *dominated_count.entry(*p).or_insert(0) += 1;
+                dominates_list[j].push(i);
+                dominated_count[i] += 1;
             }
         }
     }
 
     let mut population_numbers_per_rank = vec![];
-    let mut mutable_population_numbers = population_numbers.clone();
-    while !mutable_population_numbers.is_empty() {
-        let mut non_dominated_population_numbers = vec![];
+    let mut mutable_population_indices: Vec<usize> = (0..n).collect();
+    while !mutable_population_indices.is_empty() {
+        let mut non_dominated_indices = vec![];
         let mut i = 0;
-        while i < mutable_population_numbers.len() {
-            if dominated_count[&mutable_population_numbers[i]] == 0 {
-                let individual = mutable_population_numbers[i];
-                if i == mutable_population_numbers.len() - 1 {
-                    mutable_population_numbers.pop();
+        while i < mutable_population_indices.len() {
+            let idx = mutable_population_indices[i];
+            if dominated_count[idx] == 0 {
+                if i == mutable_population_indices.len() - 1 {
+                    mutable_population_indices.pop();
                 } else {
-                    mutable_population_numbers[i] = mutable_population_numbers.pop().unwrap();
+                    mutable_population_indices[i] = mutable_population_indices.pop().unwrap();
                 }
-                non_dominated_population_numbers.push(individual);
+                non_dominated_indices.push(idx);
             } else {
                 i += 1;
             }
         }
-        for x in &non_dominated_population_numbers {
-            for y in &dominates_list[x] {
-                *dominated_count.get_mut(y).unwrap() -= 1;
+        for &x in &non_dominated_indices {
+            for &y in &dominates_list[x] {
+                dominated_count[y] -= 1;
             }
         }
-        population_numbers_per_rank.push(non_dominated_population_numbers);
+        population_numbers_per_rank.push(
+            non_dominated_indices
+                .into_iter()
+                .map(|idx| population_numbers[idx])
+                .collect(),
+        );
     }
     Ok(population_numbers_per_rank)
 }
