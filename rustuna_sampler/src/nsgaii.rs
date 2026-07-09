@@ -439,7 +439,7 @@ fn calc_crowding_distance(
     ctx: &Context,
     trials: &[Option<PersistedTrial>],
     population_numbers: &Vec<u32>,
-) -> Result<HashMap<u32, f64>> {
+) -> Result<Vec<(u32, f64)>> {
     let population_values = population_numbers
         .iter()
         .map(|n| {
@@ -454,27 +454,21 @@ fn calc_crowding_distance(
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let mut crowding_distance = HashMap::<u32, f64>::with_capacity(population_numbers.len());
-    for p in population_numbers {
-        crowding_distance.insert(*p, 0.0);
-    }
+    let mut crowding_distance = vec![0.0; population_numbers.len()];
 
     for i in 0..ctx.directions.len() {
-        let mut population_numbers_and_values = population_numbers
-            .iter()
+        let mut indices_and_values = (0..population_numbers.len())
             .zip(population_values.iter().map(|v| v[i]))
             .collect::<Vec<_>>();
-        population_numbers_and_values.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        indices_and_values.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 
-        if population_numbers_and_values[0].1
-            == population_numbers_and_values[population_numbers.len() - 1].1
-        {
+        if indices_and_values[0].1 == indices_and_values[population_numbers.len() - 1].1 {
             continue;
         }
 
         let values = [-f64::INFINITY]
             .into_iter()
-            .chain(population_numbers_and_values.iter().map(|t| t.1))
+            .chain(indices_and_values.iter().map(|t| t.1))
             .chain([f64::INFINITY])
             .collect::<Vec<_>>();
 
@@ -486,18 +480,20 @@ fn calc_crowding_distance(
             width = 1.0;
         }
 
-        for j in 0..population_numbers_and_values.len() {
+        for j in 0..indices_and_values.len() {
             let gap = if values[j] == values[j + 2] {
                 0.0
             } else {
                 values[j + 2] - values[j]
             };
-            crowding_distance
-                .entry(*population_numbers_and_values[j].0)
-                .and_modify(|e| *e += gap / width);
+            crowding_distance[indices_and_values[j].0] += gap / width;
         }
     }
-    Ok(crowding_distance)
+    Ok(population_numbers
+        .iter()
+        .copied()
+        .zip(crowding_distance.into_iter())
+        .collect())
 }
 
 fn crowding_distance_sort(
@@ -505,14 +501,12 @@ fn crowding_distance_sort(
     trials: &[Option<PersistedTrial>],
     population_numbers: Vec<u32>,
 ) -> Result<Vec<u32>> {
-    let manhattan_distance = calc_crowding_distance(ctx, trials, &population_numbers)?;
-    let mut mutable_population_numbers = population_numbers.clone();
-    mutable_population_numbers.sort_by(|a, b| {
-        manhattan_distance[b]
-            .partial_cmp(&manhattan_distance[a])
-            .unwrap()
-    });
-    Ok(mutable_population_numbers)
+    let mut population_and_distance = calc_crowding_distance(ctx, trials, &population_numbers)?;
+    population_and_distance.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    Ok(population_and_distance
+        .into_iter()
+        .map(|(number, _)| number)
+        .collect())
 }
 
 #[cfg(test)]
