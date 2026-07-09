@@ -173,37 +173,17 @@ impl NSGAIISampler {
         }
         Ok((parent_generation, parent_population_numbers))
     }
-    fn select_parents(
+    fn select_parents_from_params(
         &mut self,
-        ctx: &Context,
-        storage: Arc<RwLock<dyn Storage>>,
-        population_numbers: Vec<u32>,
-        search_space: &HashMap<String, Distribution>,
-    ) -> Result<(HashMap<String, f64>, HashMap<String, f64>)> {
-        let mut guard = storage
-            .write()
-            .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
-        let trials = guard.get_trials(ctx.study_id)?;
-        let population_params = trials
-            .iter()
-            .flatten()
-            .filter(|trial| population_numbers.contains(&trial.number))
-            .map(|trial| {
-                let mut params = HashMap::new();
-                for name in search_space.keys() {
-                    let param_value = *trial.internal_params.get(name).unwrap();
-                    params.insert(name.clone(), param_value);
-                }
-                params
-            })
-            .collect::<Vec<_>>();
+        population_params: &[HashMap<String, f64>],
+    ) -> (HashMap<String, f64>, HashMap<String, f64>) {
         let [parent0, parent1] = population_params
             .choose_multiple(&mut self.rng, 2)
             .cloned()
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
-        Ok((parent0.clone(), parent1.clone()))
+        (parent0.clone(), parent1.clone())
     }
     fn crossover(
         &mut self,
@@ -313,9 +293,10 @@ impl Sampler for NSGAIISampler {
         let mut guard = storage
             .write()
             .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
-        let trials = guard.get_trials(ctx.study_id)?;
-        let (parent_generation, parent_population_numbers) =
-            self.get_parent_population_numbers(ctx, trials)?;
+        let (parent_generation, parent_population_numbers) = {
+            let trials = guard.get_trials(ctx.study_id)?;
+            self.get_parent_population_numbers(ctx, trials)?
+        };
         let child_generation = u32::try_from(parent_generation + 1).unwrap();
         let mut attrs = Attrs::with_capacity(1);
         attrs.insert(
@@ -323,15 +304,30 @@ impl Sampler for NSGAIISampler {
             (child_generation as f64).to_string(),
         );
         guard.set_trial_attrs(ctx.trial_id, attrs, false)?;
-        drop(guard);
 
         if parent_generation < 0 {
+            drop(guard);
             let params = HashMap::new();
             return Ok(params);
         }
 
-        let (parent0, parent1) =
-            self.select_parents(ctx, storage, parent_population_numbers, search_space)?;
+        let trials = guard.get_trials(ctx.study_id)?;
+        let mut population_params = Vec::with_capacity(parent_population_numbers.len());
+        for &number in &parent_population_numbers {
+            let trial = trials
+                .get(number as usize)
+                .and_then(Option::as_ref)
+                .ok_or_else(|| Error::new(ErrorKind::TrialDiscarded))?;
+            let mut params = HashMap::with_capacity(search_space.len());
+            for name in search_space.keys() {
+                let param_value = *trial.internal_params.get(name).unwrap();
+                params.insert(name.clone(), param_value);
+            }
+            population_params.push(params);
+        }
+        drop(guard);
+
+        let (parent0, parent1) = self.select_parents_from_params(&population_params);
 
         let child = if self.rng.gen_bool(self.crossover_prob) {
             self.crossover(parent0, parent1, search_space)
