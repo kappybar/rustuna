@@ -1,4 +1,4 @@
-use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyValueError};
+use pyo3::exceptions::{PyImportError, PyKeyError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
 mod exceptions {
@@ -33,6 +33,10 @@ pub fn err_to_exceptions(e: rustuna_core::Error) -> PyErr {
         rustuna_core::ErrorKind::IncompatibleDistribution => {
             PyValueError::new_err("Incompatible distribution for the parameter")
         }
-        _ => PyRuntimeError::new_err(format!("Storage Errors: {:?}", e.kind)),
+        rustuna_core::ErrorKind::UnsupportedMultiObjective => {
+            PyRuntimeError::new_err("Multi-objective study is not supported")
+        }
+        rustuna_core::ErrorKind::MissingDependency => PyImportError::new_err(e.reason),
+        _ => PyRuntimeError::new_err(format!("{e:?}")),
     }
 }

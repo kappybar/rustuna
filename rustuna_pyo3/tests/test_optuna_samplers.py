@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Callable
 
 import optuna
 import pytest
+from optuna.distributions import BaseDistribution, FloatDistribution, IntDistribution
 from optuna.samplers import BaseSampler
 from optuna.testing.pytest_samplers import (
     BasicSamplerTestCase,
@@ -33,6 +34,27 @@ class TestNSGAIISampler(BasicSamplerTestCase, MultiObjectiveSamplerTestCase):
     @pytest.fixture
     def sampler(self) -> Callable[[], BaseSampler]:
         return lambda: ToOptunaSampler(rustuna.samplers.NSGAIISampler())
+
+
+class TestCmaEsSampler(BasicSamplerTestCase, RelativeSamplerTestCase):
+    @pytest.fixture
+    def sampler(self) -> Callable[[], BaseSampler]:
+        return lambda: ToOptunaSampler(rustuna.samplers.CmaEsSampler())
+
+    def test_sample_relative_categorical(
+        self, sampler: Callable[[], BaseSampler]
+    ) -> None:
+        # CmaEsSampler does not support categorical distributions. They are sampled
+        # independently after being excluded from the relative search space.
+        pass
+
+    @pytest.mark.parametrize("x_distribution", [])
+    def test_sample_relative_mixed(
+        self, sampler: Callable[[], BaseSampler], x_distribution: BaseDistribution
+    ) -> None:
+        # CmaEsSampler only samples numerical parameters relatively. Categorical
+        # parameters are excluded from the relative search space and sampled independently.
+        pass
 
 
 class RecordingSampler:
