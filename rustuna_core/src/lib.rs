@@ -14,6 +14,7 @@ pub mod storage;
 pub mod string_interner;
 pub mod study;
 pub mod study_cache;
+pub mod transform;
 pub mod trial;
 pub mod trial_queue;
 
