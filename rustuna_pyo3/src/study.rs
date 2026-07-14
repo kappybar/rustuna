@@ -834,12 +834,9 @@ pub fn py_copy_study(
             .set_study_attrs(to_study_id, from_attrs, false)
             .map_err(err_to_exceptions)?;
     }
-    for trial in trials {
+    for trial in trials.into_iter().flatten() {
         guard
-            .create_new_trial_from_template(
-                to_study_id,
-                trial.as_ref().expect("copied trial should exist"),
-            )
+            .create_new_trial_from_template(to_study_id, &trial)
             .map_err(err_to_exceptions)?;
     }
     Ok(())

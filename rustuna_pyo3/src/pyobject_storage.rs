@@ -699,6 +699,24 @@ impl Storage for PyObjectStorage {
         self.sync_trials(study_id)?;
         self.cache.get_joint_search_space(study_id)
     }
+
+    fn discard_trials(&mut self, trial_ids: &[u32]) -> rustuna_core::Result<()> {
+        Python::attach(|py| {
+            self.obj
+                .call_method1(py, "discard_trials", (trial_ids.to_vec(),))
+                .map_err(Self::map_pyerr)?;
+            Ok(())
+        })
+    }
+
+    fn may_omit_trials(&self) -> bool {
+        Python::attach(|py| {
+            self.obj
+                .call_method0(py, "may_omit_trials")
+                .and_then(|ret| ret.extract::<bool>(py))
+                .unwrap_or(false)
+        })
+    }
 }
 
 // TODO(c-bata): Rename PyStorage, PyObjectStorage, and PyPyObjectStorage to more descriptive names.

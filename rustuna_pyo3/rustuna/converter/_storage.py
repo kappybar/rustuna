@@ -141,6 +141,12 @@ class ToRustunaStorage:
     def get_cached_trial(self, trial_id: int) -> rustuna.trial.PersistedTrial:
         return self.get_trial(trial_id)
 
+    def discard_trials(self, trial_ids: list[int]) -> None:
+        pass
+
+    def may_omit_trials(self) -> bool:
+        return False
+
     def delete_study(self, study_id: int) -> None:
         self._storage.delete_study(study_id)
 
