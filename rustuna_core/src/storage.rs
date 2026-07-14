@@ -149,6 +149,8 @@ pub trait Storage: Send + Sync {
     ///
     /// This corresponds to the search space used for joint sampling.
     fn get_joint_search_space(&mut self, study_id: u32) -> Result<HashMap<String, Distribution>>;
+    fn discard_trials(&mut self, trial_ids: &[u32]) -> Result<()>;
+    fn may_omit_trials(&self) -> bool;
 }
 
 /// In-memory storage implementation used by default in Rust code and tests.
@@ -529,6 +531,26 @@ impl Storage for InMemoryStorage {
         study_cache.update(&visible_trials);
         Ok(study_cache.get_joint_search_space())
     }
+
+    fn discard_trials(&mut self, trial_ids: &[u32]) -> Result<()> {
+        for trial_id in trial_ids {
+            let (study_id, trial_number) =
+                get_study_id_trial_number_by_trial_id(&self.trial_id_to_study_number, *trial_id)?;
+
+            let trials = get_mut_trials_by_study_id(&mut self.trials, study_id)?;
+            let slot = trials
+                .get_mut(trial_number as usize)
+                .ok_or(Error::new(ErrorKind::TrialNotFound))?;
+            *slot = None;
+        }
+        Ok(())
+    }
+
+    fn may_omit_trials(&self) -> bool {
+        self.trials
+            .values()
+            .any(|trials| trials.iter().any(Option::is_none))
+    }
 }
 
 fn check_trial_is_updatable(trial: &PersistedTrial) -> Result<()> {
@@ -660,6 +682,27 @@ mod tests {
             .get_study_attr(study_id, AttrKey::User("missing".into()))
             .unwrap_err();
         assert!(matches!(err.kind, ErrorKind::AttrNotFound));
+        Ok(())
+    }
+
+    #[test]
+    fn discard_trials_omits_trials() -> Result<()> {
+        let mut storage = InMemoryStorage::new();
+        let study_id = storage
+            .create_new_study("study", vec![Direction::Minimize])?
+            .id;
+        let trial0_id = storage.create_new_trial(study_id)?.id;
+        let trial1_id = storage.create_new_trial(study_id)?.id;
+
+        storage.discard_trials(&[trial0_id])?;
+        storage.discard_trials(&[trial0_id])?;
+
+        let trials = storage.get_trials(study_id)?;
+        assert!(trials[0].is_none());
+        assert_eq!(trials[1].as_ref().unwrap().id, trial1_id);
+        assert!(storage.may_omit_trials());
+        let err = storage.get_trial(trial0_id).unwrap_err();
+        assert!(matches!(err.kind, ErrorKind::TrialDiscarded));
         Ok(())
     }
 }

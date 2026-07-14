@@ -18,6 +18,13 @@ use rustuna_core::{Error, ErrorKind, Result};
 
 use super::{JournalBackend, JournalLog, JournalOperation};
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+/// Options for [`JournalStorage`].
+pub struct JournalStorageOptions {
+    /// If `true`, discard logs are ignored during replay and all trials are loaded.
+    pub load_discarded_trials: bool,
+}
+
 /// Storage implementation backed by an append-only journal log.
 ///
 /// Similar in spirit to Optuna's `JournalStorage`, this storage writes every state-changing
@@ -30,10 +37,18 @@ pub struct JournalStorage {
 impl JournalStorage {
     /// Creates a journal storage and synchronizes its in-memory replay state from the backend.
     pub fn new(backend: Box<dyn JournalBackend>) -> Result<Self> {
+        Self::new_with_options(backend, JournalStorageOptions::default())
+    }
+
+    /// Creates a journal storage and synchronizes its in-memory replay state from the backend.
+    pub fn new_with_options(
+        backend: Box<dyn JournalBackend>,
+        options: JournalStorageOptions,
+    ) -> Result<Self> {
         let worker_id_prefix = format!("{}-{}-", unique_prefix(), std::process::id());
         let mut storage = JournalStorage {
             backend,
-            replay: JournalReplayState::new(worker_id_prefix),
+            replay: JournalReplayState::new(worker_id_prefix, options.load_discarded_trials),
         };
         storage.sync_with_backend()?;
         Ok(storage)
@@ -663,6 +678,49 @@ impl Storage for JournalStorage {
         cache.update(&visible_trials);
         Ok(cache.get_joint_search_space())
     }
+
+    fn discard_trials(&mut self, trial_ids: &[u32]) -> Result<()> {
+        self.sync_with_backend()?;
+        let mut unique_trial_ids = Vec::new();
+        for trial_id in trial_ids {
+            if unique_trial_ids.contains(trial_id) {
+                continue;
+            }
+            let (study_id, trial_number) = self
+                .replay
+                .trial_id_to_study_number
+                .get(trial_id)
+                .copied()
+                .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
+            let trials = self
+                .replay
+                .trials_by_study
+                .get(&study_id)
+                .ok_or_else(|| Error::new(ErrorKind::StudyNotFound))?;
+            let slot = trials
+                .get(trial_number as usize)
+                .ok_or_else(|| Error::new(ErrorKind::TrialNotFound))?;
+            if slot.is_none() {
+                continue;
+            }
+            unique_trial_ids.push(*trial_id);
+        }
+        let fields = HashMap::from([(
+            "trial_ids".to_string(),
+            serde_json::value::to_raw_value(&unique_trial_ids).map_err(|_| {
+                Error::with_reason(ErrorKind::StorageError, "Failed to serialize trial IDs")
+            })?,
+        )]);
+        self.write_log(JournalOperation::DiscardTrials, fields)?;
+        self.sync_with_backend()
+    }
+
+    fn may_omit_trials(&self) -> bool {
+        self.replay
+            .trials_by_study
+            .values()
+            .any(|trials| trials.iter().any(Option::is_none))
+    }
 }
 
 struct JournalReplayState {
@@ -678,10 +736,11 @@ struct JournalReplayState {
     last_created_trial_id_by_this_process: Option<u32>,
     studies_sorted: Vec<PersistedStudy>,
     study_caches: HashMap<u32, StudyCache>,
+    load_discarded_trials: bool,
 }
 
 impl JournalReplayState {
-    fn new(worker_id_prefix: String) -> Self {
+    fn new(worker_id_prefix: String, load_discarded_trials: bool) -> Self {
         JournalReplayState {
             log_number_read: 0,
             worker_id_prefix,
@@ -695,6 +754,7 @@ impl JournalReplayState {
             last_created_trial_id_by_this_process: None,
             studies_sorted: Vec::new(),
             study_caches: HashMap::new(),
+            load_discarded_trials,
         }
     }
 
@@ -724,6 +784,11 @@ impl JournalReplayState {
                 }
                 JournalOperation::SetTrialSystemAttr => {
                     self.apply_set_trial_system_attr(log, worker_id)?
+                }
+                JournalOperation::DiscardTrials => {
+                    if !self.load_discarded_trials {
+                        self.apply_discard_trials(log, worker_id)?
+                    }
                 }
             };
         }
@@ -1289,6 +1354,77 @@ impl JournalReplayState {
             }
             let v = raw_value_to_attr_string(&value)?;
             trial.attrs.insert(AttrKey::System(key.clone().into()), v);
+        }
+        Ok(())
+    }
+
+    fn apply_discard_trials(&mut self, log: &JournalLog, _worker_id: &str) -> Result<()> {
+        let raw = log.fields.get("trial_ids").ok_or_else(|| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                "Missing trial_ids in discard trials log",
+            )
+        })?;
+        let trial_ids: Vec<u32> = serde_json::from_str(raw.get()).map_err(|_| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                "Failed to deserialize trial_ids in discard trials log",
+            )
+        })?;
+        let mut targets = Vec::new();
+        for trial_id in trial_ids {
+            if targets
+                .iter()
+                .any(|(_, _, existing_trial_id)| existing_trial_id == &trial_id)
+            {
+                continue;
+            }
+            let (study_id, trial_number) = self
+                .trial_id_to_study_number
+                .get(&trial_id)
+                .copied()
+                .ok_or_else(|| {
+                    Error::with_reason(
+                        ErrorKind::TrialNotFound,
+                        format!("Trial not found during discard: trial_id={trial_id}"),
+                    )
+                })?;
+            let trials = self.trials_by_study.get(&study_id).ok_or_else(|| {
+                Error::with_reason(
+                    ErrorKind::StudyNotFound,
+                    format!("Study not found during discard: study_id={study_id}"),
+                )
+            })?;
+            let slot = trials.get(trial_number as usize).ok_or_else(|| {
+                Error::with_reason(
+                    ErrorKind::TrialNotFound,
+                    format!(
+                        "Trial not found at position during discard: trial_number={trial_number}"
+                    ),
+                )
+            })?;
+            if slot.is_none() {
+                continue;
+            }
+            targets.push((study_id, trial_number, trial_id));
+        }
+        for (study_id, trial_number, _) in targets {
+            let trials = self.trials_by_study.get_mut(&study_id).ok_or_else(|| {
+                Error::with_reason(
+                    ErrorKind::StudyNotFound,
+                    format!("Study not found during discard: study_id={study_id}"),
+                )
+            })?;
+            let slot = trials.get_mut(trial_number as usize).ok_or_else(|| {
+                Error::with_reason(
+                    ErrorKind::TrialNotFound,
+                    format!(
+                        "Trial not found at position during discard: trial_number={trial_number}"
+                    ),
+                )
+            })?;
+            *slot = None;
+            self.study_caches.remove(&study_id);
         }
         Ok(())
     }
@@ -2030,6 +2166,39 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_discard_trials_logs_do_not_poison_replay() -> Result<()> {
+        let (mut storage, logs) = new_storage()?;
+        let study_id = storage
+            .create_new_study("study", vec![Direction::Minimize])?
+            .id;
+        let trial_id = storage.create_new_trial(study_id)?.id;
+
+        storage.discard_trials(&[trial_id])?;
+        {
+            let mut guard = logs.lock().map_err(|_| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    "Failed to acquire lock on journal logs",
+                )
+            })?;
+            let discard_log = guard
+                .iter()
+                .find(|log| log.op_code == JournalOperation::DiscardTrials as i32)
+                .cloned()
+                .ok_or_else(|| {
+                    Error::with_reason(ErrorKind::StorageError, "Discard log not found")
+                })?;
+            guard.push(discard_log);
+        }
+
+        let backend = InMemoryJournalBackend { logs: logs.clone() };
+        let mut reloaded = JournalStorage::new(Box::new(backend))?;
+        let trials = reloaded.get_trials(study_id)?;
+        assert!(trials[0].is_none());
+        Ok(())
+    }
+
+    #[test]
     fn create_new_study_updates_cache() -> Result<()> {
         let (mut storage, _logs) = new_storage()?;
         let study = storage.create_new_study("example", vec![Direction::Minimize])?;
@@ -2127,6 +2296,27 @@ mod tests {
         let mut storage2 = JournalStorage::new(Box::new(backend))?;
         let trials = storage2.get_trials(study_id)?;
         assert_eq!(trials.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn load_discarded_trials_ignores_discard_logs() -> Result<()> {
+        let (mut storage, logs) = new_storage()?;
+        let study_id = storage.create_new_study("s", vec![Direction::Minimize])?.id;
+        let trial_id = storage.create_new_trial(study_id)?.id;
+        storage.discard_trials(&[trial_id])?;
+
+        let backend = InMemoryJournalBackend { logs: logs.clone() };
+        let mut storage2 = JournalStorage::new_with_options(
+            Box::new(backend),
+            JournalStorageOptions {
+                load_discarded_trials: true,
+            },
+        )?;
+        let trials = storage2.get_trials(study_id)?;
+        assert_eq!(trials.len(), 1);
+        assert_eq!(trials[0].as_ref().unwrap().id, trial_id);
+        assert_eq!(storage2.get_trial(trial_id)?.id, trial_id);
         Ok(())
     }
 
