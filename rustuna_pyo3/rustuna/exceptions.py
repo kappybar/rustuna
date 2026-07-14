@@ -31,6 +31,12 @@ class StorageInternalError(RustunaError):
     pass
 
 
+class TrialDiscarded(RustunaError):
+    """Exception for accessing a discarded trial."""
+
+    pass
+
+
 class DuplicatedStudyError(RustunaError):
     """Exception for duplicate study names.
 

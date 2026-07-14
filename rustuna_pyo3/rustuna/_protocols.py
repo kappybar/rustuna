@@ -329,3 +329,13 @@ class StorageProtocol(Protocol):
         Returns:
             List of category labels, or None if not set.
         """
+
+    def discard_trials(self, trial_ids: list[int]) -> None:
+        """Discard trials from the storage view.
+
+        Args:
+            trial_ids: IDs of trials to discard.
+        """
+
+    def may_omit_trials(self) -> bool:
+        """Return True if this storage view may omit discarded trials."""

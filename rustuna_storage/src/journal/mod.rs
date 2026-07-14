@@ -40,6 +40,7 @@ pub enum JournalOperation {
     SetTrialIntermediateValue = 7,
     SetTrialUserAttr = 8,
     SetTrialSystemAttr = 9,
+    DiscardTrials = 10,
 }
 
 impl JournalOperation {
@@ -56,6 +57,7 @@ impl JournalOperation {
             7 => Ok(JournalOperation::SetTrialIntermediateValue),
             8 => Ok(JournalOperation::SetTrialUserAttr),
             9 => Ok(JournalOperation::SetTrialSystemAttr),
+            10 => Ok(JournalOperation::DiscardTrials),
             _ => Err(Error::new(ErrorKind::StorageError)),
         }
     }

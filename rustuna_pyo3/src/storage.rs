@@ -11,7 +11,7 @@ use rustuna_core::study::Direction;
 use rustuna_core::trial::TrialStateValues;
 use rustuna_storage::cache::CachedStorage;
 use rustuna_storage::journal::file::{JournalFileBackend, JournalFileSymlinkLock};
-use rustuna_storage::journal::storage::JournalStorage;
+use rustuna_storage::journal::storage::{JournalStorage, JournalStorageOptions};
 use rustuna_storage::sqlite3::SQLite3Storage;
 
 use crate::attrs::{pyobj_to_attrs_with_kind, AttrKind};
@@ -58,16 +58,24 @@ impl PyStorage {
     }
 
     #[classmethod]
-    #[pyo3(name = "journal_file", signature = (file_path,))]
-    fn journal_file(_cls: &Bound<'_, PyType>, file_path: &str) -> PyResult<Self> {
+    #[pyo3(name = "journal_file", signature = (file_path, *, load_discarded_trials = false))]
+    fn journal_file(
+        _cls: &Bound<'_, PyType>,
+        file_path: &str,
+        load_discarded_trials: bool,
+    ) -> PyResult<Self> {
         // TODO(c-bata): Add lock_obj argument to use JournalFileOpenLock.
         let lock_obj = Box::new(JournalFileSymlinkLock::new(file_path));
         let backend = JournalFileBackend::new(file_path, Some(lock_obj)).map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to create journal file: {e:?}"))
         })?;
-        let storage = JournalStorage::new(Box::new(backend)).map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to create journal storage: {e:?}"))
-        })?;
+        let storage = JournalStorage::new_with_options(
+            Box::new(backend),
+            JournalStorageOptions {
+                load_discarded_trials,
+            },
+        )
+        .map_err(|e| PyRuntimeError::new_err(format!("Failed to create journal storage: {e:?}")))?;
         let arc_storage = Arc::new(RwLock::new(storage));
         Ok(PyStorage {
             storage: arc_storage.clone(),
@@ -401,6 +409,23 @@ impl PyStorage {
             .set_trial_intermediate_values(trial_id, intermediate_values)
             .map_err(err_to_exceptions)?;
         Ok(())
+    }
+
+    fn discard_trials(&mut self, trial_ids: Vec<u32>) -> PyResult<()> {
+        let mut guard = self.storage.write().map_err(|e| {
+            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
+        })?;
+        guard
+            .discard_trials(&trial_ids)
+            .map_err(err_to_exceptions)?;
+        Ok(())
+    }
+
+    fn may_omit_trials(&self) -> PyResult<bool> {
+        let guard = self.storage.read().map_err(|e| {
+            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
+        })?;
+        Ok(guard.may_omit_trials())
     }
 }
 

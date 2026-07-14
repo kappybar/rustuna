@@ -22,16 +22,24 @@ def InMemoryStorage() -> StorageProtocol:
 
 
 # TODO(c-bata): Replace JournalFileStorage with a Python concrete class.
-def JournalFileStorage(file_path: str) -> StorageProtocol:
+def JournalFileStorage(
+    file_path: str,
+    *,
+    load_discarded_trials: bool = False,
+) -> StorageProtocol:
     """Create a Journal storage with its file backend.
 
     Args:
         file_path: Path to the journal log file.
+        load_discarded_trials: If True, ignore discard logs and load all trials.
 
     Returns:
         A Journal storage instance.
     """
-    return Storage.journal_file(file_path)
+    return Storage.journal_file(
+        file_path,
+        load_discarded_trials=load_discarded_trials,
+    )
 
 
 # TODO(c-bata): Replace InMemoryStorage with a Python concrete class.

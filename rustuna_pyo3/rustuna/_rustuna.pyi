@@ -679,6 +679,8 @@ class PyObjectStorage:
         param_name: str,
         cardinality: int,
     ) -> list[CategoricalChoiceType] | None: ...
+    def discard_trials(self, trial_ids: list[int]) -> None: ...
+    def may_omit_trials(self) -> bool: ...
 
 class Storage:
     """Storage for persisting optimization history."""
@@ -693,6 +695,8 @@ class Storage:
     def journal_file(
         cls,
         file_path: str,
+        *,
+        load_discarded_trials: bool = False,
     ) -> StorageProtocol: ...
     def create_new_study(
         self, study_name: str, directions: list[StudyDirection]
@@ -747,6 +751,8 @@ class Storage:
         param_name: str,
         cardinality: int,
     ) -> list[CategoricalChoiceType] | None: ...
+    def discard_trials(self, trial_ids: list[int]) -> None: ...
+    def may_omit_trials(self) -> bool: ...
 
 # Sampler
 class SamplerContext:

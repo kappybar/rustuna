@@ -597,6 +597,14 @@ impl rustuna_core::storage::Storage for CachedStorage {
         cache.update(&trials_vec);
         Ok(cache.get_joint_search_space())
     }
+
+    fn discard_trials(&mut self, _trial_ids: &[u32]) -> Result<()> {
+        Ok(())
+    }
+
+    fn may_omit_trials(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]
