@@ -595,6 +595,7 @@ impl PyStudy {
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to get trials: {:?}", e.kind)))?;
         let trials: Vec<PyPersistedTrial> = trials_vec
             .iter()
+            .flatten()
             .map(|t| PyPersistedTrial::from_storage(self.study.storage.clone(), t))
             .collect();
         Ok(trials)
@@ -616,11 +617,13 @@ impl PyStudy {
         let trials: Vec<PyPersistedTrial> = match states {
             Some(states) => trials_vec
                 .iter()
+                .flatten()
                 .filter(|trial| states.contains(&PyTrialState::from(trial.state_values.clone())))
                 .map(|trial| PyPersistedTrial::from_storage(self.study.storage.clone(), trial))
                 .collect(),
             None => trials_vec
                 .iter()
+                .flatten()
                 .map(|trial| PyPersistedTrial::from_storage(self.study.storage.clone(), trial))
                 .collect(),
         };
@@ -696,7 +699,12 @@ impl PyStudy {
         let best_trials = pareto_front_numbers
             .iter()
             .map(|n| {
-                PyPersistedTrial::from_storage(self.study.storage.clone(), &trials_vec[*n as usize])
+                PyPersistedTrial::from_storage(
+                    self.study.storage.clone(),
+                    trials_vec[*n as usize]
+                        .as_ref()
+                        .expect("pareto front trial should exist"),
+                )
             })
             .collect();
         Ok(best_trials)
@@ -828,7 +836,10 @@ pub fn py_copy_study(
     }
     for trial in trials {
         guard
-            .create_new_trial_from_template(to_study_id, &trial)
+            .create_new_trial_from_template(
+                to_study_id,
+                trial.as_ref().expect("copied trial should exist"),
+            )
             .map_err(err_to_exceptions)?;
     }
     Ok(())

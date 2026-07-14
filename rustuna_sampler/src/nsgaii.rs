@@ -131,7 +131,7 @@ impl NSGAIISampler {
     fn get_parent_population_numbers(
         &mut self,
         ctx: &Context,
-        trials: &Vec<PersistedTrial>,
+        trials: &[PersistedTrial],
     ) -> Result<(i32, Vec<u32>)> {
         let mut generation_to_population_numbers =
             HashMap::<usize, Vec<u32>>::with_capacity(trials.len());
@@ -182,9 +182,10 @@ impl NSGAIISampler {
         let mut guard = storage
             .write()
             .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
-        let trials = guard.get_trials(ctx.study_id)?;
+        let trials = guard.get_trials(ctx.study_id)?.clone();
         let population_params = trials
             .iter()
+            .flatten()
             .filter(|trial| population_numbers.contains(&trial.number))
             .map(|trial| {
                 let mut params = HashMap::new();
@@ -307,9 +308,14 @@ impl Sampler for NSGAIISampler {
         let mut guard = storage
             .write()
             .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
-        let trials = guard.get_trials(ctx.study_id)?;
+        let trials = guard
+            .get_trials(ctx.study_id)?
+            .iter()
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>();
         let (parent_generation, parent_population_numbers) =
-            self.get_parent_population_numbers(ctx, trials)?;
+            self.get_parent_population_numbers(ctx, &trials)?;
         let child_generation = u32::try_from(parent_generation + 1).unwrap();
         let mut attrs = Attrs::with_capacity(1);
         attrs.insert(

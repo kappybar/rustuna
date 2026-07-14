@@ -155,6 +155,7 @@ pub(crate) fn get_filtered_trials(
     let completed_trials = guard
         .get_trials(study.id)?
         .iter()
+        .flatten()
         .filter(|t| matches!(t.state_values, TrialStateValues::Complete(_)))
         .filter(|t| target(t).is_finite())
         .cloned()

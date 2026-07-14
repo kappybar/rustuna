@@ -164,9 +164,9 @@ study.optimize(objective, n_trials=10)
     run_optuna_script(&python, &db_path, script)?;
     let trials = storage.get_trials(study_id)?;
     assert_eq!(trials.len(), 20);
-    assert_eq!(trials[0].distributions.len(), 3);
+    assert_eq!(trials[0].as_ref().unwrap().distributions.len(), 3);
     assert_eq!(
-        trials[0].distributions["x"],
+        trials[0].as_ref().unwrap().distributions["x"],
         Distribution::Float {
             low: 1.0,
             high: 10.0,
@@ -175,7 +175,7 @@ study.optimize(objective, n_trials=10)
         }
     );
     assert_eq!(
-        trials[0].distributions["y"],
+        trials[0].as_ref().unwrap().distributions["y"],
         Distribution::Int {
             low: -10,
             high: 10,
@@ -184,18 +184,20 @@ study.optimize(objective, n_trials=10)
         }
     );
     assert_eq!(
-        trials[0].distributions["z"],
+        trials[0].as_ref().unwrap().distributions["z"],
         Distribution::Categorical { cardinality: 4 }
     );
-    assert_eq!(trials[0].internal_params.len(), 3);
+    assert_eq!(trials[0].as_ref().unwrap().internal_params.len(), 3);
     let user_attrs_count = trials[0]
+        .as_ref()
+        .unwrap()
         .attrs
         .keys()
         .filter(|k| matches!(k, rustuna_core::attr::AttrKey::User(_)))
         .count();
     assert_eq!(user_attrs_count, 1);
     assert!(matches!(
-        trials[0].state_values,
+        trials[0].as_ref().unwrap().state_values,
         TrialStateValues::Complete(_)
     ));
     Ok(())

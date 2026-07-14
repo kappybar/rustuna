@@ -462,10 +462,11 @@ impl TpeSampler {
     /// finite-count-below-startup case the resulting empty / short list naturally
     /// falls through to the random sampler via the existing startup gate.
     fn usable_complete_trials(
-        trials: &[rustuna_core::trial::PersistedTrial],
+        trials: &[Option<rustuna_core::trial::PersistedTrial>],
     ) -> Vec<&rustuna_core::trial::PersistedTrial> {
         trials
             .iter()
+            .flatten()
             .filter(|t| match &t.state_values {
                 TrialStateValues::Complete(v) => !v.iter().any(|x| x.is_nan()),
                 _ => false,
