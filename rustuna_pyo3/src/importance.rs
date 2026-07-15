@@ -55,7 +55,7 @@ impl PyPedAnovaImportanceEvaluator {
         let evaluator =
             PedAnovaImportanceEvaluator::new(target_quantile, region_quantile, evaluate_on_local)
                 .map_err(|err| PyValueError::new_err(err.reason))?;
-        if region_quantile != 1.0 && evaluate_on_local {
+        if region_quantile != 1.0 && !evaluate_on_local {
             PyErr::warn(
                 py,
                 &py.get_type::<PyUserWarning>(),
