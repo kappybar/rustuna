@@ -20,6 +20,7 @@ use crate::attrs::pyobj_to_attrs;
 use crate::attrs::{convert_pydict_to_fixed_params, pyobj_to_attrs_with_kind, AttrKind};
 use crate::exception::err_to_exceptions;
 use crate::pyobject_storage::PyObjectStorage;
+use crate::sampler::cmaes::PyCmaEsSampler;
 use crate::sampler::{PyObjectSampler, PySampler};
 use crate::storage::PyStorage;
 use crate::trial::{PyPersistedTrial, PyTrial, PyTrialState};
@@ -180,6 +181,8 @@ fn resolve_sampler_pyobj(
     let sampler_ref = sampler.bind(py);
     if let Ok(py_sampler) = sampler_ref.extract::<PySampler>() {
         Ok((py_sampler.sampler.clone(), sampler_pyobj))
+    } else if let Ok(py_cmaes_sampler) = sampler_ref.extract::<PyCmaEsSampler>() {
+        Ok((py_cmaes_sampler.sampler.clone(), sampler_pyobj))
     } else {
         let sampler: SharedSampler = Arc::new(Mutex::new(PyObjectSampler::new(sampler)));
         Ok((sampler, sampler_pyobj))
@@ -378,10 +381,7 @@ impl PyStudy {
     ) -> PyResult<()> {
         let catch = Python::attach(|py| normalize_catch(py, catch.as_ref().map(|c| c.bind(py))))?;
         for _ in 0..n_trials {
-            let rs_trial = self
-                .study
-                .ask()
-                .map_err(|e| PyRuntimeError::new_err(format!("Failed to ask a trial {e:?}.")))?;
+            let rs_trial = self.study.ask().map_err(err_to_exceptions)?;
             let trial_number = rs_trial.number;
 
             let result: PyResult<Vec<f64>> = Python::attach(|py| {
@@ -418,10 +418,7 @@ impl PyStudy {
     }
 
     pub fn ask(&self) -> PyResult<PyTrial> {
-        let trial = self
-            .study
-            .ask()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to ask a trial: {:?}", e.kind)))?;
+        let trial = self.study.ask().map_err(err_to_exceptions)?;
         let trial = Python::attach(|py| PyTrial::new(trial, self.storage_pyobj.clone_ref(py)));
         Ok(trial)
     }

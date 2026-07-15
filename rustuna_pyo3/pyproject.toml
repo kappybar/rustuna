@@ -27,6 +27,7 @@ ignore = ["E501"]
 [dependency-groups]
 dev = [
     "optuna @ git+https://github.com/optuna/optuna.git@master",
+    "cmaes",
     "ruff",
     "pytest",
     "maturin",

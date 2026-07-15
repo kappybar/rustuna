@@ -67,6 +67,9 @@ pub enum ErrorKind {
     NoCompletedTrial,
     IncompatibleDistribution,
     InvalidFixedParam,
+    /// A required optional dependency (e.g. the `cmaes` PyPI package) is not installed.
+    /// The Python bindings map this kind to Python's `ImportError`.
+    MissingDependency,
     Unexpected,
     ImportanceEvaluatorError,
 }

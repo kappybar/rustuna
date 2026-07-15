@@ -11,6 +11,8 @@ use rustuna_core::storage::Storage;
 use rustuna_core::trial::TrialStateValues;
 use rustuna_sampler::tpe::{TpeConfig, TpeSampler};
 
+pub mod cmaes;
+
 use crate::distribution::PyDistribution;
 use crate::pyobject_storage::PyPyObjectStorage;
 use crate::storage::PyStorage;

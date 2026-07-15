@@ -854,6 +854,49 @@ class Sampler:
         values: list[float] | None = None,
     ) -> None: ...
 
+class CmaEsSampler:
+    """Sampler using CMA-ES (Covariance Matrix Adaptation Evolution Strategy) algorithm.
+
+    This sampler is backed by Python's `cmaes` package. The optimizer state is held only
+    in memory. Therefore, sampler instances in separate processes optimize independently.
+
+    Categorical parameters are not supported by CMA-ES. They are excluded from the joint
+    search space and sampled independently.
+
+    Args:
+        seed: Random seed for CMA-ES. If `None`, the backend chooses a random seed.
+        popsize: CMA-ES population size. If `None`, the backend default is used.
+    """
+
+    def __init__(
+        self,
+        *,
+        seed: int | None = None,
+        popsize: int | None = None,
+    ) -> None: ...
+    @property
+    def support_joint_sampling(self) -> bool: ...
+    def sample_joint(
+        self,
+        ctx: SamplerContext,
+        storage: StorageProtocol,
+        search_space: dict[str, Distribution],
+    ) -> dict[str, float]: ...
+    def sample_independent(
+        self,
+        ctx: SamplerContext,
+        storage: StorageProtocol,
+        name: str,
+        distribution: Distribution,
+    ) -> float: ...
+    def after_trial(
+        self,
+        ctx: SamplerContext,
+        storage: StorageProtocol,
+        state: TrialState,
+        values: list[float] | None = None,
+    ) -> None: ...
+
 # Trial Queue
 class TrialQueue:
     """Factory class for creating trial queue instances.
