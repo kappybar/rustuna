@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from rustuna import (
     distributions,
     exceptions,
+    importance,
     samplers,
     storages,
     study,
@@ -20,8 +21,6 @@ from rustuna._rustuna import (
     load_study,
 )
 from rustuna.exceptions import TrialPruned
-from rustuna import importance
-
 
 if TYPE_CHECKING:
     from rustuna._rustuna import CategoricalChoiceType
