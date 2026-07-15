@@ -4,6 +4,7 @@ use rustuna_core::parzen_estimator::ParzenEstimator;
 use rustuna_core::study::{Direction, Study};
 use rustuna_core::trial::PersistedTrial;
 use rustuna_core::Result;
+use rustuna_core::{Error, ErrorKind};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// PED-ANOVA importance evaluator.
