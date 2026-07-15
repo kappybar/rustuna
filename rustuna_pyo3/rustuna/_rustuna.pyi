@@ -82,7 +82,7 @@ class Trial:
 
     Note that the direct use of this constructor is not recommended.
     This object is seamlessly instantiated and passed to the objective function behind
-    the :func:`Study.optimize` method; hence library users do not care about
+    the [Study.optimize][rustuna.study.Study.optimize] method; hence library users do not care about
     instantiation of this object.
     """
 
@@ -149,7 +149,7 @@ class Trial:
     def set_user_attr(self, key: str, value: str) -> None:
         """Set a user attribute to the trial.
 
-        .. note::
+        Note:
             Unlike Optuna, Rustuna accepts only str values for user attributes.
 
         Args:
@@ -159,7 +159,7 @@ class Trial:
     def set_user_attrs(self, attrs: dict[str, str]) -> None:
         """Set user attributes to the trial.
 
-        .. note::
+        Note:
             Unlike Optuna, Rustuna accepts only str values for user attributes.
 
         Args:
@@ -398,8 +398,8 @@ class Study:
     def ask(self) -> Trial:
         """Create a new trial from which hyperparameters can be suggested.
 
-        This method is part of an alternative to :func:`~Study.optimize` that allows controlling
-        the execution of trials from user code.
+        This method is part of an alternative to [Study.optimize][rustuna.study.Study.optimize]
+        that allows controlling the execution of trials from user code.
 
         Returns:
             A Trial object.
@@ -410,7 +410,7 @@ class Study:
         values: int | float | Sequence[int | float] | None = None,
         state: TrialState | None = None,
     ) -> PersistedTrial:
-        """Finish a trial created with :func:`~Study.ask`.
+        """Finish a trial created with [Study.ask][rustuna.study.Study.ask].
 
         Args:
             number: Trial number returned by the trial.
@@ -461,7 +461,7 @@ class Study:
     ) -> None:
         """Set a user attribute to the study.
 
-        .. note::
+        Note:
             Unlike Optuna, Rustuna accepts only str values for user attributes.
 
         Args:
@@ -486,7 +486,7 @@ class Study:
     ) -> None:
         """Set user attributes to the study.
 
-        .. note::
+        Note:
             Unlike Optuna, Rustuna accepts only str values for user attributes.
 
         Args:
