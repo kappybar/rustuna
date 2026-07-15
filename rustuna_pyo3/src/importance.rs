@@ -1,8 +1,10 @@
+use std::collections::HashMap;
+
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::PyResult;
 
-use rustuna_importance::fanova::get_param_importance;
+use rustuna_importance::{get_param_importances_with, ImportanceOptions, PedAnovaImportanceEvaluator};
 
 use crate::study::PyStudy;
 
