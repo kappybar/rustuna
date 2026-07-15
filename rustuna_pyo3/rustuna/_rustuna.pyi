@@ -380,23 +380,15 @@ def copy_study(
     """Copy a study to another storage."""
 
 class PedAnovaImportanceEvaluator:
-    def __init__(
-        self,
-        *,
-        target_quantile: float = 0.1,
-        region_quantile: float = 1.0,
-        evaluate_on_local: bool = True,
-    ) -> None:
-        """PED-ANOVA importance evaluator.
+    """PED-ANOVA importance evaluator.
 
         Implements the PED-ANOVA hyperparameter importance evaluation algorithm.
 
-        PED-ANOVA fits Parzen estimators of :class:`~optuna.trial.TrialState.COMPLETE` trials better
-        than a user-specified ``target_quantile``.
-        The importance can be interpreted as how important each hyperparameter is to get
-        the performance better than ``target_quantile``.
+        PED-ANOVA fits Parzen estimators to completed trials in the top
+        ``target_quantile`` fraction. The importance can be interpreted as how important each
+        hyperparameter is for achieving performance within that fraction.
 
-        For further information about PED-ANOVA algorithm, please refer to the following paper:
+        For further information about the PED-ANOVA algorithm, please refer to the following paper:
 
         - `PED-ANOVA: Efficiently Quantifying Hyperparameter Importance in Arbitrary Subspaces
         <https://arxiv.org/abs/2304.10255>`__ (IJCAI 2023)
@@ -409,35 +401,6 @@ class PedAnovaImportanceEvaluator:
 
         ``target_quantile`` and ``region_quantile`` correspond to the parameters
         :math:`\\gamma'` and :math:`\\gamma` in the original paper, respectively.
-
-        .. note::
-
-            **Behavior on multi-objective studies.**
-            If ``target`` is :obj:`None`, top-quantile trials are selected in the same
-            manner as multi-objective :class:`~optuna.samplers.TPESampler`: trials are
-            ranked by non-domination rank, with the hypervolume subset selection problem
-            (HSSP) used to break ties within a rank. The resulting importance can be
-            interpreted as how important each hyperparameter is to reach the Pareto
-            front without preference for any particular objective.
-
-            To compute the importance against a *single* objective instead, pass a
-            ``target`` callable explicitly. Note that :class:`PedAnovaImportanceEvaluator`
-            assumes **minimization** (i.e., lower ``target`` values are better); when an
-            objective is being maximized, negate it inside ``target``::
-
-                # Objective 0 is being minimized.
-                importance = get_param_importances(
-                    study,
-                    evaluator=PedAnovaImportanceEvaluator(),
-                    target=lambda t: t.values[0],
-                )
-
-                # Objective 0 is being maximized—negate so that "lower is better".
-                importance = get_param_importances(
-                    study,
-                    evaluator=PedAnovaImportanceEvaluator(),
-                    target=lambda t: -t.values[0],
-                )
 
         .. note::
 
@@ -454,7 +417,7 @@ class PedAnovaImportanceEvaluator:
 
         Args:
             target_quantile:
-                Compute the importance of achieving top-``target_quantile`` quantile objective value.
+                Compute the importance of achieving a top-``target_quantile`` objective value.
                 For example, ``target_quantile=0.1`` means that the importances give the information
                 of which parameters were important to achieve the top-10% performance during
                 optimization.
@@ -466,11 +429,11 @@ class PedAnovaImportanceEvaluator:
                 computed in the whole search space.
 
             evaluate_on_local:
-                Whether we measure the importance in the local or global space.
-                If :obj:`True`, the importances imply how importance each parameter is during
-                optimization. Meanwhile, ``evaluate_on_local=False`` gives the importances in the
-                specified search_space. ``evaluate_on_local=True`` is especially useful when users
-                modify search space during optimization.
+                Whether to measure the importance in the local or global space. If :obj:`True`,
+                the importances indicate how important each parameter is during optimization.
+                Meanwhile, ``evaluate_on_local=False`` gives the importances in the whole search
+                space and ``region_quantile`` has no effect. ``evaluate_on_local=True`` is
+                especially useful when users modify the search space during optimization.
 
         Example:
             An example of using PED-ANOVA is as follows:
@@ -494,6 +457,14 @@ class PedAnovaImportanceEvaluator:
 
         """
 
+    def __init__(
+        self,
+        *,
+        target_quantile: float = 0.1,
+        region_quantile: float = 1.0,
+        evaluate_on_local: bool = True,
+    ) -> None: ...
+
 def get_param_importances(
     study: Study,
     *,
@@ -501,18 +472,16 @@ def get_param_importances(
     params: list[str] | None = None,
     normalize: bool = True,
 ) -> dict[str, float]:
-    """Evaluate parameter importances (:class:`~optuna.importance.PedAnovaImportanceEvaluator` by
-    default) based on completed trials in the given study.
+    """Evaluate parameter importances using PED-ANOVA based on completed trials in the given study.
 
-    The parameter importances are returned as a dictionary where the keys consist of parameter
-    names and their values importances.
+    The parameter importances are returned as a dictionary whose keys are parameter names and
+    whose values are their importances.
     The importances are represented by non-negative floating point numbers, where higher values
     mean that the parameters are more important.
-    The returned dictionary is ordered by its values in a descending order.
-    By default, the sum of the importance values are normalized to 1.0.
+    By default, the sum of the importance values is normalized to 1.0.
 
     By default, this function uses
-    :class:`~optuna.importance.PedAnovaImportanceEvaluator`.
+    :class:`~rustuna.importance.PedAnovaImportanceEvaluator`.
     For details on this evaluator, please refer to the following papers:
 
     - `PED-ANOVA: Efficiently Quantifying Hyperparameter Importance in Arbitrary Subspaces
@@ -522,54 +491,27 @@ def get_param_importances(
 
     When using this evaluator in your project, please consider citing both papers.
 
-    With the default evaluator, :class:`~optuna.importance.PedAnovaImportanceEvaluator`,
-    ``params=None`` assesses all parameters that appear in completed trials, including conditional
-    parameters.
-    Other evaluators assess only parameters that are present in all of the completed trials and
-    therefore exclude conditional parameters.
-    If ``params`` is specified, only the specified parameters are assessed.
-    When using :class:`~optuna.importance.PedAnovaImportanceEvaluator`, each specified parameter
-    must appear in at least one completed trial.
-    When using other evaluators, at least one completed trial must contain all specified
-    parameters.
-
+    If ``params`` is :obj:`None`, all parameters that appear in completed trials are assessed,
+    including conditional parameters. If ``params`` is specified, only the specified parameters
+    are assessed.
 
     .. note::
 
         If ``params`` is specified as an empty list, an empty dictionary is returned.
 
-    .. seealso::
-
-        See :func:`~optuna.visualization.plot_param_importances` to plot importances.
-
     Args:
         study:
             An optimized study.
         evaluator:
-            An importance evaluator object that specifies which algorithm to base the importance
-            assessment on.
-            Defaults to :class:`~optuna.importance.PedAnovaImportanceEvaluator`.
+            A :class:`~rustuna.importance.PedAnovaImportanceEvaluator` object. If :obj:`None`, a
+            default :class:`~rustuna.importance.PedAnovaImportanceEvaluator` is used.
         params:
-            A list of names of parameters to assess.
-            If :obj:`None`, :class:`~optuna.importance.PedAnovaImportanceEvaluator` assesses all
-            parameters that appear in completed trials, including conditional parameters, while
-            other evaluators assess parameters present in all completed trials.
-        target:
-            A function that returns the value used to evaluate importances.
-            If :obj:`None`, objective values are used for single-objective optimization.
-            For multi-objective optimization, :obj:`None` is supported only by
-            :class:`~optuna.importance.PedAnovaImportanceEvaluator`. When using another
-            evaluator, specify ``target``, for example ``target=lambda t: t.values[0]``, to
-            evaluate importances for a specific objective.
+            A list of names of parameters to assess. If :obj:`None`, all parameters that appear in
+            completed trials are assessed, including conditional parameters.
         normalize:
             A boolean option to specify whether the sum of the importance values should be
             normalized to 1.0.
             Defaults to :obj:`True`.
-
-            .. note::
-                Added in v3.0.0 as an experimental feature. The interface may change in newer
-                versions without prior notice. See
-                https://github.com/optuna/optuna/releases/tag/v3.0.0.
 
     Returns:
         A :obj:`dict` where the keys are parameter names and the values are assessed importances.
@@ -580,7 +522,7 @@ def get_param_importances(
             import rustuna
 
 
-            def objective(trial: optuna.trial.Trial) -> float:
+            def objective(trial: rustuna.trial.Trial) -> float:
                 x = trial.suggest_int("x", 0, 2)
                 y = trial.suggest_float("y", -1.0, 1.0)
                 z = trial.suggest_float("z", 0.0, 1.5)
