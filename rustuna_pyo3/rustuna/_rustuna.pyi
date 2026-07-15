@@ -379,7 +379,14 @@ def copy_study(
 ) -> None:
     """Copy a study to another storage."""
 
-def get_param_importance(study: Study) -> list[list[float]]: ...
+
+def get_param_importances(
+    study: Study,
+    *,
+    evaluator: PedAnovaImportanceEvaluator | None = None,
+    params: list[str] | None = None,
+    normalize: bool = True,
+) -> dict[str, float]: ...
 
 class Study:
     """A study corresponds to an optimization task, i.e., a set of trials.
