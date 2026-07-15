@@ -45,7 +45,7 @@ pub struct PyPedAnovaImportanceEvaluator {
 #[pymethods]
 impl PyPedAnovaImportanceEvaluator {
     #[new]
-    #[pyo3(signature = (target_quantile = 0.1, region_quantile = 1.0, evaluate_on_local = true))]
+    #[pyo3(signature = (*, target_quantile = 0.1, region_quantile = 1.0, evaluate_on_local = true))]
     fn py_new(
         py: Python<'_>,
         target_quantile: f64,
