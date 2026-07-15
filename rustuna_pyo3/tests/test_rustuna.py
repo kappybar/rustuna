@@ -332,7 +332,7 @@ def test_fanova():
         return x * 2 + y
 
     study.optimize(objective, n_trials=10)
-    rustuna.get_param_importance(study)
+    rustuna.importance.get_param_importances(study)
 
 
 def test_ask():
