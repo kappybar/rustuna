@@ -379,6 +379,13 @@ def copy_study(
 ) -> None:
     """Copy a study to another storage."""
 
+class PedAnovaImportanceEvaluator:
+    def __init__(
+        self,
+        target_quantile: float = 0.1,
+        region_quantile: float = 1.0,
+        evaluate_on_local: bool = True,
+    ) -> None: ...
 
 def get_param_importances(
     study: Study,
