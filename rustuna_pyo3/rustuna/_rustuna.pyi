@@ -438,7 +438,7 @@ class PedAnovaImportanceEvaluator:
         from rustuna.importance import PedAnovaImportanceEvaluator
 
 
-        def objective(trial):
+        def objective(trial: rustuna.trial.Trial) -> float:
             x1 = trial.suggest_float("x1", -10, 10)
             x2 = trial.suggest_float("x2", -10, 10)
             return x1 + x2 / 1000
