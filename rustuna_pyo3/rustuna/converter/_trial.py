@@ -260,7 +260,7 @@ class FrozenTrialLike(FrozenTrial):
 
     @property
     def last_step(self) -> int | None:
-        """Return the maximum step of :attr:`intermediate_values` in the trial.
+        """Return the maximum step of `intermediate_values` in the trial.
 
         Returns:
             The maximum step of intermediates.
