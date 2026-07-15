@@ -17,7 +17,6 @@ from rustuna._rustuna import (
     copy_study,
     create_study,
     create_trial,
-    get_param_importance,
     load_study,
 )
 from rustuna.exceptions import TrialPruned
