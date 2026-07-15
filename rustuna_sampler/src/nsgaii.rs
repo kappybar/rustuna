@@ -58,6 +58,9 @@ pub struct NSGAIISampler {
     mutation_prob: Option<f64>,
     crossover_prob: f64,
     swapping_prob: f64,
+    /// Cache mapping generation number to completed trial numbers in that generation.
+    /// Updated incrementally in `after_trial` so `sample_joint` does not scan all trials every time.
+    generation_to_numbers: HashMap<u32, Vec<u32>>,
 }
 impl Default for NSGAIISampler {
     fn default() -> Self {
@@ -85,6 +88,7 @@ impl NSGAIISampler {
             mutation_prob,
             crossover_prob,
             swapping_prob,
+            generation_to_numbers: HashMap::new(),
         }
     }
     /// Creates a reproducibly seeded NSGA-II sampler.
@@ -104,13 +108,31 @@ impl NSGAIISampler {
             mutation_prob,
             crossover_prob,
             swapping_prob,
+            generation_to_numbers: HashMap::new(),
+        }
+    }
+    fn rebuild_generation_cache(&mut self, trials: &[Option<PersistedTrial>]) {
+        self.generation_to_numbers.clear();
+        let generation_key = AttrKey::System("generation".into());
+        for trial in trials.iter().flatten() {
+            if !matches!(trial.state_values, TrialStateValues::Complete(_)) {
+                continue;
+            }
+            if let Some(gen_str) = trial.attrs.get(&generation_key) {
+                if let Ok(generation) = gen_str.parse::<u32>() {
+                    self.generation_to_numbers
+                        .entry(generation)
+                        .or_default()
+                        .push(trial.number);
+                }
+            }
         }
     }
     fn select_elite_population_numbers(
         &mut self,
         ctx: &Context,
         trials: &[Option<PersistedTrial>],
-        population_numbers: &Vec<u32>,
+        population_numbers: &[u32],
     ) -> Result<Vec<u32>> {
         let population_numbers_per_rank = fast_non_dominated_sort(ctx, trials, population_numbers)?;
 
@@ -133,42 +155,23 @@ impl NSGAIISampler {
         ctx: &Context,
         trials: &[Option<PersistedTrial>],
     ) -> Result<(i32, Vec<u32>)> {
-        let generation_key = AttrKey::System("generation".into());
-        let mut generation_to_population_numbers =
-            HashMap::<usize, Vec<u32>>::with_capacity(trials.len());
-        for trial in trials.iter().flatten() {
-            let generation_or_none = trial.attrs.get(&generation_key);
-            if generation_or_none.is_none() {
-                continue;
-            }
-            let generation = generation_or_none.unwrap().parse::<usize>().unwrap();
-            if let TrialStateValues::Complete(ref _values) = trial.state_values {
-                generation_to_population_numbers
-                    .entry(generation)
-                    .or_default()
-                    .push(trial.number);
-            }
+        if self.generation_to_numbers.is_empty() {
+            self.rebuild_generation_cache(trials);
         }
 
         let mut parent_generation = -1;
         let mut parent_population_numbers = Vec::with_capacity(10);
-        for _ in 0..10 {
-            let generation = parent_generation + 1;
-            let population_numbers_or_none =
-                generation_to_population_numbers.get(&(generation as usize));
+        for generation in 0..10 {
+            let population_numbers = match self.generation_to_numbers.get(&generation) {
+                Some(numbers) if numbers.len() >= self.population_size => numbers.clone(),
+                _ => break,
+            };
 
-            if population_numbers_or_none.is_none() {
-                break;
-            }
-            let mut population_numbers = population_numbers_or_none.unwrap().clone();
-            if population_numbers.len() < self.population_size {
-                break;
-            }
-
+            let mut population_numbers = population_numbers;
             population_numbers.append(&mut parent_population_numbers);
             let selected_population_numbers =
                 self.select_elite_population_numbers(ctx, trials, &population_numbers)?;
-            parent_generation = generation;
+            parent_generation = generation as i32;
             parent_population_numbers = selected_population_numbers;
         }
         Ok((parent_generation, parent_population_numbers))
@@ -350,10 +353,25 @@ impl Sampler for NSGAIISampler {
 
     fn after_trial(
         &mut self,
-        _ctx: &Context,
-        _storage: Arc<RwLock<dyn Storage>>,
-        _state_values: &TrialStateValues,
+        ctx: &Context,
+        storage: Arc<RwLock<dyn Storage>>,
+        state_values: &TrialStateValues,
     ) -> Result<()> {
+        if let TrialStateValues::Complete(_) = state_values {
+            let mut guard = storage
+                .write()
+                .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
+            let trial = guard.get_trial(ctx.trial_id)?;
+            let generation_key = AttrKey::System("generation".into());
+            if let Some(gen_str) = trial.attrs.get(&generation_key) {
+                if let Ok(generation) = gen_str.parse::<u32>() {
+                    self.generation_to_numbers
+                        .entry(generation)
+                        .or_default()
+                        .push(trial.number);
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -361,7 +379,7 @@ impl Sampler for NSGAIISampler {
 fn fast_non_dominated_sort(
     ctx: &Context,
     trials: &[Option<PersistedTrial>],
-    population_numbers: &Vec<u32>,
+    population_numbers: &[u32],
 ) -> Result<Vec<Vec<u32>>> {
     let n = population_numbers.len();
     let population_values = population_numbers
@@ -440,7 +458,7 @@ fn fast_non_dominated_sort(
 fn calc_crowding_distance(
     ctx: &Context,
     trials: &[Option<PersistedTrial>],
-    population_numbers: &Vec<u32>,
+    population_numbers: &[u32],
 ) -> Result<Vec<(u32, f64)>> {
     let population_values = population_numbers
         .iter()
@@ -494,7 +512,7 @@ fn calc_crowding_distance(
     Ok(population_numbers
         .iter()
         .copied()
-        .zip(crowding_distance.into_iter())
+        .zip(crowding_distance)
         .collect())
 }
 
