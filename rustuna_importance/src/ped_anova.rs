@@ -93,8 +93,15 @@ impl PedAnovaImportanceEvaluator {
     ///
     /// `evaluate_on_local` controls whether the reference density is estimated from the explored
     /// region (`true`) or from the full search space (`false`).
-    pub fn new(target_quantile: f64, region_quantile: f64, evaluate_on_local: bool) -> Self {
-        Self {
+    pub fn new(target_quantile: f64, region_quantile: f64, evaluate_on_local: bool) -> Result<Self> {
+        if !(0.0 < target_quantile && target_quantile < region_quantile && region_quantile <= 1.0) {
+            return Err(Error::with_reason(
+                ErrorKind::ImportanceEvaluatorError,
+                "condition 0.0 < `target_quantile` < `region_quantile` <= 1.0 must be satisfied"
+            ))
+
+        }
+        Ok(Self {
             target_quantile,
             region_quantile,
             evaluate_on_local,
@@ -102,7 +109,7 @@ impl PedAnovaImportanceEvaluator {
             prior_weight: 1.0,
             min_n_top_trials: 2,
             min_n_trials_in_regime: 2,
-        }
+        })
     }
 
     fn get_top_quantile_trials<'a>(
