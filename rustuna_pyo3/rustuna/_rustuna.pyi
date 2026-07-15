@@ -382,80 +382,80 @@ def copy_study(
 class PedAnovaImportanceEvaluator:
     """PED-ANOVA importance evaluator.
 
-        Implements the PED-ANOVA hyperparameter importance evaluation algorithm.
+    Implements the PED-ANOVA hyperparameter importance evaluation algorithm.
 
-        PED-ANOVA fits Parzen estimators to completed trials in the top
-        ``target_quantile`` fraction. The importance can be interpreted as how important each
-        hyperparameter is for achieving performance within that fraction.
+    PED-ANOVA fits Parzen estimators to completed trials in the top
+    ``target_quantile`` fraction. The importance can be interpreted as how important each
+    hyperparameter is for achieving performance within that fraction.
 
-        For further information about the PED-ANOVA algorithm, please refer to the following paper:
+    For further information about the PED-ANOVA algorithm, please refer to the following paper:
 
-        - `PED-ANOVA: Efficiently Quantifying Hyperparameter Importance in Arbitrary Subspaces
-        <https://arxiv.org/abs/2304.10255>`__ (IJCAI 2023)
+    - `PED-ANOVA: Efficiently Quantifying Hyperparameter Importance in Arbitrary Subspaces
+    <https://arxiv.org/abs/2304.10255>`__ (IJCAI 2023)
 
-        For further information on how conditional parameters are handled, please refer to the
-        following paper:
+    For further information on how conditional parameters are handled, please refer to the
+    following paper:
 
-        - `Conditional PED-ANOVA: Hyperparameter Importance in Hierarchical & Dynamic Search Spaces
-        <https://arxiv.org/abs/2601.20800>`__ (KDD 2026)
+    - `Conditional PED-ANOVA: Hyperparameter Importance in Hierarchical & Dynamic Search Spaces
+    <https://arxiv.org/abs/2601.20800>`__ (KDD 2026)
 
-        ``target_quantile`` and ``region_quantile`` correspond to the parameters
-        :math:`\\gamma'` and :math:`\\gamma` in the original paper, respectively.
+    ``target_quantile`` and ``region_quantile`` correspond to the parameters
+    :math:`\\gamma'` and :math:`\\gamma` in the original paper, respectively.
 
-        .. note::
+    .. note::
 
-            The performance of PED-ANOVA depends on how many trials to consider above
-            ``target_quantile``. To stabilize the analysis, it is preferable to include at least
-            5 trials above ``target_quantile``.
+        The performance of PED-ANOVA depends on how many trials to consider above
+        ``target_quantile``. To stabilize the analysis, it is preferable to include at least
+        5 trials above ``target_quantile``.
 
-        .. note::
+    .. note::
 
-            Please also refer to the original implementations:
+        Please also refer to the original implementations:
 
-            - `PED-ANOVA <https://github.com/nabenabe0928/local-anova>`__
-            - `condPED-ANOVA <https://github.com/kAIto47802/condPED-ANOVA>`__
+        - `PED-ANOVA <https://github.com/nabenabe0928/local-anova>`__
+        - `condPED-ANOVA <https://github.com/kAIto47802/condPED-ANOVA>`__
 
-        Args:
-            target_quantile:
-                Compute the importance of achieving a top-``target_quantile`` objective value.
-                For example, ``target_quantile=0.1`` means that the importances give the information
-                of which parameters were important to achieve the top-10% performance during
-                optimization.
+    Args:
+        target_quantile:
+            Compute the importance of achieving a top-``target_quantile`` objective value.
+            For example, ``target_quantile=0.1`` means that the importances give the information
+            of which parameters were important to achieve the top-10% performance during
+            optimization.
 
-            region_quantile:
-                Define the region where we compute the importance. For example,
-                ``region_quantile=0.5`` means that we compute the importance in the region where
-                trials achieve top-50% performance. If ``region_quantile=1.0``, the importance is
-                computed in the whole search space.
+        region_quantile:
+            Define the region where we compute the importance. For example,
+            ``region_quantile=0.5`` means that we compute the importance in the region where
+            trials achieve top-50% performance. If ``region_quantile=1.0``, the importance is
+            computed in the whole search space.
 
-            evaluate_on_local:
-                Whether to measure the importance in the local or global space. If :obj:`True`,
-                the importances indicate how important each parameter is during optimization.
-                Meanwhile, ``evaluate_on_local=False`` gives the importances in the whole search
-                space and ``region_quantile`` has no effect. ``evaluate_on_local=True`` is
-                especially useful when users modify the search space during optimization.
+        evaluate_on_local:
+            Whether to measure the importance in the local or global space. If :obj:`True`,
+            the importances indicate how important each parameter is during optimization.
+            Meanwhile, ``evaluate_on_local=False`` gives the importances in the whole search
+            space and ``region_quantile`` has no effect. ``evaluate_on_local=True`` is
+            especially useful when users modify the search space during optimization.
 
-        Example:
-            An example of using PED-ANOVA is as follows:
+    Example:
+        An example of using PED-ANOVA is as follows:
 
-            .. testcode::
+        .. testcode::
 
-                import rustuna
-                from rustuna.importance import PedAnovaImportanceEvaluator
-
-
-                def objective(trial):
-                    x1 = trial.suggest_float("x1", -10, 10)
-                    x2 = trial.suggest_float("x2", -10, 10)
-                    return x1 + x2 / 1000
+            import rustuna
+            from rustuna.importance import PedAnovaImportanceEvaluator
 
 
-                study = rustuna.create_study()
-                study.optimize(objective, n_trials=100)
-                evaluator = PedAnovaImportanceEvaluator()
-                importance = rustuna.importance.get_param_importances(study, evaluator=evaluator)
+            def objective(trial):
+                x1 = trial.suggest_float("x1", -10, 10)
+                x2 = trial.suggest_float("x2", -10, 10)
+                return x1 + x2 / 1000
 
-        """
+
+            study = rustuna.create_study()
+            study.optimize(objective, n_trials=100)
+            evaluator = PedAnovaImportanceEvaluator()
+            importance = rustuna.importance.get_param_importances(study, evaluator=evaluator)
+
+    """
 
     def __init__(
         self,
