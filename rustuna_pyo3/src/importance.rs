@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use pyo3::exceptions::{PyUserWarning, PyRuntimeError, PyValueError};
+use pyo3::exceptions::{PyRuntimeError, PyUserWarning, PyValueError};
 use pyo3::prelude::*;
 use pyo3::PyResult;
 
@@ -27,11 +27,9 @@ pub fn py_get_param_importances(
     let evaluator = evaluator
         .map(|wrapper| &wrapper.evaluator)
         .unwrap_or(&default_evaluator);
-    let importances = get_param_importances_with(&study.study, evaluator, options)
-        .map_err(|err| {
-            PyRuntimeError::new_err(format!(
-                "Failed to evaluate parameter importances: {err}"
-            ))
+    let importances =
+        get_param_importances_with(&study.study, evaluator, options).map_err(|err| {
+            PyRuntimeError::new_err(format!("Failed to evaluate parameter importances: {err}"))
         })?;
     Ok(importances)
 }
