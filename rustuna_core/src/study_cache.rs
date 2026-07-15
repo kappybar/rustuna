@@ -36,9 +36,12 @@ impl StudyCache {
         }
     }
 
-    pub fn update(&mut self, trials: &[PersistedTrial]) {
+    pub fn update(&mut self, trials: &[Option<PersistedTrial>]) {
         for i in (self.trial_number_cursor..trials.len()).rev() {
-            let trial = &trials[i];
+            // Skip trials that have been discarded from the storage.
+            let Some(trial) = trials[i].as_ref() else {
+                continue;
+            };
             // Update trial number cursor to the oldest unfinished trial.
             if !trial.is_finished() {
                 self.trial_number_cursor = i;
@@ -85,7 +88,7 @@ mod tests {
     fn test_get_joint_search_space() {
         let mut cache = StudyCache::new();
         let trials = vec![
-            PersistedTrial {
+            Some(PersistedTrial {
                 id: 0,
                 study_id: 0,
                 number: 0,
@@ -121,8 +124,8 @@ mod tests {
                 attrs: Attrs::new(),
                 datetime_start: None,
                 datetime_complete: None,
-            },
-            PersistedTrial {
+            }),
+            Some(PersistedTrial {
                 id: 1,
                 study_id: 0,
                 number: 1,
@@ -133,8 +136,8 @@ mod tests {
                 attrs: Attrs::new(),
                 datetime_start: None,
                 datetime_complete: None,
-            },
-            PersistedTrial {
+            }),
+            Some(PersistedTrial {
                 id: 2,
                 study_id: 0,
                 number: 2,
@@ -145,8 +148,8 @@ mod tests {
                 attrs: Attrs::new(),
                 datetime_start: None,
                 datetime_complete: None,
-            },
-            PersistedTrial {
+            }),
+            Some(PersistedTrial {
                 id: 3,
                 study_id: 0,
                 number: 3,
@@ -182,7 +185,7 @@ mod tests {
                 attrs: Attrs::new(),
                 datetime_start: None,
                 datetime_complete: None,
-            },
+            }),
         ];
 
         cache.update(&trials);
@@ -195,7 +198,7 @@ mod tests {
     fn test_trial_number_cursor() {
         let mut cache = StudyCache::new();
         let trials = vec![
-            PersistedTrial {
+            Some(PersistedTrial {
                 id: 0,
                 study_id: 0,
                 number: 0,
@@ -206,8 +209,8 @@ mod tests {
                 attrs: Attrs::new(),
                 datetime_start: None,
                 datetime_complete: None,
-            },
-            PersistedTrial {
+            }),
+            Some(PersistedTrial {
                 id: 1,
                 study_id: 0,
                 number: 1,
@@ -218,8 +221,8 @@ mod tests {
                 attrs: Attrs::new(),
                 datetime_start: None,
                 datetime_complete: None,
-            },
-            PersistedTrial {
+            }),
+            Some(PersistedTrial {
                 id: 2,
                 study_id: 0,
                 number: 2,
@@ -230,8 +233,8 @@ mod tests {
                 attrs: Attrs::new(),
                 datetime_start: None,
                 datetime_complete: None,
-            },
-            PersistedTrial {
+            }),
+            Some(PersistedTrial {
                 id: 3,
                 study_id: 0,
                 number: 3,
@@ -242,8 +245,8 @@ mod tests {
                 attrs: Attrs::new(),
                 datetime_start: None,
                 datetime_complete: None,
-            },
-            PersistedTrial {
+            }),
+            Some(PersistedTrial {
                 id: 4,
                 study_id: 0,
                 number: 4,
@@ -254,7 +257,7 @@ mod tests {
                 attrs: Attrs::new(),
                 datetime_start: None,
                 datetime_complete: None,
-            },
+            }),
         ];
 
         assert!(cache.trial_number_cursor == 0);
