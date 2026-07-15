@@ -318,7 +318,7 @@ def test_integer_objective_value():
     study.optimize(objective, n_trials=10)
 
 
-def test_fanova():
+def test_importance():
     study = rustuna.create_study()
 
     def objective(trial):
