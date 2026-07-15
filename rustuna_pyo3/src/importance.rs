@@ -39,7 +39,7 @@ pub fn py_get_param_importances(
 #[pyclass(name = "PedAnovaImportanceEvaluator")]
 #[pyo3(module = "rustuna.importance")]
 pub struct PyPedAnovaImportanceEvaluator {
-    pub evaluator: PedAnovaImportanceEvaluator,
+    evaluator: PedAnovaImportanceEvaluator,
 }
 
 #[pymethods]
