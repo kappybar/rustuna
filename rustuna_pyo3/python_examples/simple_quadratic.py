@@ -24,7 +24,7 @@ def main() -> None:
     print(study.best_trial)
 
     # Print parameter importances
-    print(optuna.get_param_importance(study))
+    print(optuna.importance.get_param_importances(study))
 
 
 if __name__ == "__main__":
