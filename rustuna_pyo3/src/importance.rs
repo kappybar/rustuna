@@ -21,4 +21,9 @@ pub fn py_get_param_importances(study: &PyStudy, evaluator: Option<PyPedAnovaImp
         .map_err(|err| PyRuntimeError::new_err(format!("Failed to get parameter importances: {err:?}")))?;
     Ok(importances)
 }
+
+#[pyclass(name = "PedAnovaImportanceEvaluator")]
+#[pyo3(module = "rustuna.importance")]
+pub struct PyPedAnovaImportanceEvaluator {
+    pub evaluator: PedAnovaImportanceEvaluator,
 }
