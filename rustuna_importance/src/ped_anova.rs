@@ -452,7 +452,7 @@ mod tests {
     fn test_target_quantile() -> Result<()> {
         let study = test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Minimize)?;
         let evaluator_default = PedAnovaImportanceEvaluator::default();
-        let evaluator = PedAnovaImportanceEvaluator::new(0.3, 1.0, true);
+        let evaluator = PedAnovaImportanceEvaluator::new(0.3, 1.0, true)?;
         let importances_default = evaluator_default.evaluate(&study)?;
         let importances = evaluator.evaluate(&study)?;
         assert_ne!(importances_default, importances);
@@ -463,7 +463,7 @@ mod tests {
     fn test_region_quantile_less_than_one() -> Result<()> {
         let study = test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Minimize)?;
         let evaluator_default = PedAnovaImportanceEvaluator::default();
-        let evaluator = PedAnovaImportanceEvaluator::new(0.1, 0.5, true);
+        let evaluator = PedAnovaImportanceEvaluator::new(0.1, 0.5, true)?;
         let importances_default = evaluator_default.evaluate(&study)?;
         let importances = evaluator.evaluate(&study)?;
         assert_ne!(importances_default, importances);
@@ -474,7 +474,7 @@ mod tests {
     fn test_evaluate_on_local() -> Result<()> {
         let study = test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Minimize)?;
         let evaluator_default = PedAnovaImportanceEvaluator::default();
-        let evaluator = PedAnovaImportanceEvaluator::new(0.1, 1.0, false);
+        let evaluator = PedAnovaImportanceEvaluator::new(0.1, 1.0, false)?;
         let importances_default = evaluator_default.evaluate(&study)?;
         let importances = evaluator.evaluate(&study)?;
         assert_ne!(importances_default, importances);
