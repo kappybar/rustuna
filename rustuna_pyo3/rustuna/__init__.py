@@ -20,6 +20,8 @@ from rustuna._rustuna import (
     load_study,
 )
 from rustuna.exceptions import TrialPruned
+from rustuna import importance
+
 
 if TYPE_CHECKING:
     from rustuna._rustuna import CategoricalChoiceType
@@ -40,6 +42,6 @@ __all__ = [
     "copy_study",
     "create_study",
     "create_trial",
-    "get_param_importance",
+    "importance",
     "load_study",
 ]
