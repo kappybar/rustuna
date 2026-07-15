@@ -27,3 +27,25 @@ pub fn py_get_param_importances(study: &PyStudy, evaluator: Option<PyPedAnovaImp
 pub struct PyPedAnovaImportanceEvaluator {
     pub evaluator: PedAnovaImportanceEvaluator,
 }
+
+#[pymethods]
+impl PyPedAnovaImportanceEvaluator {
+    #[new]
+    #[pyo3(signature = (target_quantile = 0.1, region_quantile = 1.0, evaluate_on_local = true))]
+    fn py_new(py: Python<'_>, target_quantile: f64, region_quantile: f64, evaluate_on_local: bool) -> PyResult<Self> {
+        let evaluator = PedAnovaImportanceEvaluator::new(target_quantile, region_quantile, evaluate_on_local)
+            .map_err(|err| PyValueError::new_err(err.reason))?;
+        if region_quantile != 1.0 && evaluate_on_local {
+            PyErr::warn(
+                py,
+                &py.get_type::<PyUserWarning>(),
+                pyo3::ffi::c_str!("If `evaluate_on_local` is False, `region_quantile` has no effect."),
+                1,
+            )?;
+        }
+        Ok(Self {
+            evaluator,
+
+        })
+    }
+}
