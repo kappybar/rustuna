@@ -673,9 +673,8 @@ impl Storage for JournalStorage {
                 format!("Failed to get trials for study: study_id={study_id}"),
             )
         })?;
-        let visible_trials = trials.iter().flatten().cloned().collect::<Vec<_>>();
         let cache = self.replay.study_caches.entry(study_id).or_default();
-        cache.update(&visible_trials);
+        cache.update(trials);
         Ok(cache.get_joint_search_space())
     }
 
