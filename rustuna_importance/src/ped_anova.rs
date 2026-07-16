@@ -4,6 +4,7 @@ use rustuna_core::parzen_estimator::ParzenEstimator;
 use rustuna_core::study::{Direction, Study};
 use rustuna_core::trial::PersistedTrial;
 use rustuna_core::Result;
+use rustuna_core::{Error, ErrorKind};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// PED-ANOVA importance evaluator.
@@ -93,8 +94,18 @@ impl PedAnovaImportanceEvaluator {
     ///
     /// `evaluate_on_local` controls whether the reference density is estimated from the explored
     /// region (`true`) or from the full search space (`false`).
-    pub fn new(target_quantile: f64, region_quantile: f64, evaluate_on_local: bool) -> Self {
-        Self {
+    pub fn new(
+        target_quantile: f64,
+        region_quantile: f64,
+        evaluate_on_local: bool,
+    ) -> Result<Self> {
+        if !(0.0 < target_quantile && target_quantile < region_quantile && region_quantile <= 1.0) {
+            return Err(Error::with_reason(
+                ErrorKind::ImportanceEvaluatorError,
+                "condition 0.0 < `target_quantile` < `region_quantile` <= 1.0 must be satisfied",
+            ));
+        }
+        Ok(Self {
             target_quantile,
             region_quantile,
             evaluate_on_local,
@@ -102,7 +113,7 @@ impl PedAnovaImportanceEvaluator {
             prior_weight: 1.0,
             min_n_top_trials: 2,
             min_n_trials_in_regime: 2,
-        }
+        })
     }
 
     fn get_top_quantile_trials<'a>(
@@ -444,7 +455,7 @@ mod tests {
     fn test_target_quantile() -> Result<()> {
         let study = test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Minimize)?;
         let evaluator_default = PedAnovaImportanceEvaluator::default();
-        let evaluator = PedAnovaImportanceEvaluator::new(0.3, 1.0, true);
+        let evaluator = PedAnovaImportanceEvaluator::new(0.3, 1.0, true)?;
         let importances_default = evaluator_default.evaluate(&study)?;
         let importances = evaluator.evaluate(&study)?;
         assert_ne!(importances_default, importances);
@@ -455,7 +466,7 @@ mod tests {
     fn test_region_quantile_less_than_one() -> Result<()> {
         let study = test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Minimize)?;
         let evaluator_default = PedAnovaImportanceEvaluator::default();
-        let evaluator = PedAnovaImportanceEvaluator::new(0.1, 0.5, true);
+        let evaluator = PedAnovaImportanceEvaluator::new(0.1, 0.5, true)?;
         let importances_default = evaluator_default.evaluate(&study)?;
         let importances = evaluator.evaluate(&study)?;
         assert_ne!(importances_default, importances);
@@ -466,7 +477,7 @@ mod tests {
     fn test_evaluate_on_local() -> Result<()> {
         let study = test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Minimize)?;
         let evaluator_default = PedAnovaImportanceEvaluator::default();
-        let evaluator = PedAnovaImportanceEvaluator::new(0.1, 1.0, false);
+        let evaluator = PedAnovaImportanceEvaluator::new(0.1, 1.0, false)?;
         let importances_default = evaluator_default.evaluate(&study)?;
         let importances = evaluator.evaluate(&study)?;
         assert_ne!(importances_default, importances);

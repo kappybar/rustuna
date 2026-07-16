@@ -379,7 +379,154 @@ def copy_study(
 ) -> None:
     """Copy a study to another storage."""
 
-def get_param_importance(study: Study) -> list[list[float]]: ...
+class PedAnovaImportanceEvaluator:
+    """PED-ANOVA importance evaluator.
+
+    Implements the PED-ANOVA hyperparameter importance evaluation algorithm.
+
+    PED-ANOVA fits Parzen estimators to completed trials in the top
+    ``target_quantile`` fraction. The importance can be interpreted as how important each
+    hyperparameter is for achieving performance within that fraction.
+
+    For further information about the PED-ANOVA algorithm, please refer to the following paper:
+
+    - [PED-ANOVA: Efficiently Quantifying Hyperparameter Importance in Arbitrary Subspaces](https://arxiv.org/abs/2304.10255) (IJCAI 2023)
+
+    For further information on how conditional parameters are handled, please refer to the
+    following paper:
+
+    - [Conditional PED-ANOVA: Hyperparameter Importance in Hierarchical & Dynamic Search Spaces](https://arxiv.org/abs/2601.20800) (KDD 2026)
+
+    `target_quantile` and `region_quantile` correspond to the parameters
+    $\\gamma'$ and $\\gamma$ in the original paper, respectively.
+
+    Note:
+        The performance of PED-ANOVA depends on how many trials to consider above
+        `target_quantile`. To stabilize the analysis, it is preferable to include at least
+        5 trials above `target_quantile`.
+
+        Please also refer to the original implementations:
+
+        - [PED-ANOVA](https://github.com/nabenabe0928/local-anova)
+        - [condPED-ANOVA](https://github.com/kAIto47802/condPED-ANOVA)
+
+    Args:
+        target_quantile:
+            Compute the importance of achieving a top-`target_quantile` objective value.
+            For example, `target_quantile=0.1` means that the importances give the information
+            of which parameters were important to achieve the top-10% performance during
+            optimization.
+
+        region_quantile:
+            Define the region where we compute the importance. For example,
+            `region_quantile=0.5` means that we compute the importance in the region where
+            trials achieve top-50% performance. If `region_quantile=1.0`, the importance is
+            computed in the whole search space.
+
+        evaluate_on_local:
+            Whether to measure the importance in the local or global space. If `True`,
+            the importances indicate how important each parameter is during optimization.
+            Meanwhile, `evaluate_on_local=False` gives the importances in the whole search
+            space and `region_quantile` has no effect. `evaluate_on_local=True` is
+            especially useful when users modify the search space during optimization.
+
+    Example:
+        An example of using PED-ANOVA is as follows:
+
+        ```python
+        import rustuna
+        from rustuna.importance import PedAnovaImportanceEvaluator
+
+
+        def objective(trial: rustuna.trial.Trial) -> float:
+            x1 = trial.suggest_float("x1", -10, 10)
+            x2 = trial.suggest_float("x2", -10, 10)
+            return x1 + x2 / 1000
+
+
+        study = rustuna.create_study()
+        study.optimize(objective, n_trials=100)
+        evaluator = PedAnovaImportanceEvaluator()
+        importance = rustuna.importance.get_param_importances(study, evaluator=evaluator)
+        ```
+
+    """
+
+    def __init__(
+        self,
+        *,
+        target_quantile: float = 0.1,
+        region_quantile: float = 1.0,
+        evaluate_on_local: bool = True,
+    ) -> None: ...
+
+def get_param_importances(
+    study: Study,
+    *,
+    evaluator: PedAnovaImportanceEvaluator | None = None,
+    params: list[str] | None = None,
+    normalize: bool = True,
+) -> dict[str, float]:
+    """Evaluate parameter importances using PED-ANOVA based on completed trials in the given study.
+
+    The parameter importances are returned as a dictionary whose keys are parameter names and
+    whose values are their importances.
+    The importances are represented by non-negative floating point numbers, where higher values
+    mean that the parameters are more important.
+    By default, the sum of the importance values is normalized to 1.0.
+
+    By default, this function uses `PedAnovaImportanceEvaluator`.
+    For details on this evaluator, please refer to the following papers:
+
+    - [PED-ANOVA: Efficiently Quantifying Hyperparameter Importance in Arbitrary Subspaces](https://arxiv.org/abs/2304.10255) (IJCAI 2023)
+    - [Conditional PED-ANOVA: Hyperparameter Importance in Hierarchical & Dynamic Search Spaces](https://arxiv.org/abs/2601.20800) (KDD 2026)
+
+    When using this evaluator in your project, please consider citing both papers.
+
+    If `params` is `None`, all parameters that appear in completed trials are assessed,
+    including conditional parameters. If `params` is specified, only the specified parameters
+    are assessed.
+
+    Note:
+        If `params` is specified as an empty list, an empty dictionary is returned.
+
+    Args:
+        study:
+            An optimized study.
+        evaluator:
+            A `PedAnovaImportanceEvaluator` object. If `None`, a default
+            `PedAnovaImportanceEvaluator` is used.
+        params:
+            A list of names of parameters to assess. If `None`, all parameters that appear in
+            completed trials are assessed, including conditional parameters.
+        normalize:
+            A boolean option to specify whether the sum of the importance values should be
+            normalized to 1.0.
+            Defaults to `True`.
+
+    Returns:
+        A `dict` where the keys are parameter names and the values are assessed importances.
+
+    Example:
+        ```python
+        import rustuna
+
+
+        def objective(trial: rustuna.trial.Trial) -> float:
+            x = trial.suggest_int("x", 0, 2)
+            y = trial.suggest_float("y", -1.0, 1.0)
+            z = trial.suggest_float("z", 0.0, 1.5)
+            return x**2 + y**3 - z**4
+
+
+        sampler = rustuna.samplers.RandomSampler(seed=42)
+        study = rustuna.create_study(sampler=sampler)
+        study.optimize(objective, n_trials=100)
+
+        importances = rustuna.importance.get_param_importances(study)
+        ```
+
+    """
 
 class Study:
     """A study corresponds to an optimization task, i.e., a set of trials.
