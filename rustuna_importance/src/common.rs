@@ -341,15 +341,7 @@ mod tests {
         study.optimize(
             |mut t| {
                 let x1 = t.suggest_float("x1", 0.0, 5.0)?;
-                let x2 = t.suggest(
-                    "x2",
-                    &Distribution::Float {
-                        low: 0.0,
-                        high: 1.0,
-                        step: Some(1.0),
-                        log: false,
-                    },
-                )?;
+                let x2 = t.suggest("x2", &Distribution::new_float(0.0, 1.0, Some(1.0), false))?;
                 Ok(vec![x1 + x2])
             },
             5,
