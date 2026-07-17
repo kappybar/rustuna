@@ -38,12 +38,25 @@ impl<'a> NumericalDistributionBuilder for ScottNumericalDistributionBuilder<'a> 
             } => (*low, *high, *step, *log),
             _ => panic!("Unsupported distribution type for ScottNumericalDistributionBuilder"),
         };
-        let weights_sum = self.weights.iter().sum::<f64>();
+        let weights_cum = self
+            .weights
+            .iter()
+            .scan(0.0, |acc, &w| {
+                *acc += w;
+                Some(*acc)
+            })
+            .collect::<Vec<_>>();
+        let weights_sum = weights_cum.last().cloned().unwrap_or(1.0);
         let n_observations = observations.len();
         let observations = if log {
             observations.iter().map(|v| v.ln()).collect()
         } else {
             observations.to_vec()
+        };
+        let (low, high) = if log {
+            (low.ln(), high.ln())
+        } else {
+            (low, high)
         };
 
         let mean_est = observations
@@ -62,25 +75,17 @@ impl<'a> NumericalDistributionBuilder for ScottNumericalDistributionBuilder<'a> 
             var.sqrt()
         };
 
-        let inter_quantile_range = if observations.is_empty() {
-            0.0
-        } else {
-            let mut sorted_obs = observations.clone();
-            sorted_obs.sort_by(|a, b| a.total_cmp(b));
-            let q1_idx =
-                ((0.25 * (n_observations as f64 - 1.0)).floor() as usize).min(n_observations - 1);
-            let q3_idx =
-                ((0.75 * (n_observations as f64 - 1.0)).floor() as usize).min(n_observations - 1);
-            sorted_obs[q3_idx] - sorted_obs[q1_idx]
-        };
-        let sigma_est = 1.059 * sigma_est.min(inter_quantile_range / 1.34) * weights_sum.powf(-0.2);
+        let q1_idx = weights_cum.partition_point(|&v| v < (weights_sum / 4.0).floor());
+        let q3_idx = weights_cum.partition_point(|&v| v <= (weights_sum * 3.0 / 4.0).floor());
+        let iqr = observations[q3_idx.min(n_observations - 1)] - observations[q1_idx];
+
+        let sigma_est = 1.059 * sigma_est.min(iqr / 1.34) * weights_sum.powf(-0.2);
         // To avoid numerical errors. 0.5/1.64 means 1.64sigma (=90%) will fit in the target grid.
         let sigma_min = 0.5 / 1.64;
-        let sigmas = std::iter::repeat_n(sigma_est.max(sigma_min), n_observations);
-
         let mus_with_prior = observations
             .into_iter()
             .chain(std::iter::once((low + high) / 2.0));
+        let sigmas = std::iter::repeat_n(sigma_est.max(sigma_min), n_observations);
         let sigmas_with_prior = sigmas.chain(std::iter::once(high - low + 1.0));
 
         match (step, log) {

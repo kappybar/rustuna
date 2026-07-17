@@ -14,12 +14,13 @@ use rustuna_core::study::{
     create_study_with_arc, get_best_trial, get_pareto_front, Direction, PersistedStudy, Study,
 };
 use rustuna_core::trial::TrialStateValues;
-use rustuna_samplers::tpe::TpeSampler;
+use rustuna_sampler::tpe::TpeSampler;
 
 use crate::attrs::pyobj_to_attrs;
 use crate::attrs::{convert_pydict_to_fixed_params, pyobj_to_attrs_with_kind, AttrKind};
 use crate::exception::err_to_exceptions;
 use crate::pyobject_storage::PyObjectStorage;
+use crate::sampler::cmaes::PyCmaEsSampler;
 use crate::sampler::{PyObjectSampler, PySampler};
 use crate::storage::PyStorage;
 use crate::trial::{PyPersistedTrial, PyTrial, PyTrialState};
@@ -163,7 +164,6 @@ fn into_storage_pyobj(
         None => {
             let storage = PyStorage {
                 storage: Arc::new(RwLock::new(InMemoryStorage::new())),
-                optuna_compatible: None,
                 kind: "in_memory",
             };
             let storage_arc = storage.storage.clone();
@@ -181,6 +181,8 @@ fn resolve_sampler_pyobj(
     let sampler_ref = sampler.bind(py);
     if let Ok(py_sampler) = sampler_ref.extract::<PySampler>() {
         Ok((py_sampler.sampler.clone(), sampler_pyobj))
+    } else if let Ok(py_cmaes_sampler) = sampler_ref.extract::<PyCmaEsSampler>() {
+        Ok((py_cmaes_sampler.sampler.clone(), sampler_pyobj))
     } else {
         let sampler: SharedSampler = Arc::new(Mutex::new(PyObjectSampler::new(sampler)));
         Ok((sampler, sampler_pyobj))
@@ -339,16 +341,12 @@ impl PyStudy {
         study_id: u32,
         name: String,
         directions: Vec<PyDirection>,
-        storage: PyStorage,
-        sampler: PySampler,
+        storage: Py<PyAny>,
+        sampler: Py<PyAny>,
     ) -> PyResult<Self> {
         let directions: Vec<Direction> = directions.into_iter().map(|d| d.into()).collect();
-        let storage_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
-            Ok(Py::new(py, storage.clone())?.into_any())
-        })?;
-        let sampler_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
-            Ok(Py::new(py, sampler.clone())?.into_any())
-        })?;
+        let (storage_arc, storage_pyobj) = Python::attach(|py| resolve_storage_pyobj(py, storage))?;
+        let (sampler_arc, sampler_pyobj) = Python::attach(|py| resolve_sampler_pyobj(py, sampler))?;
         let trial_queue = PyTrialQueue {
             queue: Arc::new(RwLock::new(
                 rustuna_core::trial_queue::InMemoryTrialQueue::new(),
@@ -362,8 +360,8 @@ impl PyStudy {
             study_id,
             name,
             directions,
-            storage.storage,
-            sampler.sampler.clone(),
+            storage_arc,
+            sampler_arc,
             trial_queue_arc,
         );
         Ok(PyStudy {
@@ -383,10 +381,7 @@ impl PyStudy {
     ) -> PyResult<()> {
         let catch = Python::attach(|py| normalize_catch(py, catch.as_ref().map(|c| c.bind(py))))?;
         for _ in 0..n_trials {
-            let rs_trial = self
-                .study
-                .ask()
-                .map_err(|e| PyRuntimeError::new_err(format!("Failed to ask a trial {e:?}.")))?;
+            let rs_trial = self.study.ask().map_err(err_to_exceptions)?;
             let trial_number = rs_trial.number;
 
             let result: PyResult<Vec<f64>> = Python::attach(|py| {
@@ -423,10 +418,7 @@ impl PyStudy {
     }
 
     pub fn ask(&self) -> PyResult<PyTrial> {
-        let trial = self
-            .study
-            .ask()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to ask a trial: {:?}", e.kind)))?;
+        let trial = self.study.ask().map_err(err_to_exceptions)?;
         let trial = Python::attach(|py| PyTrial::new(trial, self.storage_pyobj.clone_ref(py)));
         Ok(trial)
     }
@@ -600,6 +592,7 @@ impl PyStudy {
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to get trials: {:?}", e.kind)))?;
         let trials: Vec<PyPersistedTrial> = trials_vec
             .iter()
+            .flatten()
             .map(|t| PyPersistedTrial::from_storage(self.study.storage.clone(), t))
             .collect();
         Ok(trials)
@@ -621,11 +614,13 @@ impl PyStudy {
         let trials: Vec<PyPersistedTrial> = match states {
             Some(states) => trials_vec
                 .iter()
+                .flatten()
                 .filter(|trial| states.contains(&PyTrialState::from(trial.state_values.clone())))
                 .map(|trial| PyPersistedTrial::from_storage(self.study.storage.clone(), trial))
                 .collect(),
             None => trials_vec
                 .iter()
+                .flatten()
                 .map(|trial| PyPersistedTrial::from_storage(self.study.storage.clone(), trial))
                 .collect(),
         };
@@ -701,7 +696,12 @@ impl PyStudy {
         let best_trials = pareto_front_numbers
             .iter()
             .map(|n| {
-                PyPersistedTrial::from_storage(self.study.storage.clone(), &trials_vec[*n as usize])
+                PyPersistedTrial::from_storage(
+                    self.study.storage.clone(),
+                    trials_vec[*n as usize]
+                        .as_ref()
+                        .expect("pareto front trial should exist"),
+                )
             })
             .collect();
         Ok(best_trials)
@@ -831,7 +831,7 @@ pub fn py_copy_study(
             .set_study_attrs(to_study_id, from_attrs, false)
             .map_err(err_to_exceptions)?;
     }
-    for trial in trials {
+    for trial in trials.into_iter().flatten() {
         guard
             .create_new_trial_from_template(to_study_id, &trial)
             .map_err(err_to_exceptions)?;

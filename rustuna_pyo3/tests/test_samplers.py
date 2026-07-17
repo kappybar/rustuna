@@ -144,6 +144,24 @@ def test_custom_sampler(sampler: rustuna.samplers.SamplerProtocol) -> None:
     study.optimize(objective, n_trials=100)
 
 
+def test_study_constructor_accepts_custom_sampler() -> None:
+    storage = rustuna.storages.InMemoryStorage()
+    persisted_study = storage.create_new_study(
+        "direct-study", [rustuna.study.StudyDirection.MINIMIZE]
+    )
+    study = rustuna.study.Study(
+        persisted_study.id,
+        persisted_study.name,
+        persisted_study.directions,
+        storage,
+        DummyIndependentSampler(),
+    )
+
+    study.optimize(lambda trial: trial.suggest_float("x", -1.0, 1.0), n_trials=1)
+
+    assert study.trials[0].state == rustuna.trial.TrialState.COMPLETE
+
+
 def test_custom_sampler_after_trial_is_called() -> None:
     sampler = RecordingSampler()
 

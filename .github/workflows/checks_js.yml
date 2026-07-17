@@ -9,6 +9,9 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rustuna_core/src/**'
+
+permissions:
+  contents: read
 jobs:
   js_test:
     runs-on: ubuntu-latest

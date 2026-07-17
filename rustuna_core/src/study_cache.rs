@@ -36,9 +36,12 @@ impl StudyCache {
         }
     }
 
-    pub fn update(&mut self, trials: &[PersistedTrial]) {
+    pub fn update(&mut self, trials: &[Option<PersistedTrial>]) {
         for i in (self.trial_number_cursor..trials.len()).rev() {
-            let trial = &trials[i];
+            // Skip trials that have been discarded from the storage.
+            let Some(trial) = trials[i].as_ref() else {
+                continue;
+            };
             // Update trial number cursor to the oldest unfinished trial.
             if !trial.is_finished() {
                 self.trial_number_cursor = i;
@@ -85,7 +88,7 @@ mod tests {
     fn test_get_joint_search_space() {
         let mut cache = StudyCache::new();
         let trials = vec![
-            PersistedTrial {
+            Some(PersistedTrial {
                 id: 0,
                 study_id: 0,
                 number: 0,
@@ -117,33 +120,36 @@ mod tests {
                 .iter()
                 .cloned()
                 .collect(),
+                intermediate_values: HashMap::new(),
                 attrs: Attrs::new(),
                 datetime_start: None,
                 datetime_complete: None,
-            },
-            PersistedTrial {
+            }),
+            Some(PersistedTrial {
                 id: 1,
                 study_id: 0,
                 number: 1,
                 state_values: TrialStateValues::Fail,
                 internal_params: HashMap::new(),
                 distributions: HashMap::new(),
+                intermediate_values: HashMap::new(),
                 attrs: Attrs::new(),
                 datetime_start: None,
                 datetime_complete: None,
-            },
-            PersistedTrial {
+            }),
+            Some(PersistedTrial {
                 id: 2,
                 study_id: 0,
                 number: 2,
                 state_values: TrialStateValues::Running,
                 internal_params: HashMap::new(),
                 distributions: HashMap::new(),
+                intermediate_values: HashMap::new(),
                 attrs: Attrs::new(),
                 datetime_start: None,
                 datetime_complete: None,
-            },
-            PersistedTrial {
+            }),
+            Some(PersistedTrial {
                 id: 3,
                 study_id: 0,
                 number: 3,
@@ -175,10 +181,11 @@ mod tests {
                 .iter()
                 .cloned()
                 .collect(),
+                intermediate_values: HashMap::new(),
                 attrs: Attrs::new(),
                 datetime_start: None,
                 datetime_complete: None,
-            },
+            }),
         ];
 
         cache.update(&trials);
@@ -191,61 +198,66 @@ mod tests {
     fn test_trial_number_cursor() {
         let mut cache = StudyCache::new();
         let trials = vec![
-            PersistedTrial {
+            Some(PersistedTrial {
                 id: 0,
                 study_id: 0,
                 number: 0,
                 state_values: TrialStateValues::Complete(vec![0.0]),
                 internal_params: HashMap::new(),
                 distributions: HashMap::new(),
+                intermediate_values: HashMap::new(),
                 attrs: Attrs::new(),
                 datetime_start: None,
                 datetime_complete: None,
-            },
-            PersistedTrial {
+            }),
+            Some(PersistedTrial {
                 id: 1,
                 study_id: 0,
                 number: 1,
                 state_values: TrialStateValues::Pruned,
                 internal_params: HashMap::new(),
                 distributions: HashMap::new(),
+                intermediate_values: HashMap::new(),
                 attrs: Attrs::new(),
                 datetime_start: None,
                 datetime_complete: None,
-            },
-            PersistedTrial {
+            }),
+            Some(PersistedTrial {
                 id: 2,
                 study_id: 0,
                 number: 2,
                 state_values: TrialStateValues::Fail,
                 internal_params: HashMap::new(),
                 distributions: HashMap::new(),
+                intermediate_values: HashMap::new(),
                 attrs: Attrs::new(),
                 datetime_start: None,
                 datetime_complete: None,
-            },
-            PersistedTrial {
+            }),
+            Some(PersistedTrial {
                 id: 3,
                 study_id: 0,
                 number: 3,
                 state_values: TrialStateValues::Running,
                 internal_params: HashMap::new(),
                 distributions: HashMap::new(),
+                intermediate_values: HashMap::new(),
                 attrs: Attrs::new(),
                 datetime_start: None,
                 datetime_complete: None,
-            },
-            PersistedTrial {
+            }),
+            Some(PersistedTrial {
                 id: 4,
                 study_id: 0,
                 number: 4,
                 state_values: TrialStateValues::Complete(vec![0.0]),
                 internal_params: HashMap::new(),
                 distributions: HashMap::new(),
+                intermediate_values: HashMap::new(),
                 attrs: Attrs::new(),
                 datetime_start: None,
                 datetime_complete: None,
-            },
+            }),
         ];
 
         assert!(cache.trial_number_cursor == 0);

@@ -9,10 +9,9 @@ from collections.abc import (
     Sequence,
     ValuesView,
 )
-from typing import Any, Literal, Protocol, TypedDict, TypeVar, overload
+from typing import Any, Literal, TypedDict, TypeVar, overload
 
 from ._protocols import (
-    OptunaStorageProtocol,
     SamplerProtocol,
     StorageProtocol,
     TrialQueueProtocol,
@@ -83,7 +82,7 @@ class Trial:
 
     Note that the direct use of this constructor is not recommended.
     This object is seamlessly instantiated and passed to the objective function behind
-    the :func:`Study.optimize` method; hence library users do not care about
+    the [Study.optimize][rustuna.study.Study.optimize] method; hence library users do not care about
     instantiation of this object.
     """
 
@@ -150,7 +149,7 @@ class Trial:
     def set_user_attr(self, key: str, value: str) -> None:
         """Set a user attribute to the trial.
 
-        .. note::
+        Note:
             Unlike Optuna, Rustuna accepts only str values for user attributes.
 
         Args:
@@ -160,7 +159,7 @@ class Trial:
     def set_user_attrs(self, attrs: dict[str, str]) -> None:
         """Set user attributes to the trial.
 
-        .. note::
+        Note:
             Unlike Optuna, Rustuna accepts only str values for user attributes.
 
         Args:
@@ -209,6 +208,7 @@ class PersistedTrial:
         value: An objective value of the Trial (only available when single objective optimization).
         params: Dictionary that contains suggested parameters.
         distributions: Dictionary that contains the distributions of params.
+        intermediate_values: Dictionary that contains reported intermediate values.
         user_attrs: Dictionary that contains the attributes of the Trial set with set_user_attr.
         system_attrs: Dictionary that contains the attributes of the Trial set with set_system_attr.
         internal_params: Dictionary that contains internal representations of the parameters.
@@ -227,6 +227,7 @@ class PersistedTrial:
         values: list[float] | None = None,
         params: dict[str, CategoricalChoiceType] | None = None,
         distributions: dict[str, Distribution] | None = None,
+        intermediate_values: dict[int, float] | None = None,
         user_attrs: dict[str, str] | None = None,
         system_attrs: dict[str, str] | None = None,
         datetime_start: datetime.datetime | None = None,
@@ -246,6 +247,8 @@ class PersistedTrial:
     def value(self) -> float | None: ...
     @property
     def distributions(self) -> dict[str, Distribution]: ...
+    @property
+    def intermediate_values(self) -> dict[int, float]: ...
     @property
     def user_attrs(self) -> AttrsDictView: ...
     @property
@@ -299,6 +302,7 @@ def create_trial(
     values: Sequence[float] | None = None,
     params: dict[str, Any] | None = None,
     distributions: dict[str, Distribution] | None = None,
+    intermediate_values: dict[int, float] | None = None,
     user_attrs: dict[str, str] | None = None,
     system_attrs: dict[str, str] | None = None,
 ) -> PersistedTrial:
@@ -375,7 +379,154 @@ def copy_study(
 ) -> None:
     """Copy a study to another storage."""
 
-def get_param_importance(study: Study) -> list[list[float]]: ...
+class PedAnovaImportanceEvaluator:
+    """PED-ANOVA importance evaluator.
+
+    Implements the PED-ANOVA hyperparameter importance evaluation algorithm.
+
+    PED-ANOVA fits Parzen estimators to completed trials in the top
+    ``target_quantile`` fraction. The importance can be interpreted as how important each
+    hyperparameter is for achieving performance within that fraction.
+
+    For further information about the PED-ANOVA algorithm, please refer to the following paper:
+
+    - [PED-ANOVA: Efficiently Quantifying Hyperparameter Importance in Arbitrary Subspaces](https://arxiv.org/abs/2304.10255) (IJCAI 2023)
+
+    For further information on how conditional parameters are handled, please refer to the
+    following paper:
+
+    - [Conditional PED-ANOVA: Hyperparameter Importance in Hierarchical & Dynamic Search Spaces](https://arxiv.org/abs/2601.20800) (KDD 2026)
+
+    `target_quantile` and `region_quantile` correspond to the parameters
+    $\\gamma'$ and $\\gamma$ in the original paper, respectively.
+
+    Note:
+        The performance of PED-ANOVA depends on how many trials to consider above
+        `target_quantile`. To stabilize the analysis, it is preferable to include at least
+        5 trials above `target_quantile`.
+
+        Please also refer to the original implementations:
+
+        - [PED-ANOVA](https://github.com/nabenabe0928/local-anova)
+        - [condPED-ANOVA](https://github.com/kAIto47802/condPED-ANOVA)
+
+    Args:
+        target_quantile:
+            Compute the importance of achieving a top-`target_quantile` objective value.
+            For example, `target_quantile=0.1` means that the importances give the information
+            of which parameters were important to achieve the top-10% performance during
+            optimization.
+
+        region_quantile:
+            Define the region where we compute the importance. For example,
+            `region_quantile=0.5` means that we compute the importance in the region where
+            trials achieve top-50% performance. If `region_quantile=1.0`, the importance is
+            computed in the whole search space.
+
+        evaluate_on_local:
+            Whether to measure the importance in the local or global space. If `True`,
+            the importances indicate how important each parameter is during optimization.
+            Meanwhile, `evaluate_on_local=False` gives the importances in the whole search
+            space and `region_quantile` has no effect. `evaluate_on_local=True` is
+            especially useful when users modify the search space during optimization.
+
+    Example:
+        An example of using PED-ANOVA is as follows:
+
+        ```python
+        import rustuna
+        from rustuna.importance import PedAnovaImportanceEvaluator
+
+
+        def objective(trial: rustuna.trial.Trial) -> float:
+            x1 = trial.suggest_float("x1", -10, 10)
+            x2 = trial.suggest_float("x2", -10, 10)
+            return x1 + x2 / 1000
+
+
+        study = rustuna.create_study()
+        study.optimize(objective, n_trials=100)
+        evaluator = PedAnovaImportanceEvaluator()
+        importance = rustuna.importance.get_param_importances(study, evaluator=evaluator)
+        ```
+
+    """
+
+    def __init__(
+        self,
+        *,
+        target_quantile: float = 0.1,
+        region_quantile: float = 1.0,
+        evaluate_on_local: bool = True,
+    ) -> None: ...
+
+def get_param_importances(
+    study: Study,
+    *,
+    evaluator: PedAnovaImportanceEvaluator | None = None,
+    params: list[str] | None = None,
+    normalize: bool = True,
+) -> dict[str, float]:
+    """Evaluate parameter importances using PED-ANOVA based on completed trials in the given study.
+
+    The parameter importances are returned as a dictionary whose keys are parameter names and
+    whose values are their importances.
+    The importances are represented by non-negative floating point numbers, where higher values
+    mean that the parameters are more important.
+    By default, the sum of the importance values is normalized to 1.0.
+
+    By default, this function uses `PedAnovaImportanceEvaluator`.
+    For details on this evaluator, please refer to the following papers:
+
+    - [PED-ANOVA: Efficiently Quantifying Hyperparameter Importance in Arbitrary Subspaces](https://arxiv.org/abs/2304.10255) (IJCAI 2023)
+    - [Conditional PED-ANOVA: Hyperparameter Importance in Hierarchical & Dynamic Search Spaces](https://arxiv.org/abs/2601.20800) (KDD 2026)
+
+    When using this evaluator in your project, please consider citing both papers.
+
+    If `params` is `None`, all parameters that appear in completed trials are assessed,
+    including conditional parameters. If `params` is specified, only the specified parameters
+    are assessed.
+
+    Note:
+        If `params` is specified as an empty list, an empty dictionary is returned.
+
+    Args:
+        study:
+            An optimized study.
+        evaluator:
+            A `PedAnovaImportanceEvaluator` object. If `None`, a default
+            `PedAnovaImportanceEvaluator` is used.
+        params:
+            A list of names of parameters to assess. If `None`, all parameters that appear in
+            completed trials are assessed, including conditional parameters.
+        normalize:
+            A boolean option to specify whether the sum of the importance values should be
+            normalized to 1.0.
+            Defaults to `True`.
+
+    Returns:
+        A `dict` where the keys are parameter names and the values are assessed importances.
+
+    Example:
+        ```python
+        import rustuna
+
+
+        def objective(trial: rustuna.trial.Trial) -> float:
+            x = trial.suggest_int("x", 0, 2)
+            y = trial.suggest_float("y", -1.0, 1.0)
+            z = trial.suggest_float("z", 0.0, 1.5)
+            return x**2 + y**3 - z**4
+
+
+        sampler = rustuna.samplers.RandomSampler(seed=42)
+        study = rustuna.create_study(sampler=sampler)
+        study.optimize(objective, n_trials=100)
+
+        importances = rustuna.importance.get_param_importances(study)
+        ```
+
+    """
 
 class Study:
     """A study corresponds to an optimization task, i.e., a set of trials.
@@ -394,8 +545,8 @@ class Study:
     def ask(self) -> Trial:
         """Create a new trial from which hyperparameters can be suggested.
 
-        This method is part of an alternative to :func:`~Study.optimize` that allows controlling
-        the execution of trials from user code.
+        This method is part of an alternative to [Study.optimize][rustuna.study.Study.optimize]
+        that allows controlling the execution of trials from user code.
 
         Returns:
             A Trial object.
@@ -406,7 +557,7 @@ class Study:
         values: int | float | Sequence[int | float] | None = None,
         state: TrialState | None = None,
     ) -> PersistedTrial:
-        """Finish a trial created with :func:`~Study.ask`.
+        """Finish a trial created with [Study.ask][rustuna.study.Study.ask].
 
         Args:
             number: Trial number returned by the trial.
@@ -457,7 +608,7 @@ class Study:
     ) -> None:
         """Set a user attribute to the study.
 
-        .. note::
+        Note:
             Unlike Optuna, Rustuna accepts only str values for user attributes.
 
         Args:
@@ -482,7 +633,7 @@ class Study:
     ) -> None:
         """Set user attributes to the study.
 
-        .. note::
+        Note:
             Unlike Optuna, Rustuna accepts only str values for user attributes.
 
         Args:
@@ -660,6 +811,9 @@ class PyObjectStorage:
     def set_study_user_attrs(self, study_id: int, attrs: dict[str, str]) -> None: ...
     def set_trial_system_attrs(self, trial_id: int, attrs: dict[str, str]) -> None: ...
     def set_trial_user_attrs(self, trial_id: int, attrs: dict[str, str]) -> None: ...
+    def set_trial_intermediate_value(
+        self, trial_id: int, step: int, intermediate_value: float
+    ) -> None: ...
     def set_category_labels(
         self,
         study_id: int,
@@ -672,9 +826,8 @@ class PyObjectStorage:
         param_name: str,
         cardinality: int,
     ) -> list[CategoricalChoiceType] | None: ...
-    def set_trial_intermediate_value(
-        self, trial_id: int, step: int, intermediate_value: float
-    ) -> None: ...
+    def discard_trials(self, trial_ids: list[int]) -> None: ...
+    def may_omit_trials(self) -> bool: ...
 
 class Storage:
     """Storage for persisting optimization history."""
@@ -684,12 +837,14 @@ class Storage:
     @classmethod
     def sqlite3(
         cls, file_path: str, *, create_database: bool = True
-    ) -> OptunaStorageProtocol: ...
+    ) -> StorageProtocol: ...
     @classmethod
     def journal_file(
         cls,
         file_path: str,
-    ) -> OptunaStorageProtocol: ...
+        *,
+        load_discarded_trials: bool = False,
+    ) -> StorageProtocol: ...
     def create_new_study(
         self, study_name: str, directions: list[StudyDirection]
     ) -> PersistedStudy: ...
@@ -728,6 +883,9 @@ class Storage:
     def set_study_user_attrs(self, study_id: int, attrs: dict[str, str]) -> None: ...
     def set_trial_system_attrs(self, trial_id: int, attrs: dict[str, str]) -> None: ...
     def set_trial_user_attrs(self, trial_id: int, attrs: dict[str, str]) -> None: ...
+    def set_trial_intermediate_value(
+        self, trial_id: int, step: int, intermediate_value: float
+    ) -> None: ...
     def set_category_labels(
         self,
         study_id: int,
@@ -740,9 +898,8 @@ class Storage:
         param_name: str,
         cardinality: int,
     ) -> list[CategoricalChoiceType] | None: ...
-    def set_trial_intermediate_value(
-        self, trial_id: int, step: int, intermediate_value: float
-    ) -> None: ...
+    def discard_trials(self, trial_ids: list[int]) -> None: ...
+    def may_omit_trials(self) -> bool: ...
 
 # Sampler
 class SamplerContext:
@@ -821,6 +978,49 @@ class Sampler:
             An NSGA-II sampler instance.
         """
         ...
+    @property
+    def support_joint_sampling(self) -> bool: ...
+    def sample_joint(
+        self,
+        ctx: SamplerContext,
+        storage: StorageProtocol,
+        search_space: dict[str, Distribution],
+    ) -> dict[str, float]: ...
+    def sample_independent(
+        self,
+        ctx: SamplerContext,
+        storage: StorageProtocol,
+        name: str,
+        distribution: Distribution,
+    ) -> float: ...
+    def after_trial(
+        self,
+        ctx: SamplerContext,
+        storage: StorageProtocol,
+        state: TrialState,
+        values: list[float] | None = None,
+    ) -> None: ...
+
+class CmaEsSampler:
+    """Sampler using CMA-ES (Covariance Matrix Adaptation Evolution Strategy) algorithm.
+
+    This sampler is backed by Python's `cmaes` package. The optimizer state is held only
+    in memory. Therefore, sampler instances in separate processes optimize independently.
+
+    Categorical parameters are not supported by CMA-ES. They are excluded from the joint
+    search space and sampled independently.
+
+    Args:
+        seed: Random seed for CMA-ES. If `None`, the backend chooses a random seed.
+        popsize: CMA-ES population size. If `None`, the backend default is used.
+    """
+
+    def __init__(
+        self,
+        *,
+        seed: int | None = None,
+        popsize: int | None = None,
+    ) -> None: ...
     @property
     def support_joint_sampling(self) -> bool: ...
     def sample_joint(

@@ -23,7 +23,7 @@ fn main() -> Result<()> {
         },
         50,
     )?;
-    let evaluator = PedAnovaImportanceEvaluator::new(0.1, 1.0, true);
+    let evaluator = PedAnovaImportanceEvaluator::default();
     let importances = rustuna_importance::get_param_importances(&study, &evaluator)?;
     println!("Parameter importances: {importances:?}");
 

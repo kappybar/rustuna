@@ -288,6 +288,17 @@ class StorageProtocol(Protocol):
             attrs: User attributes to set.
         """
 
+    def set_trial_intermediate_value(
+        self, trial_id: int, step: int, intermediate_value: float
+    ) -> None:
+        """Set an intermediate value for a trial.
+
+        Args:
+            trial_id: ID of the trial.
+            step: Step at which the intermediate value is reported.
+            intermediate_value: Intermediate objective value.
+        """
+
     def set_category_labels(
         self,
         study_id: int,
@@ -319,15 +330,12 @@ class StorageProtocol(Protocol):
             List of category labels, or None if not set.
         """
 
-
-class OptunaStorageProtocol(StorageProtocol, Protocol):
-    def set_trial_intermediate_value(
-        self, trial_id: int, step: int, intermediate_value: float
-    ) -> None:
-        """Set an intermediate value for a trial.
+    def discard_trials(self, trial_ids: list[int]) -> None:
+        """Discard trials from the storage view.
 
         Args:
-            trial_id: ID of the trial.
-            step: Step at which the intermediate value is reported.
-            intermediate_value: Intermediate objective value.
+            trial_ids: IDs of trials to discard.
         """
+
+    def may_omit_trials(self) -> bool:
+        """Return True if this storage view may omit discarded trials."""

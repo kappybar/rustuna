@@ -4,7 +4,8 @@ use rustuna_core::parzen_estimator::ParzenEstimator;
 use rustuna_core::study::{Direction, Study};
 use rustuna_core::trial::PersistedTrial;
 use rustuna_core::Result;
-use std::collections::HashMap;
+use rustuna_core::{Error, ErrorKind};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// PED-ANOVA importance evaluator.
 ///
@@ -64,6 +65,7 @@ pub struct PedAnovaImportanceEvaluator {
     n_steps: usize,
     prior_weight: f64,
     min_n_top_trials: usize,
+    min_n_trials_in_regime: usize,
 }
 
 impl Default for PedAnovaImportanceEvaluator {
@@ -75,6 +77,7 @@ impl Default for PedAnovaImportanceEvaluator {
             n_steps: 50,
             prior_weight: 1.0,
             min_n_top_trials: 2,
+            min_n_trials_in_regime: 2,
         }
     }
 }
@@ -91,15 +94,26 @@ impl PedAnovaImportanceEvaluator {
     ///
     /// `evaluate_on_local` controls whether the reference density is estimated from the explored
     /// region (`true`) or from the full search space (`false`).
-    pub fn new(target_quantile: f64, region_quantile: f64, evaluate_on_local: bool) -> Self {
-        Self {
+    pub fn new(
+        target_quantile: f64,
+        region_quantile: f64,
+        evaluate_on_local: bool,
+    ) -> Result<Self> {
+        if !(0.0 < target_quantile && target_quantile < region_quantile && region_quantile <= 1.0) {
+            return Err(Error::with_reason(
+                ErrorKind::ImportanceEvaluatorError,
+                "condition 0.0 < `target_quantile` < `region_quantile` <= 1.0 must be satisfied",
+            ));
+        }
+        Ok(Self {
             target_quantile,
             region_quantile,
             evaluate_on_local,
             n_steps: 50,
             prior_weight: 1.0,
             min_n_top_trials: 2,
-        }
+            min_n_trials_in_regime: 2,
+        })
     }
 
     fn get_top_quantile_trials<'a>(
@@ -124,18 +138,20 @@ impl PedAnovaImportanceEvaluator {
                 }
             })
             .collect::<Vec<_>>();
-        let num_trials = trials.len();
-        let num_top_trials =
-            ((quantile * (num_trials as f64 - 1.0)).floor() as usize).min(num_trials - 1);
-
-        let (_, &mut threshold, _) = objective_values
-            .clone()
-            .select_nth_unstable_by(num_top_trials, |a, b| a.total_cmp(b));
+        let num_top_trials = ((quantile * trials.len() as f64).ceil() as usize).max(1) - 1;
+        let threshold = {
+            let (_, &mut threshold, _) = objective_values
+                .clone()
+                .select_nth_unstable_by(num_top_trials, |a, b| a.total_cmp(b));
+            let (_, &mut threshold_min, _) = objective_values
+                .clone()
+                .select_nth_unstable_by(self.min_n_top_trials - 1, |a, b| a.total_cmp(b));
+            threshold.max(threshold_min)
+        };
         let top_trials = trials
             .iter()
             .zip(objective_values.iter())
-            .filter(|(_, &v)| v <= threshold)
-            .map(|(t, _)| t)
+            .filter_map(|(t, &v)| (v <= threshold).then_some(t))
             .collect();
         top_trials
     }
@@ -191,38 +207,89 @@ impl ImportanceEvaluator for PedAnovaImportanceEvaluator {
         let target = common::resolve_target(opts.target);
         let trials = common::get_filtered_trials(study, target)?;
         common::ensure_target_for_multi_objective(&trials, opts.target)?;
-        let dists = common::get_intersection_search_space(&trials);
+        let dists = common::get_distributions(&trials, &opts.params);
+        let params = match opts.params {
+            Some(params) => params,
+            None => dists
+                .iter()
+                .flat_map(|d| d.keys())
+                .cloned()
+                .collect::<BTreeSet<_>>() // maintain a deterministic order of parameters
+                .into_iter()
+                .collect(),
+        };
 
         if trials.len() <= self.min_n_top_trials {
-            return Ok(dists.into_keys().map(|name| (name, 0.0)).collect());
+            return Ok(params.into_iter().map(|name| (name, 0.0)).collect());
         }
 
         let target_trials =
             self.get_top_quantile_trials(study, &trials, self.target_quantile, target);
         let region_trials =
             self.get_top_quantile_trials(study, &trials, self.region_quantile, target);
-
+        if target_trials.is_empty() {
+            return Ok(params.into_iter().map(|name| (name, 0.0)).collect());
+        }
         let quantile = target_trials.len() as f64 / region_trials.len() as f64;
 
-        let importances = dists
-            .into_iter()
-            .map(|(name, dist)| {
-                let importance = if dist.is_single() {
-                    0.0
-                } else {
-                    quantile.powi(2)
-                        * self.compute_pearson_divergence(
-                            &name,
-                            &dist,
-                            &target_trials,
-                            &region_trials,
-                        )
-                };
-                (name, importance)
-            })
-            .collect();
-        Ok(importances)
+        let target_trial_ids = target_trials.iter().map(|t| t.id).collect::<HashSet<_>>();
+        let importances = params.into_iter().map(|name| {
+            let regime_trials =
+                partition_by_regime(&name, &region_trials, self.min_n_trials_in_regime);
+            let importance = regime_trials
+                .into_iter()
+                .map(|(dist, region_trials_regime)| {
+                    let target_trials_regime = region_trials_regime
+                        .iter()
+                        .filter(|t| target_trial_ids.contains(&t.id))
+                        .copied()
+                        .collect::<Vec<_>>();
+                    let regime_prob_target =
+                        target_trials_regime.len() as f64 / target_trials.len() as f64; // alpha_i
+                    let regime_prob_region =
+                        region_trials_regime.len() as f64 / region_trials.len() as f64; // beta_i
+                    match dist {
+                        Some(dist) if !dist.is_single() && !target_trials_regime.is_empty() => {
+                            regime_prob_target.powi(2) / regime_prob_region
+                                * self.compute_pearson_divergence(
+                                    &name,
+                                    dist,
+                                    &target_trials_regime,
+                                    &region_trials_regime,
+                                )
+                        }
+                        _ => 0.0,
+                    }
+                })
+                .sum::<f64>();
+            (name, importance)
+        });
+        Ok(importances
+            .map(|(k, v)| (k, quantile.powi(2) * v))
+            .collect())
     }
+}
+
+fn partition_by_regime<'a>(
+    param_name: &str,
+    trials: &'a [&'a PersistedTrial],
+    min_n_trials_in_regime: usize,
+) -> Vec<(Option<&'a Distribution>, Vec<&'a PersistedTrial>)> {
+    // Distribution does not implement Eq or Hash, so we use Vec instead of HashMap.
+    let mut regime_trials: Vec<(Option<&'a Distribution>, Vec<&'a PersistedTrial>)> = vec![];
+    for trial in trials {
+        let dist = trial.distributions.get(param_name);
+        if let Some((_, group_trials)) = regime_trials
+            .iter_mut()
+            .find(|(existing_regime, _)| *existing_regime == dist)
+        {
+            group_trials.push(trial);
+        } else {
+            regime_trials.push((dist, vec![trial]));
+        }
+    }
+    regime_trials.retain(|(_, group_trials)| group_trials.len() >= min_n_trials_in_regime);
+    regime_trials
 }
 
 fn count_numerical_param_in_grid(
@@ -274,11 +341,11 @@ fn count_numerical_param_in_grid(
             v
         }
     });
-    let step_size = (high - low) / (n_steps as f64);
+    let step_size = (high - low) / (n_steps as f64 - 1.0);
     let mut counts = vec![0u32; n_steps];
     for v in param_values {
-        let idx = ((v - low) / step_size)
-            .floor()
+        let idx = ((v - low) / step_size - 0.5)
+            .ceil()
             .max(0.0)
             .min((n_steps - 1) as f64) as usize;
         counts[idx] += 1;
@@ -350,14 +417,19 @@ fn build_parzen_estimator_on_grid(
 mod tests {
     use super::*;
     use crate::test_utils;
+    use crate::test_utils::ObjectiveType;
     use rustuna_core::study::Direction;
     use rustuna_core::Result;
 
     #[test]
     fn test_n_trials_equal_to_min_n_top_trials() -> Result<()> {
         let evaluator = PedAnovaImportanceEvaluator::default();
-        let study =
-            test_utils::get_study(42, evaluator.min_n_top_trials, false, Direction::Minimize)?;
+        let study = test_utils::get_study(
+            42,
+            evaluator.min_n_top_trials,
+            ObjectiveType::Single,
+            Direction::Minimize,
+        )?;
         let importances = evaluator.evaluate(&study)?;
         assert!(
             importances.values().all(|v| v.abs() <= 1e-12),
@@ -368,8 +440,10 @@ mod tests {
 
     #[test]
     fn test_direction() -> Result<()> {
-        let study_minimize = test_utils::get_study(42, 20, false, Direction::Minimize)?;
-        let study_maximize = test_utils::get_study(42, 20, false, Direction::Maximize)?;
+        let study_minimize =
+            test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Minimize)?;
+        let study_maximize =
+            test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Maximize)?;
         let evaluator = PedAnovaImportanceEvaluator::default();
         let importances_minimize = evaluator.evaluate(&study_minimize)?;
         let importances_maximize = evaluator.evaluate(&study_maximize)?;
@@ -379,9 +453,9 @@ mod tests {
 
     #[test]
     fn test_target_quantile() -> Result<()> {
-        let study = test_utils::get_study(42, 20, false, Direction::Minimize)?;
+        let study = test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Minimize)?;
         let evaluator_default = PedAnovaImportanceEvaluator::default();
-        let evaluator = PedAnovaImportanceEvaluator::new(0.3, 1.0, true);
+        let evaluator = PedAnovaImportanceEvaluator::new(0.3, 1.0, true)?;
         let importances_default = evaluator_default.evaluate(&study)?;
         let importances = evaluator.evaluate(&study)?;
         assert_ne!(importances_default, importances);
@@ -390,9 +464,9 @@ mod tests {
 
     #[test]
     fn test_region_quantile_less_than_one() -> Result<()> {
-        let study = test_utils::get_study(42, 20, false, Direction::Minimize)?;
+        let study = test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Minimize)?;
         let evaluator_default = PedAnovaImportanceEvaluator::default();
-        let evaluator = PedAnovaImportanceEvaluator::new(0.1, 0.5, true);
+        let evaluator = PedAnovaImportanceEvaluator::new(0.1, 0.5, true)?;
         let importances_default = evaluator_default.evaluate(&study)?;
         let importances = evaluator.evaluate(&study)?;
         assert_ne!(importances_default, importances);
@@ -401,12 +475,31 @@ mod tests {
 
     #[test]
     fn test_evaluate_on_local() -> Result<()> {
-        let study = test_utils::get_study(42, 20, false, Direction::Minimize)?;
+        let study = test_utils::get_study(42, 20, ObjectiveType::Single, Direction::Minimize)?;
         let evaluator_default = PedAnovaImportanceEvaluator::default();
-        let evaluator = PedAnovaImportanceEvaluator::new(0.1, 1.0, false);
+        let evaluator = PedAnovaImportanceEvaluator::new(0.1, 1.0, false)?;
         let importances_default = evaluator_default.evaluate(&study)?;
         let importances = evaluator.evaluate(&study)?;
         assert_ne!(importances_default, importances);
+        Ok(())
+    }
+
+    #[test]
+    fn test_conditional() -> Result<()> {
+        let study = test_utils::get_study(42, 20, ObjectiveType::Conditional, Direction::Minimize)?;
+        let evaluator = PedAnovaImportanceEvaluator::default();
+        let importances = evaluator.evaluate(&study)?;
+        assert!(importances.contains_key("c"));
+        assert!(importances.contains_key("x"));
+        assert!(importances.contains_key("y"));
+        assert_ne!(
+            importances,
+            HashMap::from([
+                ("c".to_string(), 0.0),
+                ("x".to_string(), 0.0),
+                ("y".to_string(), 0.0),
+            ])
+        );
         Ok(())
     }
 }

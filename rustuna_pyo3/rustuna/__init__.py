@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from rustuna import (
     distributions,
     exceptions,
+    importance,
     samplers,
     storages,
     study,
@@ -16,7 +17,6 @@ from rustuna._rustuna import (
     copy_study,
     create_study,
     create_trial,
-    get_param_importance,
     load_study,
 )
 from rustuna.exceptions import TrialPruned
@@ -40,6 +40,6 @@ __all__ = [
     "copy_study",
     "create_study",
     "create_trial",
-    "get_param_importance",
+    "importance",
     "load_study",
 ]

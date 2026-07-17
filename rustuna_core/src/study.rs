@@ -353,7 +353,7 @@ impl Study {
             )
         })?;
         let trials = guard.get_trials(self.id)?;
-        Ok(trials.clone())
+        Ok(trials.iter().flatten().cloned().collect())
     }
 
     /// Returns a user attribute stored on the study.
@@ -513,6 +513,7 @@ pub fn get_best_trial(study: &Study) -> Result<u32> {
 
     let best_trial = trials
         .iter()
+        .flatten()
         .filter(|trial| matches!(trial.state_values, TrialStateValues::Complete(_)))
         .min_by(|a, b| {
             let a_value = match a.state_values {
@@ -549,6 +550,7 @@ pub fn get_pareto_front(study: &Study) -> Result<Vec<u32>> {
     let trials = guard
         .get_trials(study.id)?
         .iter()
+        .flatten()
         .filter(|t| matches!(t.state_values, TrialStateValues::Complete(ref _v)))
         .collect::<Vec<_>>();
 

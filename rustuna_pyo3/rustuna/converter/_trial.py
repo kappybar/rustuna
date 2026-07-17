@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import datetime
-import json
 import warnings
 from typing import TYPE_CHECKING, overload
 
@@ -59,33 +58,11 @@ def to_rustuna_state(state: optuna.trial.TrialState) -> rustuna.trial.TrialState
     return to_rustuna_state_map[state]
 
 
-def _encode_intermediate_values(
-    intermediate_values: Mapping[int, float],
-) -> list[dict[str, Any]]:
-    entries: list[dict[str, Any]] = []
-    for step, value in sorted(intermediate_values.items(), key=lambda x: x[0]):
-        if value != value:
-            entries.append({"step": int(step), "value": None, "value_type": "NAN"})
-        elif value == float("inf"):
-            entries.append({"step": int(step), "value": None, "value_type": "INF_POS"})
-        elif value == float("-inf"):
-            entries.append({"step": int(step), "value": None, "value_type": "INF_NEG"})
-        else:
-            entries.append(
-                {"step": int(step), "value": float(value), "value_type": "FINITE"}
-            )
-    return entries
-
-
 def to_persisted_trial(
     trial: optuna.trial.FrozenTrial,
     study_id: int,
 ) -> rustuna.trial.PersistedTrial:
     rustuna_system_attrs = to_rustuna_attrs(trial.system_attrs)
-    if trial.intermediate_values:
-        rustuna_system_attrs["intermediate_values"] = json.dumps(
-            _encode_intermediate_values(trial.intermediate_values)
-        )
 
     distributions: dict[str, Distribution] = {}
     for param_name in trial.distributions:
@@ -100,6 +77,7 @@ def to_persisted_trial(
         values=trial.values,
         params=trial.params,
         distributions=distributions,
+        intermediate_values=trial.intermediate_values,
         user_attrs=to_rustuna_attrs(trial.user_attrs),
         system_attrs=rustuna_system_attrs,
         datetime_start=trial.datetime_start,
@@ -274,51 +252,15 @@ class FrozenTrialLike(FrozenTrial):
     def intermediate_values(self) -> dict[int, float]:
         if self.__intermediate_values is not None:
             return self.__intermediate_values
-
-        intermediate_values_raw = self._persisted_trial.system_attrs.get(
-            "intermediate_values"
-        )
-        if intermediate_values_raw is None:
-            return {}
-        intermediate_values_raw = json.loads(intermediate_values_raw)
-
-        if isinstance(intermediate_values_raw, dict):
-            decoded_intermediate_values: dict[int, float] = {}
-            for raw_step, value in intermediate_values_raw.items():
-                step = int(raw_step)
-                if isinstance(value, (int, float)):
-                    decoded_intermediate_values[step] = float(value)
-            return decoded_intermediate_values
-        assert isinstance(intermediate_values_raw, list)
-
-        intermediate_values: dict[int, float] = {}
-        for v in intermediate_values_raw:
-            assert isinstance(v, dict)
-            step = v["step"]
-            assert isinstance(step, int)
-            value_type = v["value_type"]
-            assert isinstance(value_type, str)
-            if value_type == "FINITE":
-                value = v["value"]
-                assert isinstance(value, (int, float))
-                intermediate_values[step] = float(value)
-            elif value_type == "INF_POS":
-                intermediate_values[step] = float("inf")
-            elif value_type == "INF_NEG":
-                intermediate_values[step] = float("-inf")
-            elif value_type == "NAN":
-                intermediate_values[step] = float("nan")
-            else:
-                assert False, f"Unknown value_type: {value_type}"
-        return intermediate_values
+        return self._persisted_trial.intermediate_values
 
     @intermediate_values.setter
     def intermediate_values(self, values: dict[int, float]) -> None:
-        self._intermediate_values = values
+        self.__intermediate_values = values
 
     @property
     def last_step(self) -> int | None:
-        """Return the maximum step of :attr:`intermediate_values` in the trial.
+        """Return the maximum step of `intermediate_values` in the trial.
 
         Returns:
             The maximum step of intermediates.

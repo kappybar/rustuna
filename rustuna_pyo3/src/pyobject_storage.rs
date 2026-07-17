@@ -173,6 +173,23 @@ impl PyObjectStorage {
         })
     }
 
+    fn obj_set_trial_intermediate_values(
+        &mut self,
+        trial_id: u32,
+        intermediate_values: &HashMap<u32, f64>,
+    ) -> PyResult<()> {
+        Python::attach(|py| {
+            for (step, value) in intermediate_values {
+                self.obj.call_method1(
+                    py,
+                    "set_trial_intermediate_value",
+                    (trial_id, *step, *value),
+                )?;
+            }
+            Ok(())
+        })
+    }
+
     fn obj_set_trial_attrs(&mut self, trial_id: u32, attrs: Attrs) -> PyResult<()> {
         Python::attach(|py| {
             let py_system_attrs = pyo3::types::PyDict::new(py);
@@ -468,7 +485,7 @@ impl Storage for PyObjectStorage {
         value: f64,
     ) -> rustuna_core::Result<()> {
         self.obj_set_trial_param(trial_id, name, distribution, value)
-            .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
+            .map_err(Self::map_pyerr)?;
         match self
             .cache
             .set_trial_param(trial_id, name, distribution, value)
@@ -509,6 +526,32 @@ impl Storage for PyObjectStorage {
         }
     }
 
+    fn set_trial_intermediate_values(
+        &mut self,
+        trial_id: u32,
+        intermediate_values: HashMap<u32, f64>,
+    ) -> rustuna_core::Result<()> {
+        let intermediate_values_retry = intermediate_values.clone();
+        self.obj_set_trial_intermediate_values(trial_id, &intermediate_values_retry)
+            .map_err(Self::map_pyerr)?;
+
+        match self
+            .cache
+            .set_trial_intermediate_values(trial_id, intermediate_values)
+        {
+            Ok(_) => Ok(()),
+            Err(e) => match e.kind {
+                rustuna_core::ErrorKind::StudyNotFound | rustuna_core::ErrorKind::TrialNotFound => {
+                    self.sync_all_trials()?;
+                    self.cache
+                        .set_trial_intermediate_values(trial_id, intermediate_values_retry)?;
+                    Ok(())
+                }
+                _ => Err(e),
+            },
+        }
+    }
+
     fn get_studies(&mut self) -> rustuna_core::Result<&Vec<rustuna_core::study::PersistedStudy>> {
         self.sync_studies(true)?;
         self.cache.get_studies()
@@ -525,7 +568,7 @@ impl Storage for PyObjectStorage {
     fn get_trials(
         &mut self,
         study_id: u32,
-    ) -> rustuna_core::Result<&Vec<rustuna_core::trial::PersistedTrial>> {
+    ) -> rustuna_core::Result<&Vec<Option<rustuna_core::trial::PersistedTrial>>> {
         // Ensure study mapping exists before sync_trials, which requires cache_study_to_src_study.
         self.sync_study_from_id(study_id, false)?;
         self.sync_trials(study_id)?;
@@ -655,6 +698,24 @@ impl Storage for PyObjectStorage {
         self.sync_study_from_id(study_id, false)?;
         self.sync_trials(study_id)?;
         self.cache.get_joint_search_space(study_id)
+    }
+
+    fn discard_trials(&mut self, trial_ids: &[u32]) -> rustuna_core::Result<()> {
+        Python::attach(|py| {
+            self.obj
+                .call_method1(py, "discard_trials", (trial_ids.to_vec(),))
+                .map_err(Self::map_pyerr)?;
+            Ok(())
+        })
+    }
+
+    fn may_omit_trials(&self) -> bool {
+        Python::attach(|py| {
+            self.obj
+                .call_method0(py, "may_omit_trials")
+                .and_then(|ret| ret.extract::<bool>(py))
+                .unwrap_or(false)
+        })
     }
 }
 

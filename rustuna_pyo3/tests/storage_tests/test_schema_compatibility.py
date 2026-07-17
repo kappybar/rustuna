@@ -30,7 +30,7 @@ def get_optuna_storage(backend: str, base_dir: str) -> optuna.storages.BaseStora
 
 def get_rustuna_storage(
     backend: str, base_dir: str, create_database: bool
-) -> rustuna.storages.OptunaStorageProtocol:
+) -> rustuna.storages.StorageProtocol:
     if backend == "journal":
         file_path = os.path.join(base_dir, "test.journal")
         return rustuna.storages.JournalFileStorage(file_path)

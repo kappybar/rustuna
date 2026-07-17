@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 @pytest.fixture(params=["sqlite3", "journal-file"])
 def storage(request: FixtureRequest) -> Generator[BaseStorage, None, None]:
     with tempfile.TemporaryDirectory() as workdir:
-        rustuna_storage: rustuna.storages.OptunaStorageProtocol
+        rustuna_storage: rustuna.storages.StorageProtocol
         if request.param == "sqlite3":
             file_path = f"{workdir}/test.db"
             rustuna_storage = rustuna.storages.SQLite3Storage(

@@ -9,11 +9,10 @@ use rustuna_core::distribution::Distribution;
 use rustuna_core::storage::{InMemoryStorage, Storage};
 use rustuna_core::study::Direction;
 use rustuna_core::trial::TrialStateValues;
-use rustuna_storages::cache::CachedStorage;
-use rustuna_storages::journal::file::{JournalFileBackend, JournalFileSymlinkLock};
-use rustuna_storages::journal::storage::JournalStorage;
-use rustuna_storages::optuna::OptunaCompatibleStorage;
-use rustuna_storages::sqlite3::SQLite3Storage;
+use rustuna_storage::cache::CachedStorage;
+use rustuna_storage::journal::file::{JournalFileBackend, JournalFileSymlinkLock};
+use rustuna_storage::journal::storage::{JournalStorage, JournalStorageOptions};
+use rustuna_storage::sqlite3::SQLite3Storage;
 
 use crate::attrs::{pyobj_to_attrs_with_kind, AttrKind};
 use crate::distribution::{category_label_to_pyobject, pyobject_to_category_label, PyDistribution};
@@ -26,7 +25,6 @@ use crate::trial::{PyPersistedTrial, PyTrialState};
 #[pyo3(module = "rustuna")]
 pub struct PyStorage {
     pub storage: Arc<RwLock<dyn Storage>>,
-    pub optuna_compatible: Option<Arc<RwLock<dyn OptunaCompatibleStorage>>>,
     pub kind: &'static str,
 }
 
@@ -36,7 +34,6 @@ impl PyStorage {
     fn in_memory(_cls: &Bound<'_, PyType>) -> PyResult<Self> {
         Ok(PyStorage {
             storage: Arc::new(RwLock::new(InMemoryStorage::new())),
-            optuna_compatible: None,
             kind: "in_memory",
         })
     }
@@ -56,26 +53,32 @@ impl PyStorage {
         let arc_storage = Arc::new(RwLock::new(CachedStorage::new(Box::new(backend))));
         Ok(PyStorage {
             storage: arc_storage.clone(),
-            optuna_compatible: Some(arc_storage),
             kind: "sqlite3",
         })
     }
 
     #[classmethod]
-    #[pyo3(name = "journal_file", signature = (file_path,))]
-    fn journal_file(_cls: &Bound<'_, PyType>, file_path: &str) -> PyResult<Self> {
+    #[pyo3(name = "journal_file", signature = (file_path, *, load_discarded_trials = false))]
+    fn journal_file(
+        _cls: &Bound<'_, PyType>,
+        file_path: &str,
+        load_discarded_trials: bool,
+    ) -> PyResult<Self> {
         // TODO(c-bata): Add lock_obj argument to use JournalFileOpenLock.
         let lock_obj = Box::new(JournalFileSymlinkLock::new(file_path));
         let backend = JournalFileBackend::new(file_path, Some(lock_obj)).map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to create journal file: {e:?}"))
         })?;
-        let storage = JournalStorage::new(Box::new(backend)).map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to create journal storage: {e:?}"))
-        })?;
+        let storage = JournalStorage::new_with_options(
+            Box::new(backend),
+            JournalStorageOptions {
+                load_discarded_trials,
+            },
+        )
+        .map_err(|e| PyRuntimeError::new_err(format!("Failed to create journal storage: {e:?}")))?;
         let arc_storage = Arc::new(RwLock::new(storage));
         Ok(PyStorage {
             storage: arc_storage.clone(),
-            optuna_compatible: Some(arc_storage),
             kind: "journal",
         })
     }
@@ -266,8 +269,9 @@ impl PyStorage {
         let trials = guard.get_trials(study_id).map_err(err_to_exceptions)?;
         let py_trials: Vec<PyPersistedTrial> = trials
             .iter()
+            .flatten()
             .filter(|trial| match &states {
-                Some(states) => states.contains(&PyTrialState::from(trial.state_values.clone())),
+                Some(s) => s.contains(&PyTrialState::from(trial.state_values.clone())),
                 None => true,
             })
             .map(|t| PyPersistedTrial::from_storage(self.storage.clone(), t))
@@ -395,18 +399,33 @@ impl PyStorage {
         step: u32,
         intermediate_value: f64,
     ) -> PyResult<()> {
-        let optuna_storage = self.optuna_compatible.as_ref().ok_or_else(|| {
-            PyRuntimeError::new_err("This storage does not support Optuna-compatible operations")
-        })?;
-        let mut guard = optuna_storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
         let mut intermediate_values = std::collections::HashMap::new();
         intermediate_values.insert(step, intermediate_value);
+
+        let mut guard = self.storage.write().map_err(|e| {
+            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
+        })?;
         guard
             .set_trial_intermediate_values(trial_id, intermediate_values)
             .map_err(err_to_exceptions)?;
         Ok(())
+    }
+
+    fn discard_trials(&mut self, trial_ids: Vec<u32>) -> PyResult<()> {
+        let mut guard = self.storage.write().map_err(|e| {
+            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
+        })?;
+        guard
+            .discard_trials(&trial_ids)
+            .map_err(err_to_exceptions)?;
+        Ok(())
+    }
+
+    fn may_omit_trials(&self) -> PyResult<bool> {
+        let guard = self.storage.read().map_err(|e| {
+            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
+        })?;
+        Ok(guard.may_omit_trials())
     }
 }
 

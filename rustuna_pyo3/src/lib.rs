@@ -38,8 +38,10 @@ fn rustuna(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // sampler
     m.add_class::<sampler::PySampler>()?;
     m.add_class::<sampler::PySamplerContext>()?;
+    m.add_class::<sampler::cmaes::PyCmaEsSampler>()?;
     // importance
-    m.add_function(wrap_pyfunction!(importance::py_get_param_importance, m)?)?;
+    m.add_function(wrap_pyfunction!(importance::py_get_param_importances, m)?)?;
+    m.add_class::<importance::PyPedAnovaImportanceEvaluator>()?;
     // trial_queue
     m.add_class::<trial_queue::PyTrialQueue>()?;
     m.add_class::<trial_queue::PyPyObjectTrialQueue>()?;

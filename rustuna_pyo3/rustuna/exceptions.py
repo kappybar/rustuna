@@ -31,6 +31,12 @@ class StorageInternalError(RustunaError):
     pass
 
 
+class TrialDiscarded(RustunaError):
+    """Exception for accessing a discarded trial."""
+
+    pass
+
+
 class DuplicatedStudyError(RustunaError):
     """Exception for duplicate study names.
 
@@ -38,14 +44,14 @@ class DuplicatedStudyError(RustunaError):
     already exists in the storage. Study names must be unique within a storage.
 
     Example:
-        .. code-block:: python
+        ```python
+        import rustuna
 
-            import rustuna
-
-            storage = rustuna.Storage.in_memory()
-            rustuna.create_study(study_name="my-study", storage=storage)
-            # Raises DuplicatedStudyError
-            rustuna.create_study(study_name="my-study", storage=storage)
+        storage = rustuna.Storage.in_memory()
+        rustuna.create_study(study_name="my-study", storage=storage)
+        # Raises DuplicatedStudyError
+        rustuna.create_study(study_name="my-study", storage=storage)
+        ```
     """
 
     pass
@@ -60,7 +66,8 @@ class UpdateFinishedTrialError(RustunaError, RuntimeError):
 
     Example:
         This exception might be raised when:
-        - Calling :func:`~rustuna.Trial.suggest_float` after the trial has finished
+        - Calling [Trial.suggest_float][rustuna.trial.Trial.suggest_float] after the trial has
+          finished
         - Attempting to report values to a completed trial
     """
 

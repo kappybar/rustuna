@@ -51,7 +51,12 @@ impl JsStudy {
                 .clone();
             (trials, study_attrs)
         };
-        let trial = JsPersistedTrial::new(trials[number as usize].clone(), study_attrs);
+        let trial = JsPersistedTrial::new(
+            trials[number as usize]
+                .clone()
+                .ok_or_else(|| JsError::new("Trial is missing"))?,
+            study_attrs,
+        );
         Ok(trial)
     }
 }
