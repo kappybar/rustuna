@@ -380,12 +380,7 @@ fn build_parzen_estimator_on_grid(
     let (counts, rounded_dist) = match dist {
         Distribution::Int { .. } | Distribution::Float { .. } => {
             let counts = count_numerical_param_in_grid(param_name, dist, trials, n_steps);
-            let rounded_dist = Distribution::Int {
-                low: 0,
-                high: (counts.len() - 1) as i64,
-                step: 1,
-                log: false,
-            };
+            let rounded_dist = Distribution::new_int(0, (counts.len() - 1) as i64, 1, false);
             (counts, rounded_dist)
         }
         Distribution::Categorical { .. } => {
