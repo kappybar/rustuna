@@ -948,6 +948,40 @@ mod tests {
     }
 
     #[test]
+    fn test_add_trial_adjusts_distribution_high() -> Result<()> {
+        let storage = InMemoryStorage::new();
+        let directions = vec![Direction::Minimize];
+        let study = create_study(
+            "adjust-added-trial-high",
+            storage,
+            RandomSampler::new(),
+            directions,
+        )?;
+
+        let mut trial = PersistedTrial::new(999, 888, 777);
+        trial.state_values = TrialStateValues::Complete(vec![1.0]);
+        trial.internal_params.insert("x".to_string(), 9.0);
+        // Bypass the constructor to verify that `Study::add_trial` adjusts distributions.
+        trial.distributions.insert(
+            "x".to_string(),
+            Distribution::Float {
+                low: -5.0,
+                high: 10.0,
+                step: Some(2.0),
+                log: false,
+            },
+        );
+
+        study.add_trial(trial)?;
+
+        assert_eq!(
+            study.get_trials()?[0].distributions["x"],
+            Distribution::new_float(-5.0, 9.0, Some(2.0), false)
+        );
+        Ok(())
+    }
+
+    #[test]
     fn test_tell_calls_after_trial_before_storage_update() -> Result<()> {
         let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
         let calls = Arc::new(Mutex::new(Vec::new()));
