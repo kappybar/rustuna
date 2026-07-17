@@ -392,7 +392,10 @@ impl Study {
     /// Inserts an existing persisted trial into the study.
     ///
     /// This is the Rustuna counterpart of Optuna's `study.add_trial`.
-    pub fn add_trial(&self, trial: PersistedTrial) -> Result<()> {
+    pub fn add_trial(&self, mut trial: PersistedTrial) -> Result<()> {
+        for distribution in trial.distributions.values_mut() {
+            *distribution = distribution.adjusted();
+        }
         trial.validate()?;
         if let TrialStateValues::Complete(ref values) = trial.state_values {
             if values.len() != self.directions.len() {
