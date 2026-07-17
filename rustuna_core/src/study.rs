@@ -833,6 +833,55 @@ mod tests {
     }
 
     #[test]
+    fn test_optimize_adjusts_discrete_distribution_high() -> Result<()> {
+        let storage = InMemoryStorage::new();
+        let directions = vec![Direction::Minimize];
+        let study = create_study(
+            "adjust-distribution-high",
+            storage,
+            RandomSampler::seed_from_u64(42),
+            directions,
+        )?;
+
+        study.optimize(
+            |mut trial| {
+                // Bypass the constructors to verify that `Trial::suggest` adjusts distributions.
+                trial.suggest(
+                    "float",
+                    &Distribution::Float {
+                        low: -5.0,
+                        high: 10.0,
+                        step: Some(2.0),
+                        log: false,
+                    },
+                )?;
+                trial.suggest(
+                    "int",
+                    &Distribution::Int {
+                        low: -5,
+                        high: 10,
+                        step: 2,
+                        log: false,
+                    },
+                )?;
+                Ok(vec![0.0])
+            },
+            1,
+        )?;
+
+        let trials = study.get_trials()?;
+        assert_eq!(
+            trials[0].distributions["float"],
+            Distribution::new_float(-5.0, 9.0, Some(2.0), false)
+        );
+        assert_eq!(
+            trials[0].distributions["int"],
+            Distribution::new_int(-5, 9, 2, false)
+        );
+        Ok(())
+    }
+
+    #[test]
     fn test_invalid_dynamic_search_space() -> Result<()> {
         let storage = InMemoryStorage::new();
         let directions = vec![Direction::Minimize];
