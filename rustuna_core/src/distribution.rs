@@ -40,6 +40,17 @@ impl Distribution {
         }
     }
 
+    /// Constructs an integer distribution, adjusting `high` to the largest value reachable from
+    /// `low` by an integer number of steps.
+    pub fn new_int(low: i64, high: i64, step: i64, log: bool) -> Self {
+        Self::Int {
+            low,
+            high: adjust_int_high(low, high, step),
+            step,
+            log,
+        }
+    }
+
     /// Checks whether two distributions are compatible for the same parameter name.
     ///
     /// Rustuna follows the same basic rule as Optuna here: the distribution kind must stay the
