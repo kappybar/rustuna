@@ -29,6 +29,17 @@ pub enum Distribution {
 }
 
 impl Distribution {
+    /// Constructs a floating-point distribution, adjusting `high` to the largest value reachable
+    /// from `low` by an integer number of steps.
+    pub fn new_float(low: f64, high: f64, step: Option<f64>, log: bool) -> Self {
+        Self::Float {
+            low,
+            high: step.map_or(high, |step| adjust_float_high(low, high, step)),
+            step,
+            log,
+        }
+    }
+
     /// Checks whether two distributions are compatible for the same parameter name.
     ///
     /// Rustuna follows the same basic rule as Optuna here: the distribution kind must stay the
