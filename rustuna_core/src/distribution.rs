@@ -116,6 +116,19 @@ impl Distribution {
         }
     }
 }
+fn adjust_int_high(low: i64, high: i64, step: i64) -> i64 {
+    if low > high || step <= 0 {
+        return high;
+    }
+
+    let range = high as i128 - low as i128;
+    let step = step as i128;
+    if range % step == 0 {
+        high
+    } else {
+        (range / step * step + low as i128) as i64
+    }
+}
 
 #[cfg(test)]
 mod tests {
