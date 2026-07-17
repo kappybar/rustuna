@@ -100,21 +100,11 @@ mod tests {
                 distributions: [
                     (
                         "x".to_string(),
-                        Distribution::Float {
-                            low: 0.0,
-                            high: 1.0,
-                            step: None,
-                            log: false,
-                        },
+                        Distribution::new_float(0.0, 1.0, None, false),
                     ),
                     (
                         "y".to_string(),
-                        Distribution::Float {
-                            low: 1.0,
-                            high: 2.0,
-                            step: None,
-                            log: false,
-                        },
+                        Distribution::new_float(1.0, 2.0, None, false),
                     ),
                 ]
                 .iter()
@@ -161,21 +151,11 @@ mod tests {
                 distributions: [
                     (
                         "x".to_string(),
-                        Distribution::Float {
-                            low: 0.0,
-                            high: 1.0,
-                            step: None,
-                            log: false,
-                        },
+                        Distribution::new_float(0.0, 1.0, None, false),
                     ),
                     (
                         "y".to_string(),
-                        Distribution::Float {
-                            low: 1.0,
-                            high: 10.0,
-                            step: None,
-                            log: false,
-                        },
+                        Distribution::new_float(1.0, 10.0, None, false),
                     ),
                 ]
                 .iter()
