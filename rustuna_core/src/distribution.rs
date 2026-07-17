@@ -116,6 +116,21 @@ impl Distribution {
         }
     }
 }
+
+
+fn adjust_float_high(low: f64, high: f64, step: f64) -> f64 {
+    if low > high || step <= 0.0 {
+        return high;
+    }
+
+    let range = high - low;
+    if (range % step).abs() > f64::EPSILON {
+        (range / step).floor() * step + low
+    } else {
+        high
+    }
+}
+
 fn adjust_int_high(low: i64, high: i64, step: i64) -> i64 {
     if low > high || step <= 0 {
         return high;
