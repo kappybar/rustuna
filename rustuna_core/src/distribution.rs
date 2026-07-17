@@ -196,6 +196,34 @@ mod tests {
     use crate::distribution::Distribution;
 
     #[test]
+    fn test_new_adjusts_float_high() {
+        assert_eq!(
+            Distribution::new_float(-5.0, 10.0, Some(2.0), false),
+            Distribution::new_float(-5.0, 9.0, Some(2.0), false)
+        );
+        assert_eq!(
+            Distribution::new_float(0.0, 1.0, Some(0.5), false),
+            Distribution::new_float(0.0, 1.0, Some(0.5), false)
+        );
+    }
+
+    #[test]
+    fn test_new_adjusts_int_high() {
+        assert_eq!(
+            Distribution::new_int(-5, 10, 2, false),
+            Distribution::new_int(-5, 9, 2, false)
+        );
+    }
+
+    #[test]
+    fn test_new_categorical() {
+        assert!(matches!(
+            Distribution::new_categorical(3),
+            Distribution::Categorical { cardinality: 3 }
+        ));
+    }
+
+    #[test]
     fn test_check_compatibility_different() {
         let f = Distribution::Float {
             low: 0.0,
