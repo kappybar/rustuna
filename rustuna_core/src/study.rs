@@ -871,12 +871,7 @@ mod tests {
         trial.internal_params.insert("x".to_string(), 0.5);
         trial.distributions.insert(
             "x".to_string(),
-            Distribution::Float {
-                low: 0.0,
-                high: 1.0,
-                step: None,
-                log: false,
-            },
+            Distribution::new_float(0.0, 1.0, None, false),
         );
         trial
             .attrs
