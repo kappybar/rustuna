@@ -163,7 +163,6 @@ impl Distribution {
     }
 }
 
-
 fn adjust_float_high(low: f64, high: f64, step: f64) -> f64 {
     if low > high || step <= 0.0 {
         return high;
