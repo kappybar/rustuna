@@ -59,12 +59,7 @@ impl PyDistribution {
         step: Option<f64>,
     ) -> Self {
         PyDistribution {
-            distribution: Distribution::Float {
-                low,
-                high,
-                step,
-                log,
-            },
+            distribution: Distribution::new_float(low, high, step, log),
             category_labels: None,
         }
     }
@@ -73,12 +68,7 @@ impl PyDistribution {
     #[pyo3(signature = (low, high, log=false, step=1))]
     pub fn int(_cls: &Bound<'_, PyType>, low: i64, high: i64, log: bool, step: i64) -> Self {
         PyDistribution {
-            distribution: Distribution::Int {
-                low,
-                high,
-                step,
-                log,
-            },
+            distribution: Distribution::new_int(low, high, step, log),
             category_labels: None,
         }
     }
@@ -93,7 +83,7 @@ impl PyDistribution {
             labels.push(label);
         }
         let py_dist = PyDistribution {
-            distribution: Distribution::Categorical { cardinality },
+            distribution: Distribution::new_categorical(cardinality),
             category_labels: Some(labels),
         };
         Ok(py_dist)
