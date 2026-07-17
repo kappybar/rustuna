@@ -594,18 +594,8 @@ mod tests {
             .create_new_study("study", vec![Direction::Minimize])?
             .id;
 
-        let float_dist = Distribution::Float {
-            low: 0.0,
-            high: 1.0,
-            step: None,
-            log: false,
-        };
-        let int_dist = Distribution::Int {
-            low: 0,
-            high: 5,
-            step: 1,
-            log: false,
-        };
+        let float_dist = Distribution::new_float(0.0, 1.0, None, false);
+        let int_dist = Distribution::new_int(0, 5, 1, false);
 
         let trial0_id = storage.create_new_trial(study_id)?.id;
         storage.set_trial_param(trial0_id, "x", &float_dist, 0.5)?;
