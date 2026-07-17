@@ -51,6 +51,12 @@ impl Distribution {
         }
     }
 
+    /// Constructs a categorical distribution with the given number of choices.
+    pub fn new_categorical(cardinality: usize) -> Self {
+        Self::Categorical { cardinality }
+    }
+
+
     /// Checks whether two distributions are compatible for the same parameter name.
     ///
     /// Rustuna follows the same basic rule as Optuna here: the distribution kind must stay the
