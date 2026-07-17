@@ -63,6 +63,7 @@ impl Trial {
     /// The returned value is in Rustuna's internal representation. Categorical parameters are
     /// represented by zero-based indices.
     pub fn suggest(&mut self, name: &str, distribution: &Distribution) -> Result<f64> {
+        let distribution = &distribution.adjusted();
         if let Some(fixed_value) = self.fixed_params.get(name) {
             let result = if let Distribution::Categorical { cardinality } = distribution {
                 // CategoricalDistribution
@@ -161,24 +162,14 @@ impl Trial {
     // Users who want to use them need to call `suggest()` function directly.
     /// Suggests a floating-point parameter from a linear range.
     pub fn suggest_float(&mut self, name: &str, low: f64, high: f64) -> Result<f64> {
-        let distribution = Distribution::Float {
-            low,
-            high,
-            step: None,
-            log: false,
-        };
+        let distribution = Distribution::new_float(low, high, None, false);
         let param_value = self.suggest(name, &distribution)?;
         Ok(param_value)
     }
 
     /// Suggests an integer parameter from a linear range with step `1`.
     pub fn suggest_int(&mut self, name: &str, low: i64, high: i64) -> Result<i64> {
-        let distribution = Distribution::Int {
-            low,
-            high,
-            step: 1,
-            log: false,
-        };
+        let distribution = Distribution::new_int(low, high, 1, false);
         let param_value = self.suggest(name, &distribution)?;
         Ok(param_value as i64)
     }
@@ -207,9 +198,7 @@ impl Trial {
 
     /// Suggests a categorical parameter and returns a borrowed element from `choices`.
     pub fn suggest_categorical<'a, T>(&'a mut self, name: &str, choices: &'a [T]) -> Result<&'a T> {
-        let distribution = Distribution::Categorical {
-            cardinality: choices.len(),
-        };
+        let distribution = Distribution::new_categorical(choices.len());
         let param_value = self.suggest(name, &distribution)?;
         if choices.len() <= (param_value as usize) {
             return Err(Error::new(ErrorKind::Unexpected));
