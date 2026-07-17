@@ -270,12 +270,7 @@ impl PyTrial {
         step: Option<f64>,
         log: bool,
     ) -> PyResult<f64> {
-        let dist = Distribution::Float {
-            low,
-            high,
-            step,
-            log,
-        };
+        let dist = Distribution::new_float(low, high, step, log);
         let value = self.trial.suggest(name, &dist).map_err(|e| match e.kind {
             rustuna_core::ErrorKind::UnsupportedMultiObjective => PyRuntimeError::new_err(
                 "The TPE sampler of rustuna currently only supports single objective study.",
@@ -293,12 +288,7 @@ impl PyTrial {
         step: i64,
         log: bool,
     ) -> PyResult<i64> {
-        let dist = Distribution::Int {
-            low,
-            high,
-            step,
-            log,
-        };
+        let dist = Distribution::new_int(low, high, step, log);
         let value = self.trial.suggest(name, &dist).map_err(|e| match e.kind {
             rustuna_core::ErrorKind::UnsupportedMultiObjective => PyRuntimeError::new_err(
                 "The TPE sampler of rustuna currently only supports single objective study.",
