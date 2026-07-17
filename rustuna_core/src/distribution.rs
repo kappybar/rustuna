@@ -56,6 +56,24 @@ impl Distribution {
         Self::Categorical { cardinality }
     }
 
+    #[must_use]
+    pub(crate) fn adjusted(&self) -> Self {
+        match self {
+            Self::Float {
+                low,
+                high,
+                step,
+                log,
+            } => Self::new_float(*low, *high, *step, *log),
+            Self::Int {
+                low,
+                high,
+                step,
+                log,
+            } => Self::new_int(*low, *high, *step, *log),
+            Self::Categorical { cardinality } => Self::new_categorical(*cardinality),
+        }
+    }
 
     /// Checks whether two distributions are compatible for the same parameter name.
     ///
