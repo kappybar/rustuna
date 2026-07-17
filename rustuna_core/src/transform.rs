@@ -244,48 +244,20 @@ mod tests {
         let search_space = HashMap::from([
             (
                 "continuous".to_string(),
-                Distribution::Float {
-                    low: -2.0,
-                    high: 2.0,
-                    step: None,
-                    log: false,
-                },
+                Distribution::new_float(-2.0, 2.0, None, false),
             ),
             (
                 "discrete".to_string(),
-                Distribution::Float {
-                    low: 0.0,
-                    high: 10.0,
-                    step: Some(2.0),
-                    log: false,
-                },
+                Distribution::new_float(0.0, 10.0, Some(2.0), false),
             ),
-            (
-                "integer".to_string(),
-                Distribution::Int {
-                    low: 1,
-                    high: 5,
-                    step: 2,
-                    log: false,
-                },
-            ),
+            ("integer".to_string(), Distribution::new_int(1, 5, 2, false)),
             (
                 "log_float".to_string(),
-                Distribution::Float {
-                    low: 1.0,
-                    high: std::f64::consts::E.powi(2),
-                    step: None,
-                    log: true,
-                },
+                Distribution::new_float(1.0, std::f64::consts::E.powi(2), None, true),
             ),
             (
                 "log_integer".to_string(),
-                Distribution::Int {
-                    low: 1,
-                    high: 9,
-                    step: 1,
-                    log: true,
-                },
+                Distribution::new_int(1, 9, 1, true),
             ),
         ]);
         let transform = SearchSpaceTransform::new(&search_space)?;
@@ -331,22 +303,9 @@ mod tests {
         let search_space = HashMap::from([
             (
                 "float".to_string(),
-                Distribution::Float {
-                    low: 0.0,
-                    high: 10.0,
-                    step: Some(2.0),
-                    log: false,
-                },
+                Distribution::new_float(0.0, 10.0, Some(2.0), false),
             ),
-            (
-                "int".to_string(),
-                Distribution::Int {
-                    low: 0,
-                    high: 10,
-                    step: 2,
-                    log: false,
-                },
-            ),
+            ("int".to_string(), Distribution::new_int(0, 10, 2, false)),
         ]);
         let transform = SearchSpaceTransform::new(&search_space)?;
 
@@ -358,10 +317,8 @@ mod tests {
 
     #[test]
     fn test_new_rejects_categorical_distribution() {
-        let search_space = HashMap::from([(
-            "category".to_string(),
-            Distribution::Categorical { cardinality: 2 },
-        )]);
+        let search_space =
+            HashMap::from([("category".to_string(), Distribution::new_categorical(2))]);
 
         let error = SearchSpaceTransform::new(&search_space).unwrap_err();
         assert!(matches!(error.kind, ErrorKind::UnsupportedSearchSpace));
@@ -371,12 +328,7 @@ mod tests {
     fn test_transform_rejects_missing_parameter() -> Result<()> {
         let search_space = HashMap::from([(
             "x".to_string(),
-            Distribution::Float {
-                low: 0.0,
-                high: 1.0,
-                step: None,
-                log: false,
-            },
+            Distribution::new_float(0.0, 1.0, None, false),
         )]);
         let transform = SearchSpaceTransform::new(&search_space)?;
 
