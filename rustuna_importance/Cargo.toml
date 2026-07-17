@@ -9,5 +9,4 @@ categories.workspace = true
 license.workspace = true
 
 [dependencies]
-fanova = { workspace = true }
 rustuna_core = { workspace = true }

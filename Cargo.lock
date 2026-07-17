@@ -627,7 +627,6 @@ dependencies = [
 name = "rustuna_importance"
 version = "0.1.0"
 dependencies = [
- "fanova",
  "rustuna_core",
 ]
 

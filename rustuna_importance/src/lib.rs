@@ -4,7 +4,6 @@
 //! study. It currently includes PED-ANOVA and legacy fANOVA-based helper.
 
 mod common;
-pub mod fanova;
 mod ped_anova;
 
 #[cfg(test)]
