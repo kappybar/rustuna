@@ -60,7 +60,7 @@ def test_enqueue_trial_mixed(queue_type: TrialQueueType) -> None:
 
 @parametrize_trial_queue
 def test_multiple_enqueued_trials(queue_type: TrialQueueType) -> None:
-    """Test multiple trials enqueued in LIFO order."""
+    """Test multiple trials enqueued in FIFO order."""
     with TrialQueueFactory(queue_type) as factory:
         study = rustuna.create_study(trial_queue=factory.queue)
         study.enqueue_trial({"x": 1.0})
@@ -68,13 +68,13 @@ def test_multiple_enqueued_trials(queue_type: TrialQueueType) -> None:
         study.enqueue_trial({"x": 3.0})
 
         trial1 = study.ask()
-        assert trial1.suggest_float("x", 0.0, 10.0) == 3.0
+        assert trial1.suggest_float("x", 0.0, 10.0) == 1.0
 
         trial2 = study.ask()
         assert trial2.suggest_float("x", 0.0, 10.0) == 2.0
 
         trial3 = study.ask()
-        assert trial3.suggest_float("x", 0.0, 10.0) == 1.0
+        assert trial3.suggest_float("x", 0.0, 10.0) == 3.0
 
 
 @parametrize_trial_queue
@@ -137,13 +137,13 @@ def test_queue_basic_enqueue_dequeue(queue_type: "TrialQueueType") -> None:
         assert factory.queue is not None
         factory.queue.enqueue(1)
         factory.queue.enqueue(2)
-        assert factory.queue.dequeue() == 2
         assert factory.queue.dequeue() == 1
+        assert factory.queue.dequeue() == 2
 
 
 @parametrize_trial_queue
-def test_enqueue_lifo_order_preserved(queue_type: "TrialQueueType") -> None:
-    """Test that LIFO order is strictly preserved for enqueued trials."""
+def test_enqueue_fifo_order_preserved(queue_type: "TrialQueueType") -> None:
+    """Test that FIFO order is strictly preserved for enqueued trials."""
     with TrialQueueFactory(queue_type) as factory:
         study = rustuna.create_study(trial_queue=factory.queue)
 
@@ -151,7 +151,7 @@ def test_enqueue_lifo_order_preserved(queue_type: "TrialQueueType") -> None:
         for i in range(10):
             study.enqueue_trial({"x": float(i)})
 
-        # Verify they are returned in reverse order
-        for i in reversed(range(10)):
+        # Verify they are returned in insertion order
+        for i in range(10):
             trial = study.ask()
             assert trial.suggest_float("x", -100.0, 100.0) == float(i)

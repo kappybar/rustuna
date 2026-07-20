@@ -116,13 +116,13 @@ impl TrialQueue for SQLite3TrialQueue {
         })?;
 
         let result: std::result::Result<u32, rusqlite::Error> = (|| {
-            // Find and delete the most recently enqueued entry.
+            // Find and delete the oldest enqueued entry.
             let trial_id: u32 = conn.query_row(
                 "DELETE FROM trial_queue
                  WHERE rowid = (
                      SELECT rowid FROM trial_queue 
                      WHERE namespace = ? 
-                     ORDER BY enqueued_at DESC, sequence DESC
+                     ORDER BY enqueued_at ASC, sequence ASC
                      LIMIT 1
                  )
                  RETURNING trial_id",
@@ -171,9 +171,9 @@ mod tests {
         queue.enqueue(20).unwrap();
         queue.enqueue(30).unwrap();
 
-        assert_eq!(queue.dequeue().unwrap(), 30);
-        assert_eq!(queue.dequeue().unwrap(), 20);
         assert_eq!(queue.dequeue().unwrap(), 10);
+        assert_eq!(queue.dequeue().unwrap(), 20);
+        assert_eq!(queue.dequeue().unwrap(), 30);
     }
 
     #[test]
@@ -185,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn test_lifo_ordering() {
+    fn test_fifo_ordering() {
         let temp_file = NamedTempFile::new().unwrap();
         let mut queue = SQLite3TrialQueue::new(temp_file.path(), "study-1").unwrap();
 
@@ -193,7 +193,7 @@ mod tests {
             queue.enqueue(i).unwrap();
         }
 
-        for i in (1..=100).rev() {
+        for i in 1..=100 {
             assert_eq!(queue.dequeue().unwrap(), i);
         }
     }
@@ -209,10 +209,10 @@ mod tests {
         queue2.enqueue(30).unwrap();
         queue2.enqueue(40).unwrap();
 
-        assert_eq!(queue1.dequeue().unwrap(), 20);
-        assert_eq!(queue2.dequeue().unwrap(), 40);
         assert_eq!(queue1.dequeue().unwrap(), 10);
         assert_eq!(queue2.dequeue().unwrap(), 30);
+        assert_eq!(queue1.dequeue().unwrap(), 20);
+        assert_eq!(queue2.dequeue().unwrap(), 40);
 
         assert!(queue1.dequeue().is_err());
         assert!(queue2.dequeue().is_err());
@@ -225,11 +225,11 @@ mod tests {
 
         queue.enqueue(1).unwrap();
         queue.enqueue(2).unwrap();
-        assert_eq!(queue.dequeue().unwrap(), 2);
+        assert_eq!(queue.dequeue().unwrap(), 1);
 
         queue.enqueue(3).unwrap();
+        assert_eq!(queue.dequeue().unwrap(), 2);
         assert_eq!(queue.dequeue().unwrap(), 3);
-        assert_eq!(queue.dequeue().unwrap(), 1);
 
         assert!(queue.dequeue().is_err());
     }
@@ -247,8 +247,8 @@ mod tests {
 
         {
             let mut queue = SQLite3TrialQueue::new(&db_path, "study-1").unwrap();
-            assert_eq!(queue.dequeue().unwrap(), 20);
             assert_eq!(queue.dequeue().unwrap(), 10);
+            assert_eq!(queue.dequeue().unwrap(), 20);
             assert!(queue.dequeue().is_err());
         }
     }

@@ -1048,7 +1048,7 @@ class CmaEsSampler:
 class TrialQueue:
     """Factory class for creating trial queue instances.
 
-    Trial queues are used to manage a LIFO queue of trial IDs for parallel optimization.
+    Trial queues are used to manage a FIFO queue of trial IDs for parallel optimization.
     They provide persistence and multi-process safety for managing trial execution order.
     """
 

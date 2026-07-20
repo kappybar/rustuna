@@ -36,7 +36,7 @@ impl TrialQueue for InMemoryTrialQueue {
 
     fn dequeue(&mut self) -> Result<u32> {
         self.queue
-            .pop_back()
+            .pop_front()
             .ok_or_else(|| Error::new(ErrorKind::TrialQueueEmpty))
     }
 }
@@ -53,9 +53,9 @@ mod tests {
         assert!(queue.enqueue(2).is_ok());
         assert!(queue.enqueue(3).is_ok());
 
-        assert_eq!(queue.dequeue().unwrap(), 3);
-        assert_eq!(queue.dequeue().unwrap(), 2);
         assert_eq!(queue.dequeue().unwrap(), 1);
+        assert_eq!(queue.dequeue().unwrap(), 2);
+        assert_eq!(queue.dequeue().unwrap(), 3);
     }
 
     #[test]

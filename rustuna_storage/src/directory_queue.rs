@@ -117,10 +117,10 @@ impl TrialQueue for DirectoryTrialQueue {
 
         entries.sort_by_key(|entry| entry.file_name());
 
-        // Try to move the last available file from pending to processing.
+        // Try to move the oldest available file from pending to processing.
         // Only one process will succeed in moving a specific file due to
         // the atomicity of rename on POSIX systems.
-        for entry in entries.into_iter().rev() {
+        for entry in entries {
             let filename = entry.file_name();
             let pending_path = entry.path();
             let processing_path = self.processing_dir.join(&filename);
@@ -171,9 +171,9 @@ mod tests {
         queue.enqueue(2).unwrap();
         queue.enqueue(3).unwrap();
 
-        assert_eq!(queue.dequeue().unwrap(), 3);
-        assert_eq!(queue.dequeue().unwrap(), 2);
         assert_eq!(queue.dequeue().unwrap(), 1);
+        assert_eq!(queue.dequeue().unwrap(), 2);
+        assert_eq!(queue.dequeue().unwrap(), 3);
     }
 
     #[test]
@@ -185,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn test_lifo_order() {
+    fn test_fifo_order() {
         let temp_dir = tempfile::tempdir().unwrap();
         let mut queue = DirectoryTrialQueue::new(temp_dir.path()).unwrap();
 
@@ -195,10 +195,10 @@ mod tests {
         queue.enqueue(8).unwrap();
         queue.enqueue(1).unwrap();
 
-        assert_eq!(queue.dequeue().unwrap(), 1);
-        assert_eq!(queue.dequeue().unwrap(), 8);
-        assert_eq!(queue.dequeue().unwrap(), 2);
         assert_eq!(queue.dequeue().unwrap(), 5);
+        assert_eq!(queue.dequeue().unwrap(), 2);
+        assert_eq!(queue.dequeue().unwrap(), 8);
+        assert_eq!(queue.dequeue().unwrap(), 1);
     }
 
     #[test]
@@ -211,7 +211,7 @@ mod tests {
         queue1.enqueue(2).unwrap();
 
         // Both queues share the same directory, so queue2 should see the items
-        assert_eq!(queue2.dequeue().unwrap(), 2);
-        assert_eq!(queue1.dequeue().unwrap(), 1);
+        assert_eq!(queue2.dequeue().unwrap(), 1);
+        assert_eq!(queue1.dequeue().unwrap(), 2);
     }
 }
