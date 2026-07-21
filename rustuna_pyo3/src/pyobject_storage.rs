@@ -741,4 +741,27 @@ impl PyPyObjectStorage {
             })
         })
     }
+
+    #[pyo3(signature = (study_id, *, states = None))]
+    fn get_trials(
+        &mut self,
+        study_id: u32,
+        states: Option<Vec<PyTrialState>>,
+    ) -> PyResult<Vec<PyPersistedTrial>> {
+        let storage: Arc<RwLock<dyn Storage>> = self.storage.clone();
+        let mut guard = storage.write().map_err(|e| {
+            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
+        })?;
+        let trials = guard.get_trials(study_id).map_err(err_to_exceptions)?;
+        let py_trials: Vec<PyPersistedTrial> = trials
+            .iter()
+            .flatten()
+            .filter(|trial| match &states {
+                Some(s) => s.contains(&PyTrialState::from(trial.state_values.clone())),
+                None => true,
+            })
+            .map(|t| PyPersistedTrial::from_storage(storage.clone(), t))
+            .collect();
+        Ok(py_trials)
+    }
 }

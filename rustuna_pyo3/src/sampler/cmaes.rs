@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
 use pyo3::exceptions::PyRuntimeError;
@@ -32,7 +32,7 @@ pub struct CmaEsSampler {
     population_size: Option<usize>,
     search_space: Option<HashMap<String, Distribution>>,
     transform: Option<SearchSpaceTransform>,
-    solution_trial_numbers: HashSet<u32>,
+    solution_trial_ids: Vec<u32>,
 }
 
 impl CmaEsSampler {
@@ -49,7 +49,7 @@ impl CmaEsSampler {
             population_size: None,
             search_space: None,
             transform: None,
-            solution_trial_numbers: HashSet::new(),
+            solution_trial_ids: Vec::new(),
         }
     }
 
@@ -184,26 +184,20 @@ impl Sampler for CmaEsSampler {
             .population_size
             .ok_or_else(|| Error::new(ErrorKind::Unexpected))?;
 
-        // Following Optuna's CmaEsSampler, solutions of the current generation are
-        // reconstructed from completed trials in the storage. Trials that never complete are
-        // never told, and their numbers are discarded when the generation switches.
         let solutions = {
             let transform = self
                 .transform
                 .as_ref()
                 .ok_or_else(|| Error::new(ErrorKind::Unexpected))?;
-            let mut guard = storage
-                .write()
+            let guard = storage
+                .read()
                 .map_err(|_| Error::new(ErrorKind::Unexpected))?;
-            let trials = guard.get_trials(ctx.study_id)?;
             let mut solutions = Vec::with_capacity(population_size);
-            for trial in trials.iter().flatten() {
+            for trial_id in self.solution_trial_ids.iter() {
                 if solutions.len() == population_size {
                     break;
                 }
-                if !self.solution_trial_numbers.contains(&trial.number) {
-                    continue;
-                }
+                let trial = guard.get_cached_trial(*trial_id)?;
                 let TrialStateValues::Complete(values) = &trial.state_values else {
                     continue;
                 };
@@ -223,11 +217,16 @@ impl Sampler for CmaEsSampler {
         };
         if solutions.len() >= population_size {
             self.tell(solutions)?;
-            self.solution_trial_numbers.clear();
+            // TODO(c-bata): Consider calling discard_trials here.
+            // let mut guard = storage
+            //     .write()
+            //     .map_err(|_| Error::new(ErrorKind::Unexpected))?;
+            // guard.discard_trials(&self.solution_trial_ids)?;
+            self.solution_trial_ids.clear();
         }
 
         let x = self.ask()?;
-        self.solution_trial_numbers.insert(ctx.trial_number);
+        self.solution_trial_ids.push(ctx.trial_id);
         self.transform
             .as_ref()
             .ok_or_else(|| Error::new(ErrorKind::Unexpected))?

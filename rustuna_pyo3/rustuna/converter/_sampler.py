@@ -52,6 +52,13 @@ class ToOptunaSampler(BaseSampler):
             directions=to_rustuna_directions(study._directions),
         )
         storage = self._get_storage(study._storage)
+        # PyObjectStorage syncs its Rustuna-side cache with the underlying Optuna storage
+        # only when get_trials() is called. In this flow, trials are created and completed
+        # through the Optuna storage directly, so sync explicitly here; otherwise Rustuna
+        # samplers reading the cache (e.g. get_cached_trial) would observe stale or missing
+        # trials.
+        # TODO(c-bata): Consider how to remove this redundant storage.get_trials() call.
+        storage.get_trials(study._study_id, states=[rustuna.trial.TrialState.COMPLETE])
         rustuna_search_space = to_rustuna_distributions(search_space)
         internal_params = self._sampler.sample_joint(ctx, storage, rustuna_search_space)
         external_params: dict[str, Any] = {}
