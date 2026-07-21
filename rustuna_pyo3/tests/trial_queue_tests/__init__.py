@@ -26,7 +26,7 @@ class DummyInMemoryTrialQueue:
     def dequeue(self) -> int:
         if not self.queue:
             raise RuntimeError("queue is empty")
-        return self.queue.pop()
+        return self.queue.pop(0)
 
 
 class TrialQueueFactory:
