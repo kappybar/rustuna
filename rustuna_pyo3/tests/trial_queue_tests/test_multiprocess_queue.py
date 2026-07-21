@@ -109,7 +109,7 @@ def test_queue_multiprocess_enqueue_dequeue(
 
 
 @parametrize_multiprocess_trial_queue
-def test_queue_lifo_across_processes(
+def test_queue_fifo_across_processes(
     queue_type: MultiprocessQueueType,
 ) -> None:
     with TrialQueueFactory(queue_type) as factory:
@@ -127,7 +127,7 @@ def test_queue_lifo_across_processes(
 
         queue = factory.create_queue()
         popped_ids = [queue.dequeue() for _ in trial_ids]
-    assert popped_ids == list(reversed(trial_ids))
+    assert popped_ids == trial_ids
 
 
 @parametrize_multiprocess_trial_queue
@@ -194,7 +194,7 @@ def test_queue_persistence(
                 5,
             ).result()
 
-    assert first_batch + second_batch == list(range(10, 0, -1))
+    assert first_batch + second_batch == list(range(1, 11))
 
 
 @parametrize_multiprocess_trial_queue
@@ -250,5 +250,5 @@ def test_queue_namespace_isolation(
             ]
             results = dict(future.result() for future in pop_futures)
 
-        assert results[namespace1] == list(reversed(study1_ids))
-        assert results[namespace2] == list(reversed(study2_ids))
+        assert results[namespace1] == study1_ids
+        assert results[namespace2] == study2_ids
