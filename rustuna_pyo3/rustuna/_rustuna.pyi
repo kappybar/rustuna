@@ -951,8 +951,6 @@ class Sampler:
         """
         ...
     @classmethod
-    def random(cls, seed: int | None = None) -> Sampler: ...
-    @classmethod
     def nsgaii(
         cls,
         seed: int | None = None,
@@ -978,6 +976,40 @@ class Sampler:
             An NSGA-II sampler instance.
         """
         ...
+    @property
+    def support_joint_sampling(self) -> bool: ...
+    def sample_joint(
+        self,
+        ctx: SamplerContext,
+        storage: StorageProtocol,
+        search_space: dict[str, Distribution],
+    ) -> dict[str, float]: ...
+    def sample_independent(
+        self,
+        ctx: SamplerContext,
+        storage: StorageProtocol,
+        name: str,
+        distribution: Distribution,
+    ) -> float: ...
+    def after_trial(
+        self,
+        ctx: SamplerContext,
+        storage: StorageProtocol,
+        state: TrialState,
+        values: list[float] | None = None,
+    ) -> None: ...
+
+class RandomSampler:
+    """Sampler for random search.
+
+    Args:
+        seed: Random seed. If None, a random seed is used.
+    """
+    def __init__(
+        self,
+        *,
+        seed: int | None = None,
+    ) -> None: ...
     @property
     def support_joint_sampling(self) -> bool: ...
     def sample_joint(

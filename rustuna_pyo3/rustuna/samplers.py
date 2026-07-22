@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from rustuna._protocols import SamplerProtocol
-from rustuna._rustuna import CmaEsSampler, Sampler, SamplerContext
+from rustuna._rustuna import CmaEsSampler, RandomSampler, Sampler, SamplerContext
 
 __all__ = [
     "SamplerContext",
@@ -11,19 +11,6 @@ __all__ = [
     "NSGAIISampler",
     "CmaEsSampler",
 ]
-
-
-# TODO(c-bata): Replace RandomSampler with a Python concrete class.
-def RandomSampler(*, seed: int | None = None) -> SamplerProtocol:
-    """Create a random sampler.
-
-    Args:
-        seed: Random seed. If None, a random seed is used.
-
-    Returns:
-        A random sampler instance.
-    """
-    return Sampler.random(seed=seed)
 
 
 # TODO(c-bata): Replace TPESampler with a Python concrete class.

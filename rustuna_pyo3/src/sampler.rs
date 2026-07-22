@@ -6,12 +6,13 @@ use pyo3::types::PyDict;
 use pyo3::Py;
 use pyo3::{prelude::*, types::PyType};
 
-use rustuna_core::sampler::{Context as SamplerContext, RandomSampler, Sampler};
+use rustuna_core::sampler::{Context as SamplerContext, Sampler};
 use rustuna_core::storage::Storage;
 use rustuna_core::trial::TrialStateValues;
 use rustuna_sampler::tpe::{TpeConfig, TpeSampler};
 
 pub mod cmaes;
+pub mod random;
 
 use crate::distribution::PyDistribution;
 use crate::pyobject_storage::PyPyObjectStorage;
@@ -44,19 +45,6 @@ impl PySampler {
         Ok(PySampler {
             sampler: Arc::new(Mutex::new(rs_sampler)),
             kind: "tpe",
-        })
-    }
-
-    #[classmethod]
-    #[pyo3(signature = (seed = None))]
-    fn random(_cls: &Bound<'_, PyType>, seed: Option<u64>) -> PyResult<Self> {
-        let rs_sampler = match seed {
-            Some(seed) => RandomSampler::seed_from_u64(seed),
-            None => RandomSampler::new(),
-        };
-        Ok(PySampler {
-            sampler: Arc::new(Mutex::new(rs_sampler)),
-            kind: "random",
         })
     }
 
