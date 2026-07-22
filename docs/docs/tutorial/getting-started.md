@@ -247,6 +247,7 @@ Rustuna provides the following sampling algorithms:
 - Random Search implemented in [RandomSampler](../api/samplers.md#rustuna.samplers.RandomSampler)
 - Tree-structured Parzen Estimator algorithm implemented in [TPESampler](../api/samplers.md#rustuna.samplers.TPESampler)
 - Nondominated Sorting Genetic Algorithm II implemented in [NSGAIISampler](../api/samplers.md#rustuna.samplers.NSGAIISampler)
+- Covariance Matrix Adaptation Evolution Strategy implemented in [CmaEsSampler](../api/samplers.md#rustuna.samplers.CmaEsSampler)
 
 The default sampler is [TPESampler](../api/samplers.md#rustuna.samplers.TPESampler).
 
@@ -258,15 +259,16 @@ study = rustuna.create_study(sampler=rustuna.samplers.NSGAIISampler())
 
 ### Status of Supported Features in Each Sampler
 
-||[RandomSampler](../api/samplers.md#rustuna.samplers.RandomSampler)|[TPESampler](../api/samplers.md#rustuna.samplers.TPESampler)|[NSGAIISampler](../api/samplers.md#rustuna.samplers.NSGAIISampler)|
-|-|-|-|-|
-|Float parameters|✓|✓|▴|
-|Integer parameters|✓|✓|▴|
-|Categorical parameters|✓|✓|✓|
-|Multivariate optimization|▴|✓|✓|
-|Conditional search space|✓|✓|▴|
-|Multi-objective optimization|✓|✓|✓ (▴ for single-objective)|
-|Constrained optimization|×|×|×|
+||[RandomSampler](../api/samplers.md#rustuna.samplers.RandomSampler)|[TPESampler](../api/samplers.md#rustuna.samplers.TPESampler)|[NSGAIISampler](../api/samplers.md#rustuna.samplers.NSGAIISampler)|[CmaEsSampler](../api/samplers.md#rustuna.samplers.CmaEsSampler)|
+|-|-|-|-|-|
+|Float parameters|✓|✓|▴|✓|
+|Integer parameters|✓|✓|▴|✓|
+|Categorical parameters|✓|✓|✓|×|
+|Multivariate optimization|▴|✓|✓|✓|
+|Conditional search space|✓|✓|▴|×|
+|Multi-objective optimization|✓|✓|✓ (▴ for single-objective)|×|
+|Constrained optimization|×|×|×|×|
+|Pure Rust Implementation|✓|✓|✓|×|
 
 !!! note
     ✓: Supports this feature. ▴: Works, but inefficiently. ×: Causes an error, or has no interface.
