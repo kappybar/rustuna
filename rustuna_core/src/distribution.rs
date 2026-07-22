@@ -172,8 +172,7 @@ fn adjust_float_high(low: f64, high: f64, step: f64) -> f64 {
     let remainder = range % step;
     let distance_to_grid = remainder.min(step - remainder);
 
-    let tolerance = (4.0 * f64::EPSILON * range.max(step))
-        .min(step * f64::EPSILON.sqrt());
+    let tolerance = (4.0 * f64::EPSILON * range.max(step)).min(step * f64::EPSILON.sqrt());
 
     if distance_to_grid <= tolerance {
         high
