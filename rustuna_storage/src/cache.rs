@@ -925,12 +925,7 @@ mod tests {
         let mut storage = CachedStorage::new(Box::new(DummyBackend::new()));
         let study_id = storage.create_new_study("s", vec![Direction::Minimize])?.id;
 
-        let dist = Distribution::Float {
-            low: 0.0,
-            high: 1.0,
-            step: None,
-            log: false,
-        };
+        let dist = Distribution::new_float(0.0, 1.0, None, false);
         let trial_id = storage.create_new_trial(study_id)?.id;
         storage.set_trial_param(trial_id, "x", &dist, 0.5)?;
         storage.set_trial_state_values(trial_id, TrialStateValues::Complete(vec![0.0]))?;
@@ -979,12 +974,7 @@ mod tests {
         backend.create_new_trial(study_id)?;
 
         let mut storage = CachedStorage::new(Box::new(backend));
-        let dist = Distribution::Float {
-            low: 0.0,
-            high: 1.0,
-            step: None,
-            log: false,
-        };
+        let dist = Distribution::new_float(0.0, 1.0, None, false);
         let trial_id = storage.get_trials(study_id)?[0].as_ref().unwrap().id;
         storage.set_trial_param(trial_id, "x", &dist, 0.5)?;
 
@@ -992,12 +982,7 @@ mod tests {
         assert_eq!(trial.internal_params.get("x"), Some(&0.5));
         assert_eq!(
             trial.distributions.get("x"),
-            Some(&Distribution::Float {
-                low: 0.0,
-                high: 1.0,
-                step: None,
-                log: false
-            })
+            Some(&Distribution::new_float(0.0, 1.0, None, false))
         );
         Ok(())
     }
@@ -1017,20 +1002,10 @@ mod tests {
         let trial_2_id = trial_2.id;
 
         // Setup distributions
-        let distribution_x = Distribution::Float {
-            low: 1.0,
-            high: 2.0,
-            step: None,
-            log: false,
-        };
-        let distribution_y_1 = Distribution::Categorical { cardinality: 3 };
-        // let distribution_y_2 = Distribution::Categorical { cardinality: 2 };
-        let distribution_z = Distribution::Float {
-            low: 1.0,
-            high: 100.0,
-            step: None,
-            log: true,
-        };
+        let distribution_x = Distribution::new_float(1.0, 2.0, None, false);
+        let distribution_y_1 = Distribution::new_categorical(3);
+        // let distribution_y_2 = Distribution::new_categorical(2);
+        let distribution_z = Distribution::new_float(1.0, 100.0, None, true);
 
         // Set new params.
         storage.set_trial_param(trial_1_id, "x", &distribution_x, 0.5)?;
@@ -1056,18 +1031,8 @@ mod tests {
             .create_new_study("test", vec![Direction::Minimize])?
             .id;
 
-        let float_dist = Distribution::Float {
-            low: 0.0,
-            high: 1.0,
-            step: None,
-            log: false,
-        };
-        let int_dist = Distribution::Int {
-            low: 0,
-            high: 5,
-            step: 1,
-            log: false,
-        };
+        let float_dist = Distribution::new_float(0.0, 1.0, None, false);
+        let int_dist = Distribution::new_int(0, 5, 1, false);
 
         let trial0_id = storage.create_new_trial(study_id)?.id;
         storage.set_trial_param(trial0_id, "x", &float_dist, 0.5)?;

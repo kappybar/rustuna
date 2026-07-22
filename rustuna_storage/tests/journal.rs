@@ -128,25 +128,15 @@ study.optimize(objective, n_trials=10)
     assert_eq!(trial0.distributions.len(), 3);
     assert_eq!(
         trial0.distributions["x"],
-        rustuna_core::distribution::Distribution::Float {
-            low: 1.0,
-            high: 10.0,
-            log: true,
-            step: None
-        }
+        rustuna_core::distribution::Distribution::new_float(1.0, 10.0, None, true)
     );
     assert_eq!(
         trial0.distributions["y"],
-        rustuna_core::distribution::Distribution::Int {
-            low: -10,
-            high: 10,
-            log: false,
-            step: 1
-        }
+        rustuna_core::distribution::Distribution::new_int(-10, 10, 1, false)
     );
     assert_eq!(
         trial0.distributions["z"],
-        rustuna_core::distribution::Distribution::Categorical { cardinality: 4 }
+        rustuna_core::distribution::Distribution::new_categorical(4)
     );
 
     // Objective value
@@ -225,25 +215,15 @@ study.optimize(objective, n_trials=10)
     assert_eq!(trials[0].as_ref().unwrap().distributions.len(), 3);
     assert_eq!(
         trials[0].as_ref().unwrap().distributions["x"],
-        Distribution::Float {
-            low: 1.0,
-            high: 10.0,
-            step: None,
-            log: true
-        }
+        Distribution::new_float(1.0, 10.0, None, true)
     );
     assert_eq!(
         trials[0].as_ref().unwrap().distributions["y"],
-        Distribution::Int {
-            low: -10,
-            high: 10,
-            step: 1,
-            log: false
-        }
+        Distribution::new_int(-10, 10, 1, false)
     );
     assert_eq!(
         trials[0].as_ref().unwrap().distributions["z"],
-        Distribution::Categorical { cardinality: 4 }
+        Distribution::new_categorical(4)
     );
     assert_eq!(trials[0].as_ref().unwrap().internal_params.len(), 3);
     let user_attrs_count = trials[0]

@@ -392,7 +392,10 @@ impl Study {
     /// Inserts an existing persisted trial into the study.
     ///
     /// This is the Rustuna counterpart of Optuna's `study.add_trial`.
-    pub fn add_trial(&self, trial: PersistedTrial) -> Result<()> {
+    pub fn add_trial(&self, mut trial: PersistedTrial) -> Result<()> {
+        for distribution in trial.distributions.values_mut() {
+            *distribution = distribution.adjusted();
+        }
         trial.validate()?;
         if let TrialStateValues::Complete(ref values) = trial.state_values {
             if values.len() != self.directions.len() {
@@ -830,6 +833,55 @@ mod tests {
     }
 
     #[test]
+    fn test_optimize_adjusts_discrete_distribution_high() -> Result<()> {
+        let storage = InMemoryStorage::new();
+        let directions = vec![Direction::Minimize];
+        let study = create_study(
+            "adjust-distribution-high",
+            storage,
+            RandomSampler::seed_from_u64(42),
+            directions,
+        )?;
+
+        study.optimize(
+            |mut trial| {
+                // Bypass the constructors to verify that `Trial::suggest` adjusts distributions.
+                trial.suggest(
+                    "float",
+                    &Distribution::Float {
+                        low: -5.0,
+                        high: 10.0,
+                        step: Some(2.0),
+                        log: false,
+                    },
+                )?;
+                trial.suggest(
+                    "int",
+                    &Distribution::Int {
+                        low: -5,
+                        high: 10,
+                        step: 2,
+                        log: false,
+                    },
+                )?;
+                Ok(vec![0.0])
+            },
+            1,
+        )?;
+
+        let trials = study.get_trials()?;
+        assert_eq!(
+            trials[0].distributions["float"],
+            Distribution::new_float(-5.0, 9.0, Some(2.0), false)
+        );
+        assert_eq!(
+            trials[0].distributions["int"],
+            Distribution::new_int(-5, 9, 2, false)
+        );
+        Ok(())
+    }
+
+    #[test]
     fn test_invalid_dynamic_search_space() -> Result<()> {
         let storage = InMemoryStorage::new();
         let directions = vec![Direction::Minimize];
@@ -868,12 +920,7 @@ mod tests {
         trial.internal_params.insert("x".to_string(), 0.5);
         trial.distributions.insert(
             "x".to_string(),
-            Distribution::Float {
-                low: 0.0,
-                high: 1.0,
-                step: None,
-                log: false,
-            },
+            Distribution::new_float(0.0, 1.0, None, false),
         );
         trial
             .attrs
@@ -896,6 +943,40 @@ mod tests {
         assert_eq!(
             trials[0].attrs.get(&AttrKey::User("memo".into())),
             Some(&"\"imported\"".to_string())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_add_trial_adjusts_distribution_high() -> Result<()> {
+        let storage = InMemoryStorage::new();
+        let directions = vec![Direction::Minimize];
+        let study = create_study(
+            "adjust-added-trial-high",
+            storage,
+            RandomSampler::new(),
+            directions,
+        )?;
+
+        let mut trial = PersistedTrial::new(999, 888, 777);
+        trial.state_values = TrialStateValues::Complete(vec![1.0]);
+        trial.internal_params.insert("x".to_string(), 9.0);
+        // Bypass the constructor to verify that `Study::add_trial` adjusts distributions.
+        trial.distributions.insert(
+            "x".to_string(),
+            Distribution::Float {
+                low: -5.0,
+                high: 10.0,
+                step: Some(2.0),
+                log: false,
+            },
+        );
+
+        study.add_trial(trial)?;
+
+        assert_eq!(
+            study.get_trials()?[0].distributions["x"],
+            Distribution::new_float(-5.0, 9.0, Some(2.0), false)
         );
         Ok(())
     }

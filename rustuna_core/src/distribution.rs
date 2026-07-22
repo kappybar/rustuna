@@ -29,6 +29,52 @@ pub enum Distribution {
 }
 
 impl Distribution {
+    /// Constructs a floating-point distribution, adjusting `high` to the largest value reachable
+    /// from `low` by an integer number of steps.
+    pub fn new_float(low: f64, high: f64, step: Option<f64>, log: bool) -> Self {
+        Self::Float {
+            low,
+            high: step.map_or(high, |step| adjust_float_high(low, high, step)),
+            step,
+            log,
+        }
+    }
+
+    /// Constructs an integer distribution, adjusting `high` to the largest value reachable from
+    /// `low` by an integer number of steps.
+    pub fn new_int(low: i64, high: i64, step: i64, log: bool) -> Self {
+        Self::Int {
+            low,
+            high: adjust_int_high(low, high, step),
+            step,
+            log,
+        }
+    }
+
+    /// Constructs a categorical distribution with the given number of choices.
+    pub fn new_categorical(cardinality: usize) -> Self {
+        Self::Categorical { cardinality }
+    }
+
+    #[must_use]
+    pub(crate) fn adjusted(&self) -> Self {
+        match self {
+            Self::Float {
+                low,
+                high,
+                step,
+                log,
+            } => Self::new_float(*low, *high, *step, *log),
+            Self::Int {
+                low,
+                high,
+                step,
+                log,
+            } => Self::new_int(*low, *high, *step, *log),
+            Self::Categorical { cardinality } => Self::new_categorical(*cardinality),
+        }
+    }
+
     /// Checks whether two distributions are compatible for the same parameter name.
     ///
     /// Rustuna follows the same basic rule as Optuna here: the distribution kind must stay the
@@ -117,25 +163,75 @@ impl Distribution {
     }
 }
 
+fn adjust_float_high(low: f64, high: f64, step: f64) -> f64 {
+    if low > high || step <= 0.0 {
+        return high;
+    }
+
+    let range = high - low;
+    let remainder = range % step;
+    let distance_to_grid = remainder.min(step - remainder);
+
+    let tolerance = (4.0 * f64::EPSILON * range.max(step)).min(step * f64::EPSILON.sqrt());
+
+    if distance_to_grid <= tolerance {
+        high
+    } else {
+        (range / step).floor() * step + low
+    }
+}
+
+fn adjust_int_high(low: i64, high: i64, step: i64) -> i64 {
+    if low > high || step <= 0 {
+        return high;
+    }
+
+    let range = high as i128 - low as i128;
+    let step = step as i128;
+    if range % step == 0 {
+        high
+    } else {
+        (range / step * step + low as i128) as i64
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::distribution::Distribution;
 
     #[test]
+    fn test_new_adjusts_float_high() {
+        assert_eq!(
+            Distribution::new_float(-5.0, 10.0, Some(2.0), false),
+            Distribution::new_float(-5.0, 9.0, Some(2.0), false)
+        );
+        assert_eq!(
+            Distribution::new_float(0.0, 1.0, Some(0.5), false),
+            Distribution::new_float(0.0, 1.0, Some(0.5), false)
+        );
+    }
+
+    #[test]
+    fn test_new_adjusts_int_high() {
+        assert_eq!(
+            Distribution::new_int(-5, 10, 2, false),
+            Distribution::new_int(-5, 9, 2, false)
+        );
+    }
+
+    #[test]
+    fn test_new_categorical() {
+        assert!(matches!(
+            Distribution::new_categorical(3),
+            Distribution::Categorical { cardinality: 3 }
+        ));
+    }
+
+    #[test]
     fn test_check_compatibility_different() {
-        let f = Distribution::Float {
-            low: 0.0,
-            high: 1.0,
-            step: None,
-            log: false,
-        };
-        let i = Distribution::Int {
-            low: 0,
-            high: 1,
-            step: 1,
-            log: false,
-        };
-        let c = Distribution::Categorical { cardinality: 3 };
+        let f = Distribution::new_float(0.0, 1.0, None, false);
+        let i = Distribution::new_int(0, 1, 1, false);
+        let c = Distribution::new_categorical(3);
         assert!(f.check_compatibility(&i).is_err());
         assert!(f.check_compatibility(&c).is_err());
         assert!(i.check_compatibility(&f).is_err());
@@ -146,60 +242,30 @@ mod tests {
 
     #[test]
     fn test_check_compatibility_float() {
-        let f1 = Distribution::Float {
-            low: 0.0,
-            high: 1.0,
-            step: None,
-            log: false,
-        };
-        let f2 = Distribution::Float {
-            low: -1.0,
-            high: 2.0,
-            step: None,
-            log: false,
-        };
+        let f1 = Distribution::new_float(0.0, 1.0, None, false);
+        let f2 = Distribution::new_float(-1.0, 2.0, None, false);
         assert!(f1.check_compatibility(&f1).is_ok());
         assert!(f1.check_compatibility(&f2).is_ok());
 
-        let f1_log = Distribution::Float {
-            low: 0.0,
-            high: 1.0,
-            step: None,
-            log: true,
-        };
+        let f1_log = Distribution::new_float(0.0, 1.0, None, true);
         assert!(f1.check_compatibility(&f1_log).is_err());
     }
 
     #[test]
     fn test_check_compatibility_int() {
-        let i1 = Distribution::Int {
-            low: 0,
-            high: 1,
-            step: 1,
-            log: false,
-        };
-        let i2 = Distribution::Int {
-            low: 0,
-            high: 2,
-            step: 1,
-            log: false,
-        };
+        let i1 = Distribution::new_int(0, 1, 1, false);
+        let i2 = Distribution::new_int(0, 2, 1, false);
         assert!(i1.check_compatibility(&i1).is_ok());
         assert!(i1.check_compatibility(&i2).is_ok());
 
-        let i1_log = Distribution::Int {
-            low: 0,
-            high: 1,
-            step: 1,
-            log: true,
-        };
+        let i1_log = Distribution::new_int(0, 1, 1, true);
         assert!(i1.check_compatibility(&i1_log).is_err());
     }
 
     #[test]
     fn test_check_compatibility_categorical() {
-        let c1 = Distribution::Categorical { cardinality: 3 };
-        let c2 = Distribution::Categorical { cardinality: 4 };
+        let c1 = Distribution::new_categorical(3);
+        let c2 = Distribution::new_categorical(4);
         assert!(c1.check_compatibility(&c1).is_ok());
         assert!(c1.check_compatibility(&c2).is_err());
     }

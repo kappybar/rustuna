@@ -1559,15 +1559,7 @@ fn json_to_distribution(
                 Some(Value::String(s)) => s.parse::<f64>().ok(),
                 _ => None,
             };
-            Ok((
-                Distribution::Float {
-                    low,
-                    high,
-                    step,
-                    log,
-                },
-                None,
-            ))
+            Ok((Distribution::new_float(low, high, step, log), None))
         }
         "IntDistribution" => {
             let low = attributes
@@ -1603,15 +1595,7 @@ fn json_to_distribution(
                 Some(Value::String(s)) => s.parse::<i64>().unwrap_or(1),
                 _ => 1,
             };
-            Ok((
-                Distribution::Int {
-                    low,
-                    high,
-                    step,
-                    log,
-                },
-                None,
-            ))
+            Ok((Distribution::new_int(low, high, step, log), None))
         }
         "CategoricalDistribution" => {
             let size = match attributes.get("size") {
@@ -1634,12 +1618,7 @@ fn json_to_distribution(
                         .collect::<Vec<_>>()
                 })
             });
-            Ok((
-                Distribution::Categorical {
-                    cardinality: size as usize,
-                },
-                labels,
-            ))
+            Ok((Distribution::new_categorical(size as usize), labels))
         }
         _ => Err(Error::with_reason(
             ErrorKind::StorageError,
@@ -1845,12 +1824,7 @@ mod tests {
         template.internal_params.insert("x".to_string(), 0.4);
         template.distributions.insert(
             "x".to_string(),
-            Distribution::Float {
-                low: 0.0,
-                high: 1.0,
-                step: None,
-                log: false,
-            },
+            Distribution::new_float(0.0, 1.0, None, false),
         );
 
         let trial = storage.create_new_trial_from_template(study_id, &template)?;
@@ -1870,25 +1844,15 @@ mod tests {
         let trial = storage.create_new_trial(study_id)?;
 
         // FloatDistribution
-        let float_dist = Distribution::Float {
-            low: 0.0,
-            high: 1.0,
-            step: None,
-            log: false,
-        };
+        let float_dist = Distribution::new_float(0.0, 1.0, None, false);
         storage.set_trial_param(trial.id, "float", &float_dist, 0.5)?;
 
         // IntDistribution
-        let int_dist = Distribution::Int {
-            low: 0,
-            high: 10,
-            step: 1,
-            log: false,
-        };
+        let int_dist = Distribution::new_int(0, 10, 1, false);
         storage.set_trial_param(trial.id, "int", &int_dist, 5.0)?;
 
         // CategoricalDistribution
-        let categorical_dist = Distribution::Categorical { cardinality: 3 };
+        let categorical_dist = Distribution::new_categorical(3);
         storage.set_trial_param(trial.id, "cat", &categorical_dist, 1.0)?;
 
         // Check distributions

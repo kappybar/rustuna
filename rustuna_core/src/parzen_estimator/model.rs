@@ -285,44 +285,15 @@ mod tests {
         let mut search_space = HashMap::<String, Distribution>::new();
         search_space.insert(
             "a".to_string(),
-            Distribution::Float {
-                low: 0.01,
-                high: 1.0,
-                step: None,
-                log: false,
-            },
+            Distribution::new_float(0.01, 1.0, None, false),
         );
         search_space.insert(
             "b".to_string(),
-            Distribution::Float {
-                low: 0.01,
-                high: 1.0,
-                step: None,
-                log: true,
-            },
+            Distribution::new_float(0.01, 1.0, None, true),
         );
-        search_space.insert(
-            "c".to_string(),
-            Distribution::Int {
-                low: 1,
-                high: 5,
-                step: 1,
-                log: false,
-            },
-        );
-        search_space.insert(
-            "d".to_string(),
-            Distribution::Int {
-                low: 1,
-                high: 5,
-                step: 1,
-                log: true,
-            },
-        );
-        search_space.insert(
-            "e".to_string(),
-            Distribution::Categorical { cardinality: 3 },
-        );
+        search_space.insert("c".to_string(), Distribution::new_int(1, 5, 1, false));
+        search_space.insert("d".to_string(), Distribution::new_int(1, 5, 1, true));
+        search_space.insert("e".to_string(), Distribution::new_categorical(3));
 
         let parzen_estimator =
             ParzenEstimator::new(&observations, &search_space, &[0.2, 0.5, 0.3], 1.0);
