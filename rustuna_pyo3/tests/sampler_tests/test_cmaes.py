@@ -113,5 +113,7 @@ def test_cmaes_sampler_with_single_value_parameters() -> None:
 
     # Verify single-value parameters were always constant
     for trial in study.trials:
-        assert trial.params["z"] == 5.0, f"z should always be 5.0, got {trial.params['z']}"
-        assert trial.params["w"] == 3, f"w should always be 3, got {trial.params['w']}"
+        z_val = trial.params["z"]
+        w_val = trial.params["w"]
+        assert z_val == 5.0, f"z should always be 5.0, got {z_val}"
+        assert w_val == 3, f"w should always be 3, got {w_val}"
