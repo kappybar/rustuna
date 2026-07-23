@@ -19,7 +19,6 @@ use rustuna_sampler::tpe::TpeSampler;
 use crate::attrs::pyobj_to_attrs;
 use crate::attrs::{convert_pydict_to_fixed_params, pyobj_to_attrs_with_kind, AttrKind};
 use crate::exception::err_to_exceptions;
-use crate::pyobject_storage::PyObjectStorage;
 use crate::sampler::cmaes::PyCmaEsSampler;
 use crate::sampler::nsgaii::PyNSGAIISampler;
 use crate::sampler::python::PythonSamplerAdapter;
@@ -28,6 +27,7 @@ use crate::sampler::tpe::PyTpeSampler;
 use crate::storage::in_memory::PyInMemoryStorage;
 use crate::storage::journal::PyJournalFileStorage;
 use crate::storage::sqlite3::PySQLite3Storage;
+use crate::storage::to_rust::ToRustStorage;
 use crate::trial::{PyPersistedTrial, PyTrial, PyTrialState};
 use crate::trial_queue::directory::PyDirectoryTrialQueue;
 use crate::trial_queue::inmemory::PyInMemoryTrialQueue;
@@ -167,7 +167,7 @@ fn resolve_storage_pyobj(
     } else if let Ok(py_sqlite3_storage) = storage_ref.extract::<PySQLite3Storage>() {
         Ok((py_sqlite3_storage.storage(), storage_pyobj))
     } else {
-        let mut wrapped = PyObjectStorage::new(storage);
+        let mut wrapped = ToRustStorage::new(storage);
         wrapped.sync_studies(true).map_err(err_to_exceptions)?;
         let wrapped: SharedStorage = Arc::new(RwLock::new(wrapped));
         Ok((wrapped, storage_pyobj))

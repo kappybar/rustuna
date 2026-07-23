@@ -6,9 +6,9 @@ use pyo3::Py;
 
 use rustuna_core::storage::Storage;
 
-use crate::pyobject_storage::PyPyObjectStorage;
 use crate::storage::in_memory::PyInMemoryStorage;
 use crate::storage::journal::PyJournalFileStorage;
+use crate::storage::to_rust::PyToRustStorage;
 
 pub mod cmaes;
 mod context;
@@ -25,7 +25,7 @@ fn extract_storage(storage: Py<PyAny>) -> PyResult<Arc<RwLock<dyn Storage>>> {
             Ok(py_inmemory_storage.storage())
         } else if let Ok(py_journal_storage) = storage_ref.extract::<PyJournalFileStorage>() {
             Ok(py_journal_storage.storage())
-        } else if let Ok(py_obj_storage) = storage_ref.extract::<PyPyObjectStorage>() {
+        } else if let Ok(py_obj_storage) = storage_ref.extract::<PyToRustStorage>() {
             Ok(py_obj_storage.storage.clone() as Arc<RwLock<dyn Storage>>)
         } else {
             Err(PyRuntimeError::new_err(
