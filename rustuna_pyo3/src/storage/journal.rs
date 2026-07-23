@@ -1,20 +1,13 @@
 use std::sync::{Arc, RwLock};
 
-use pyo3::exceptions::{PyRuntimeError, PyValueError};
+use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
-use pyo3::types::PyList;
-use rustuna_core::attr::{AttrKey, CategoryLabel};
-use rustuna_core::distribution::Distribution;
-use rustuna_core::storage::Storage;
-use rustuna_core::study::Direction;
-use rustuna_core::trial::TrialStateValues;
 use rustuna_storage::journal::file::{JournalFileBackend, JournalFileSymlinkLock};
 use rustuna_storage::journal::storage::{JournalStorage, JournalStorageOptions};
 
-use crate::attrs::{pyobj_to_attrs_with_kind, AttrKind};
-use crate::distribution::{category_label_to_pyobject, pyobject_to_category_label, PyDistribution};
-use crate::exception::err_to_exceptions;
+use crate::distribution::PyDistribution;
+use crate::storage::binding::StorageBinding;
 use crate::study::{PyDirection, PyPersistedStudy};
 use crate::trial::{PyPersistedTrial, PyTrialState};
 
@@ -22,7 +15,7 @@ use crate::trial::{PyPersistedTrial, PyTrialState};
 #[pyclass(name = "JournalFileStorage")]
 #[pyo3(module = "rustuna")]
 pub struct PyJournalFileStorage {
-    pub storage: Arc<RwLock<JournalStorage>>,
+    pub binding: StorageBinding,
 }
 
 #[pymethods]
@@ -42,387 +35,185 @@ impl PyJournalFileStorage {
             },
         )
         .map_err(|e| PyRuntimeError::new_err(format!("Failed to create journal storage: {e:?}")))?;
-        let arc_storage = Arc::new(RwLock::new(storage));
-        Ok(PyJournalFileStorage {
-            storage: arc_storage.clone(),
-        })
+        let binding = StorageBinding::new(Arc::new(RwLock::new(storage)));
+        Ok(PyJournalFileStorage { binding: binding })
     }
 
     fn create_new_study(
         &mut self,
+        py: Python<'_>,
         study_name: String,
         directions: Vec<PyDirection>,
     ) -> PyResult<PyPersistedStudy> {
-        let mut guard = self.storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        let directions: Vec<Direction> = directions.iter().map(|d| d.clone().into()).collect();
-        let study = guard
-            .create_new_study(&study_name, directions)
-            .map_err(err_to_exceptions)?;
-        Ok(study.clone().into())
+        self.binding.create_new_study(py, study_name, directions)
     }
 
-    fn delete_study(&mut self, study_id: u32) -> PyResult<()> {
-        let mut guard = self.storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        guard.delete_study(study_id).map_err(err_to_exceptions)?;
-        Ok(())
+    fn delete_study(&mut self, py: Python<'_>, study_id: u32) -> PyResult<()> {
+        self.binding.delete_study(py, study_id)
     }
 
     #[pyo3(signature = (study_id, template_trial=None))]
     fn create_new_trial(
         &mut self,
+        py: Python<'_>,
         study_id: u32,
         template_trial: Option<&Bound<'_, PyPersistedTrial>>,
     ) -> PyResult<PyPersistedTrial> {
-        let mut guard = self.storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        let trial = if let Some(template_trial) = template_trial {
-            let template = template_trial.borrow().with_trial(|t| Ok(t.clone()))?;
-            guard
-                .create_new_trial_from_template(study_id, &template)
-                .map_err(err_to_exceptions)?
-        } else {
-            guard
-                .create_new_trial(study_id)
-                .map_err(err_to_exceptions)?
-        };
-        Ok(PyPersistedTrial::from_storage(self.storage.clone(), trial))
+        self.binding.create_new_trial(py, study_id, template_trial)
     }
 
     fn set_trial_param(
         &mut self,
+        py: Python<'_>,
         trial_id: u32,
         name: String,
         distribution: PyDistribution,
         value: f64,
     ) -> PyResult<()> {
-        let category_labels = distribution.category_labels.clone();
-        let distribution: Distribution = distribution.into();
-
-        if let Some(labels) = category_labels {
-            let study_id = {
-                let mut guard = self
-                    .storage
-                    .write()
-                    .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
-                guard
-                    .get_trial(trial_id)
-                    .map_err(err_to_exceptions)?
-                    .study_id
-            };
-            self.set_category_labels_internal(study_id, name.clone(), labels)?;
-        }
-
-        let mut guard = self
-            .storage
-            .write()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
-        guard
-            .set_trial_param(trial_id, &name, &distribution, value)
-            .map_err(err_to_exceptions)?;
-        Ok(())
+        self.binding
+            .set_trial_param(py, trial_id, name, distribution, value)
     }
 
     fn set_category_labels(
         &mut self,
+        py: Python<'_>,
         study_id: u32,
         param_name: String,
         choices: Vec<Py<PyAny>>,
     ) -> PyResult<()> {
-        let category_labels = Python::attach(|py| -> PyResult<Vec<CategoryLabel>> {
-            let mut labels: Vec<CategoryLabel> = Vec::with_capacity(choices.len());
-            for choice in choices {
-                let label = pyobject_to_category_label(choice.bind(py))?;
-                labels.push(label);
-            }
-            Ok(labels)
-        })?;
-        self.set_category_labels_internal(study_id, param_name, category_labels)
+        self.binding
+            .set_category_labels(py, study_id, param_name, choices)
     }
 
     fn get_category_labels(
         &mut self,
+        py: Python<'_>,
         study_id: u32,
         param_name: String,
         cardinality: usize,
     ) -> PyResult<Py<PyAny>> {
-        let mut guard = self.storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        Python::attach(|py| {
-            match guard
-                .get_category_labels(study_id, &param_name, cardinality)
-                .map_err(err_to_exceptions)?
-            {
-                Some(labels) => {
-                    let elements: PyResult<Vec<_>> = (0..cardinality)
-                        .map(|i| {
-                            let c = labels.get(i).ok_or(PyValueError::new_err(
-                                "Internal representation of categorical value is out of range",
-                            ))?;
-                            category_label_to_pyobject(py, c)
-                        })
-                        .collect();
-                    let choices = PyList::new(py, elements?)?;
-                    Ok(choices.unbind().into_any())
-                }
-                None => Ok(py.None()),
-            }
-        })
+        self.binding
+            .get_category_labels(py, study_id, param_name, cardinality)
     }
 
     #[pyo3(signature = (trial_id, state, values=None))]
     fn set_trial_state_values(
         &mut self,
+        py: Python<'_>,
         trial_id: u32,
         state: PyTrialState,
         values: Option<Vec<f64>>,
     ) -> PyResult<()> {
-        let mut guard = self.storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-
-        let state_values = match state {
-            PyTrialState::COMPLETE => {
-                let values = values.ok_or(PyValueError::new_err(
-                    "values must be specified when state is COMPLETE",
-                ))?;
-                TrialStateValues::Complete(values)
-            }
-            PyTrialState::RUNNING => TrialStateValues::Running,
-            PyTrialState::PRUNED => TrialStateValues::Pruned,
-            PyTrialState::WAITING => TrialStateValues::Waiting,
-            PyTrialState::FAIL => TrialStateValues::Fail,
-        };
-        guard
-            .set_trial_state_values(trial_id, state_values)
-            .map_err(err_to_exceptions)?;
-        Ok(())
+        self.binding
+            .set_trial_state_values(py, trial_id, state, values)
     }
 
-    fn get_studies(&mut self) -> PyResult<Vec<PyPersistedStudy>> {
-        let mut guard = self.storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        let studies = guard
-            .get_studies()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get studies: {:?}", e.kind)))?;
-        Ok(studies.iter().map(|s| s.clone().into()).collect())
+    fn get_studies(&mut self, py: Python<'_>) -> PyResult<Vec<PyPersistedStudy>> {
+        self.binding.get_studies(py)
     }
 
-    fn get_study(&mut self, study_id: u32) -> PyResult<PyPersistedStudy> {
-        let mut guard = self.storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        let study = guard.get_study(study_id).map_err(err_to_exceptions)?;
-        Ok(study.clone().into())
+    fn get_study(&mut self, py: Python<'_>, study_id: u32) -> PyResult<PyPersistedStudy> {
+        self.binding.get_study(py, study_id)
     }
 
     #[pyo3(signature = (study_id, *, states = None))]
     fn get_trials(
         &mut self,
+        py: Python<'_>,
         study_id: u32,
         states: Option<Vec<PyTrialState>>,
     ) -> PyResult<Vec<PyPersistedTrial>> {
-        let mut guard = self.storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        let trials = guard.get_trials(study_id).map_err(err_to_exceptions)?;
-        let py_trials: Vec<PyPersistedTrial> = trials
-            .iter()
-            .flatten()
-            .filter(|trial| match &states {
-                Some(s) => s.contains(&PyTrialState::from(trial.state_values.clone())),
-                None => true,
-            })
-            .map(|t| PyPersistedTrial::from_storage(self.storage.clone(), t))
-            .collect();
-        Ok(py_trials)
+        self.binding.get_trials(py, study_id, states)
     }
 
-    fn get_trial(&mut self, trial_id: u32) -> PyResult<PyPersistedTrial> {
-        let mut guard = self.storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        let trial = guard
-            .get_trial(trial_id)
-            .map_err(err_to_exceptions)?
-            .clone();
-        let study_attrs = guard
-            .get_study(trial.study_id)
-            .map_err(err_to_exceptions)?
-            .attrs
-            .clone();
-        Ok(PyPersistedTrial::new(trial, study_attrs))
+    fn get_trial(&mut self, py: Python<'_>, trial_id: u32) -> PyResult<PyPersistedTrial> {
+        self.binding.get_trial(py, trial_id)
     }
 
-    fn get_cached_trial(&self, trial_id: u32) -> PyResult<PyPersistedTrial> {
-        let guard = self.storage.read().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        let trial = guard
-            .get_cached_trial(trial_id)
-            .map_err(err_to_exceptions)?;
-        Ok(PyPersistedTrial::from_storage(self.storage.clone(), trial))
+    fn get_cached_trial(&self, py: Python<'_>, trial_id: u32) -> PyResult<PyPersistedTrial> {
+        self.binding.get_cached_trial(py, trial_id)
     }
 
-    fn get_study_user_attr(&mut self, study_id: u32, key: String) -> PyResult<String> {
-        let mut guard = self.storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        guard
-            .get_study_attr(study_id, AttrKey::User(key.into()))
-            .map_err(err_to_exceptions)
+    fn get_study_user_attr(
+        &mut self,
+        py: Python<'_>,
+        study_id: u32,
+        key: String,
+    ) -> PyResult<String> {
+        self.binding.get_study_user_attr(py, study_id, key)
     }
 
-    fn get_study_system_attr(&mut self, study_id: u32, key: String) -> PyResult<String> {
-        let mut guard = self.storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        guard
-            .get_study_attr(study_id, AttrKey::System(key.into()))
-            .map_err(err_to_exceptions)
+    fn get_study_system_attr(
+        &mut self,
+        py: Python<'_>,
+        study_id: u32,
+        key: String,
+    ) -> PyResult<String> {
+        self.binding.get_study_system_attr(py, study_id, key)
     }
 
     fn get_trial_id_from_study_id_trial_number(
         &mut self,
+        py: Python<'_>,
         study_id: u32,
         trial_number: u32,
     ) -> PyResult<u32> {
-        let mut guard = self.storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        let trial_id = guard
-            .get_trial_id_from_study_id_trial_number(study_id, trial_number)
-            .map_err(err_to_exceptions)?;
-        Ok(trial_id)
+        self.binding
+            .get_trial_id_from_study_id_trial_number(py, study_id, trial_number)
     }
 
-    fn set_study_system_attrs(&mut self, study_id: u32, attrs: Py<PyAny>) -> PyResult<()> {
-        let system_attrs = Python::attach(|py| {
-            let attrs = attrs.bind(py);
-            pyobj_to_attrs_with_kind(attrs, AttrKind::System)
-        })?;
-        let mut guard = self.storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        guard
-            .set_study_attrs(study_id, system_attrs, false)
-            .map_err(err_to_exceptions)?;
-        Ok(())
+    fn set_study_system_attrs(
+        &mut self,
+        py: Python<'_>,
+        study_id: u32,
+        attrs: Py<PyAny>,
+    ) -> PyResult<()> {
+        self.binding.set_study_system_attrs(py, study_id, attrs)
     }
 
-    fn set_study_user_attrs(&mut self, study_id: u32, attrs: Py<PyAny>) -> PyResult<()> {
-        let user_attrs = Python::attach(|py| {
-            let attrs = attrs.bind(py);
-            pyobj_to_attrs_with_kind(attrs, AttrKind::User)
-        })?;
-        let mut guard = self.storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        guard
-            .set_study_attrs(study_id, user_attrs, false)
-            .map_err(err_to_exceptions)?;
-        Ok(())
+    fn set_study_user_attrs(
+        &mut self,
+        py: Python<'_>,
+        study_id: u32,
+        attrs: Py<PyAny>,
+    ) -> PyResult<()> {
+        self.binding.set_study_user_attrs(py, study_id, attrs)
     }
 
-    fn set_trial_system_attrs(&mut self, trial_id: u32, attrs: Py<PyAny>) -> PyResult<()> {
-        let system_attrs = Python::attach(|py| {
-            let attrs = attrs.bind(py);
-            pyobj_to_attrs_with_kind(attrs, AttrKind::System)
-        })?;
-        let mut guard = self.storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        guard
-            .set_trial_attrs(trial_id, system_attrs, false)
-            .map_err(err_to_exceptions)?;
-        Ok(())
+    fn set_trial_system_attrs(
+        &mut self,
+        py: Python<'_>,
+        trial_id: u32,
+        attrs: Py<PyAny>,
+    ) -> PyResult<()> {
+        self.binding.set_trial_system_attrs(py, trial_id, attrs)
     }
 
-    fn set_trial_user_attrs(&mut self, trial_id: u32, attrs: Py<PyAny>) -> PyResult<()> {
-        let user_attrs = Python::attach(|py| {
-            let attrs = attrs.bind(py);
-            pyobj_to_attrs_with_kind(attrs, AttrKind::User)
-        })?;
-        let mut guard = self.storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        guard
-            .set_trial_attrs(trial_id, user_attrs, false)
-            .map_err(err_to_exceptions)?;
-        Ok(())
+    fn set_trial_user_attrs(
+        &mut self,
+        py: Python<'_>,
+        trial_id: u32,
+        attrs: Py<PyAny>,
+    ) -> PyResult<()> {
+        self.binding.set_trial_user_attrs(py, trial_id, attrs)
     }
 
     fn set_trial_intermediate_value(
         &mut self,
+        py: Python<'_>,
         trial_id: u32,
         step: u32,
         intermediate_value: f64,
     ) -> PyResult<()> {
-        let mut intermediate_values = std::collections::HashMap::new();
-        intermediate_values.insert(step, intermediate_value);
-
-        let mut guard = self.storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        guard
-            .set_trial_intermediate_values(trial_id, intermediate_values)
-            .map_err(err_to_exceptions)?;
-        Ok(())
+        self.binding
+            .set_trial_intermediate_value(py, trial_id, step, intermediate_value)
     }
 
-    fn discard_trials(&mut self, trial_ids: Vec<u32>) -> PyResult<()> {
-        let mut guard = self.storage.write().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        guard
-            .discard_trials(&trial_ids)
-            .map_err(err_to_exceptions)?;
-        Ok(())
+    fn discard_trials(&mut self, py: Python<'_>, trial_ids: Vec<u32>) -> PyResult<()> {
+        self.binding.discard_trials(py, trial_ids)
     }
 
-    fn may_omit_trials(&self) -> PyResult<bool> {
-        let guard = self.storage.read().map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
-        })?;
-        Ok(guard.may_omit_trials())
-    }
-}
-
-impl PyJournalFileStorage {
-    fn set_category_labels_internal(
-        &mut self,
-        study_id: u32,
-        param_name: String,
-        category_labels: Vec<CategoryLabel>,
-    ) -> PyResult<()> {
-        let mut guard = self
-            .storage
-            .write()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the storage guard"))?;
-        match guard.set_category_labels(study_id, &param_name, category_labels.clone()) {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                if matches!(e.kind, rustuna_core::ErrorKind::AttrOverwriteNotAllowed) {
-                    let existing_labels = guard
-                        .get_category_labels(study_id, &param_name, category_labels.len())
-                        .map_err(err_to_exceptions)?;
-                    if let Some(existing) = existing_labels {
-                        if existing == category_labels {
-                            return Ok(());
-                        }
-                    }
-                    return Err(PyValueError::new_err(format!(
-                        "Cannot overwrite category labels for parameter '{param_name}'"
-                    )));
-                }
-                Err(err_to_exceptions(e))
-            }
-        }
+    fn may_omit_trials(&self, py: Python<'_>) -> PyResult<bool> {
+        self.binding.may_omit_trials(py)
     }
 }
