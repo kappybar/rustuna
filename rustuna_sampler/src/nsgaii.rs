@@ -341,8 +341,12 @@ impl Sampler for NSGAIISampler {
             return Ok(params);
         }
 
-        let (parent0, parent1) =
-            self.select_parents(ctx, storage, parent_population_numbers, &filtered_search_space)?;
+        let (parent0, parent1) = self.select_parents(
+            ctx,
+            storage,
+            parent_population_numbers,
+            &filtered_search_space,
+        )?;
 
         let child = if self.rng.gen_bool(self.crossover_prob) {
             self.crossover(parent0, parent1, &filtered_search_space)
@@ -584,7 +588,10 @@ mod tests {
             30,
         );
 
-        assert!(result.is_ok(), "Optimization should complete without panicking");
+        assert!(
+            result.is_ok(),
+            "Optimization should complete without panicking"
+        );
 
         // Verify single-value params were always constant
         let trials = study.get_trials().unwrap();

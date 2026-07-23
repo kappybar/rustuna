@@ -945,7 +945,10 @@ mod tests {
             30,
         );
 
-        assert!(result.is_ok(), "Optimization should complete without panicking");
+        assert!(
+            result.is_ok(),
+            "Optimization should complete without panicking"
+        );
 
         // Verify single-value params were always constant
         let trials = study.get_trials().unwrap();
