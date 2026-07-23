@@ -11,7 +11,7 @@ use rustuna_core::trial::TrialStateValues;
 
 use crate::distribution::PyDistribution;
 use crate::sampler::PySamplerContext;
-use crate::storage::PyStorage;
+use crate::storage::to_python::ToPythonStorage;
 use crate::trial::PyTrialState;
 
 pub struct PythonSamplerAdapter {
@@ -42,10 +42,7 @@ impl Sampler for PythonSamplerAdapter {
 
         Python::attach(|py| {
             let py_ctx = PySamplerContext::from(ctx.clone());
-            let py_storage = PyStorage {
-                storage: storage.clone(),
-                kind: "unset",
-            };
+            let py_storage = ToPythonStorage::new(storage.clone());
             let py_distribution = PyDistribution::new(distribution.clone(), name, &study_attrs);
             let py_result = self
                 .obj
@@ -95,10 +92,7 @@ impl Sampler for PythonSamplerAdapter {
 
         Python::attach(|py| {
             let py_ctx = PySamplerContext::from(ctx.clone());
-            let py_storage = PyStorage {
-                storage: storage.clone(),
-                kind: "unset",
-            };
+            let py_storage = ToPythonStorage::new(storage.clone());
             let py_search_space = PyDict::new(py);
             for (k, v) in search_space {
                 let py_distribution = Py::new(py, PyDistribution::new(v.clone(), k, &study_attrs))
@@ -157,10 +151,7 @@ impl Sampler for PythonSamplerAdapter {
             }
 
             let py_ctx = PySamplerContext::from(ctx.clone());
-            let py_storage = PyStorage {
-                storage: storage.clone(),
-                kind: "unset",
-            };
+            let py_storage = ToPythonStorage::new(storage.clone());
             self.obj
                 .call_method1(py, "after_trial", (py_ctx, py_storage, py_state, py_values))
                 .map_err(|e| {

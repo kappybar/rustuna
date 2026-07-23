@@ -9,7 +9,6 @@ use rustuna_core::storage::Storage;
 use crate::pyobject_storage::PyPyObjectStorage;
 use crate::storage::in_memory::PyInMemoryStorage;
 use crate::storage::journal::PyJournalFileStorage;
-use crate::storage::PyStorage;
 
 pub mod cmaes;
 mod context;
@@ -22,9 +21,7 @@ pub use context::PySamplerContext;
 fn extract_storage(storage: Py<PyAny>) -> PyResult<Arc<RwLock<dyn Storage>>> {
     Python::attach(|py| {
         let storage_ref = storage.bind(py);
-        if let Ok(py_storage) = storage_ref.extract::<PyStorage>() {
-            Ok(py_storage.storage.clone())
-        } else if let Ok(py_inmemory_storage) = storage_ref.extract::<PyInMemoryStorage>() {
+        if let Ok(py_inmemory_storage) = storage_ref.extract::<PyInMemoryStorage>() {
             Ok(py_inmemory_storage.storage())
         } else if let Ok(py_journal_storage) = storage_ref.extract::<PyJournalFileStorage>() {
             Ok(py_journal_storage.storage())

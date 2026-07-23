@@ -10,22 +10,17 @@ use crate::study::{PyDirection, PyPersistedStudy};
 use crate::trial::{PyPersistedTrial, PyTrialState};
 
 #[derive(Clone)]
-#[pyclass(name = "InMemoryStorage")]
+#[pyclass(name = "ToPythonStorage")]
 #[pyo3(module = "rustuna")]
-pub struct PyInMemoryStorage {
+pub struct ToPythonStorage {
     pub(crate) binding: StorageBinding,
 }
 
-impl Default for PyInMemoryStorage {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl PyInMemoryStorage {
-    pub fn new() -> Self {
-        let binding = StorageBinding::new(Arc::new(RwLock::new(InMemoryStorage::new())));
-        PyInMemoryStorage { binding }
+impl ToPythonStorage {
+    pub fn new(storage: Arc<RwLock<dyn Storage>>) -> Self {
+        Self {
+            binding: StorageBinding { storage },
+        }
     }
 
     pub fn storage(&self) -> Arc<RwLock<dyn Storage>> {
@@ -34,10 +29,11 @@ impl PyInMemoryStorage {
 }
 
 #[pymethods]
-impl PyInMemoryStorage {
+impl ToPythonStorage {
     #[new]
-    fn py_new() -> Self {
-        PyInMemoryStorage::new()
+    fn py_new() -> PyResult<Self> {
+        let binding = StorageBinding::new(Arc::new(RwLock::new(InMemoryStorage::new())));
+        Ok(ToPythonStorage { binding })
     }
 
     fn create_new_study(
