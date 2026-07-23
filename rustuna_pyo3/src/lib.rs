@@ -45,7 +45,7 @@ fn rustuna(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(importance::py_get_param_importances, m)?)?;
     m.add_class::<importance::PyPedAnovaImportanceEvaluator>()?;
     // trial_queue
-    m.add_class::<trial_queue::PyTrialQueue>()?;
+    m.add_class::<trial_queue::directory::PyDirectoryTrialQueue>()?;
     m.add_class::<trial_queue::inmemory::PyInMemoryTrialQueue>()?;
     m.add_class::<trial_queue::sqlite3::PySQLite3TrialQueue>()?;
     m.add_class::<trial_queue::PyPyObjectTrialQueue>()?;

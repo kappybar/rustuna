@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from rustuna._protocols import TrialQueueProtocol
-from rustuna._rustuna import InMemoryTrialQueue, SQLite3TrialQueue, TrialQueue
+from rustuna._rustuna import DirectoryTrialQueue, InMemoryTrialQueue, SQLite3TrialQueue
 
 __all__ = [
     "TrialQueueProtocol",
@@ -9,22 +9,3 @@ __all__ = [
     "SQLite3TrialQueue",
     "DirectoryTrialQueue",
 ]
-
-
-# TODO(c-bata): Replace DirectoryTrialQueue with a Python concrete class.
-def DirectoryTrialQueue(base_dir: str) -> TrialQueueProtocol:
-    """A directory-based trial queue.
-
-    This queue uses the filesystem to persist trial IDs and provides multi-process
-    safety through atomic file operations. The queue is stored in two subdirectories
-    under the base directory: 'pending/' for queued trials and 'processing/' for
-    trials being processed.
-
-    Args:
-        base_dir: Base directory path for the queue. Should be study-specific
-            (e.g., '{storage_dir}/queue/{study_id}/') to ensure isolation between studies.
-
-    Returns:
-        A directory-based trial queue instance.
-    """
-    return TrialQueue.directory(base_dir=base_dir)

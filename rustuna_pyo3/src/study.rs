@@ -27,9 +27,10 @@ use crate::sampler::random::PyRandomSampler;
 use crate::sampler::tpe::PyTpeSampler;
 use crate::storage::PyStorage;
 use crate::trial::{PyPersistedTrial, PyTrial, PyTrialState};
+use crate::trial_queue::directory::PyDirectoryTrialQueue;
 use crate::trial_queue::inmemory::PyInMemoryTrialQueue;
 use crate::trial_queue::sqlite3::PySQLite3TrialQueue;
-use crate::trial_queue::{PyObjectTrialQueue, PyPyObjectTrialQueue, PyTrialQueue};
+use crate::trial_queue::{PyObjectTrialQueue, PyPyObjectTrialQueue};
 
 type SharedStorage = Arc<RwLock<dyn Storage>>;
 type SharedSampler = Arc<Mutex<dyn Sampler>>;
@@ -116,9 +117,7 @@ fn into_trial_queue_pyobj(
     match trial_queue {
         Some(trial_queue) => {
             let trial_queue_ref = trial_queue.bind(py);
-            if let Ok(py_trial_queue) = trial_queue_ref.extract::<PyTrialQueue>() {
-                Ok((py_trial_queue.queue.clone(), trial_queue.clone_ref(py)))
-            } else if let Ok(py_obj_trial_queue) = trial_queue_ref.extract::<PyPyObjectTrialQueue>()
+            if let Ok(py_obj_trial_queue) = trial_queue_ref.extract::<PyPyObjectTrialQueue>()
             {
                 Ok((
                     py_obj_trial_queue.queue.clone() as SharedTrialQueue,
@@ -138,6 +137,13 @@ fn into_trial_queue_pyobj(
                     py_sqlite3_trial_queue.queue.clone() as SharedTrialQueue,
                     trial_queue.clone_ref(py),
                 ))
+            } else if let Ok(py_directory_trial_queue) =
+                trial_queue_ref.extract::<PyDirectoryTrialQueue>()
+            {
+                Ok((
+                    py_directory_trial_queue.queue.clone() as SharedTrialQueue,
+                    trial_queue.clone_ref(py),
+                ))
             } else {
                 let queue: SharedTrialQueue = Arc::new(RwLock::new(PyObjectTrialQueue::new(
                     trial_queue.clone_ref(py),
@@ -146,11 +152,7 @@ fn into_trial_queue_pyobj(
             }
         }
         None => {
-            let trial_queue = PyTrialQueue {
-                queue: Arc::new(RwLock::new(
-                    rustuna_core::trial_queue::InMemoryTrialQueue::new(),
-                )),
-            };
+            let trial_queue = PyInMemoryTrialQueue::new();
             let queue = trial_queue.queue.clone();
             let py_trial_queue = Py::new(py, trial_queue)?.into_any();
             Ok((queue, py_trial_queue))
@@ -368,11 +370,7 @@ impl PyStudy {
         let directions: Vec<Direction> = directions.into_iter().map(|d| d.into()).collect();
         let (storage_arc, storage_pyobj) = Python::attach(|py| resolve_storage_pyobj(py, storage))?;
         let (sampler_arc, sampler_pyobj) = Python::attach(|py| resolve_sampler_pyobj(py, sampler))?;
-        let trial_queue = PyTrialQueue {
-            queue: Arc::new(RwLock::new(
-                rustuna_core::trial_queue::InMemoryTrialQueue::new(),
-            )),
-        };
+        let trial_queue = PyInMemoryTrialQueue ::new();
         let trial_queue_arc = trial_queue.queue.clone();
         let trial_queue_pyobj = Python::attach(|py| -> PyResult<Py<PyAny>> {
             Ok(Py::new(py, trial_queue)?.into_any())

@@ -1148,15 +1148,20 @@ class CmaEsSampler:
     ) -> None: ...
 
 # Trial Queue
-class TrialQueue:
-    """Factory class for creating trial queue instances.
+class DirectoryTrialQueue:
+    """A directory-based trial queue.
 
-    Trial queues are used to manage a FIFO queue of trial IDs for parallel optimization.
-    They provide persistence and multi-process safety for managing trial execution order.
+    This queue uses the filesystem to persist trial IDs and provides multi-process
+    safety through atomic file operations. The queue is stored in two subdirectories
+    under the base directory: 'pending/' for queued trials and 'processing/' for
+    trials being processed.
+
+    Args:
+        base_dir: Base directory path for the queue. Should be study-specific
+            (e.g., '{storage_dir}/queue/{study_id}/') to ensure isolation between studies.
     """
 
-    @classmethod
-    def directory(cls, base_dir: str) -> TrialQueueProtocol: ...
+    def __init__(self, base_dir: str) -> None: ...
     def enqueue(self, trial_id: int) -> None: ...
     def dequeue(self) -> int: ...
 

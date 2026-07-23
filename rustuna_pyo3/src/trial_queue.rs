@@ -1,15 +1,11 @@
-use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use pyo3::types::PyType;
 use rustuna_core::trial_queue::TrialQueue;
 use rustuna_core::{Error, ErrorKind, Result};
-use rustuna_storage::directory_queue::DirectoryTrialQueue;
 use std::sync::{Arc, RwLock};
 
+pub mod directory;
 pub mod inmemory;
 pub mod sqlite3;
-
-use crate::exception::err_to_exceptions;
 
 pub struct PyObjectTrialQueue {
     obj: Py<PyAny>,
@@ -51,46 +47,10 @@ impl TrialQueue for PyObjectTrialQueue {
 }
 
 #[derive(Clone)]
-#[pyclass(name = "TrialQueue")]
-#[pyo3(module = "rustuna")]
-pub struct PyTrialQueue {
-    pub queue: Arc<RwLock<dyn TrialQueue>>,
-}
-
-#[derive(Clone)]
 #[pyclass(name = "PyObjectTrialQueue")]
 #[pyo3(module = "rustuna")]
 pub struct PyPyObjectTrialQueue {
     pub queue: Arc<RwLock<PyObjectTrialQueue>>,
-}
-
-#[pymethods]
-impl PyTrialQueue {
-    #[classmethod]
-    fn directory(_cls: &Bound<'_, PyType>, base_dir: &str) -> PyResult<Self> {
-        let queue = DirectoryTrialQueue::new(base_dir).map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to create DirectoryTrialQueue: {e:?}"))
-        })?;
-        Ok(PyTrialQueue {
-            queue: Arc::new(RwLock::new(queue)),
-        })
-    }
-
-    fn enqueue(&self, trial_id: u32) -> PyResult<()> {
-        let mut guard = self
-            .queue
-            .write()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire queue lock"))?;
-        guard.enqueue(trial_id).map_err(err_to_exceptions)
-    }
-
-    fn dequeue(&self) -> PyResult<u32> {
-        let mut guard = self
-            .queue
-            .write()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire queue lock"))?;
-        guard.dequeue().map_err(err_to_exceptions)
-    }
 }
 
 #[pymethods]
