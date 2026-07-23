@@ -559,8 +559,6 @@ impl Sampler for TpeSampler {
         name: &str,
         distribution: &Distribution,
     ) -> Result<f64> {
-        // Single-value distributions cannot be modeled by Parzen estimators.
-        // Return the single value directly.
         if distribution.is_single() {
             return Ok(distribution.get_single_value());
         }
