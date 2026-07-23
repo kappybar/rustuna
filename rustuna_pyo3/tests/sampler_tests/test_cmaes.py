@@ -82,3 +82,36 @@ def test_cmaes_sampler_missing_dependency_raises_import_error(
 
     with pytest.raises(ImportError, match="cmaes"):
         study.optimize(objective, n_trials=2)
+
+
+def test_cmaes_sampler_with_single_value_parameters() -> None:
+    """Test that CMAES correctly handles single-value parameters.
+
+    Single-value parameters should be included in the search space and
+    correctly transformed/untransformed by SearchSpaceTransform.
+    """
+    sampler = rustuna.samplers.CmaEsSampler(seed=42, popsize=4)
+    study = rustuna.create_study(sampler=sampler)
+
+    def objective(trial: rustuna.Trial) -> float:
+        # Normal parameters
+        x = trial.suggest_float("x", -10, 10)
+        y = trial.suggest_float("y", -10, 10)
+
+        # Single-value parameters (should be handled correctly)
+        z = trial.suggest_float("z", 5.0, 5.0)  # single value: 5.0
+        w = trial.suggest_int("w", 3, 3)  # single value: 3
+
+        return x**2 + y**2 + z + w
+
+    study.optimize(objective, n_trials=10)
+
+    assert len(study.trials) == 10
+    assert all(
+        trial.state == rustuna.trial.TrialState.COMPLETE for trial in study.trials
+    )
+
+    # Verify single-value parameters were always constant
+    for trial in study.trials:
+        assert trial.params["z"] == 5.0, f"z should always be 5.0, got {trial.params['z']}"
+        assert trial.params["w"] == 3, f"w should always be 3, got {trial.params['w']}"
