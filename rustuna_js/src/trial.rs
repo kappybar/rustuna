@@ -48,7 +48,10 @@ impl JsTrial {
         for i in 0..choices.length() {
             let c = choices.get(i);
             if c.is_string() {
-                category_labels.push(CategoryLabel::String(c.as_string().unwrap()));
+                category_labels
+                    .push(CategoryLabel::String(c.as_string().ok_or(JsError::new(
+                        "Failed to read string category value",
+                    ))?));
                 continue;
             } else if c.is_null() {
                 category_labels.push(CategoryLabel::None);
@@ -59,9 +62,15 @@ impl JsTrial {
                 .as_string()
                 .ok_or(JsError::new("Unsupported category value type"))?;
             if js_ty == "number" {
-                category_labels.push(CategoryLabel::Float(c.as_f64().unwrap()));
+                category_labels
+                    .push(CategoryLabel::Float(c.as_f64().ok_or(JsError::new(
+                        "Failed to read numeric category value",
+                    ))?));
             } else if js_ty == "boolean" {
-                category_labels.push(CategoryLabel::Bool(c.as_bool().unwrap()));
+                category_labels
+                    .push(CategoryLabel::Bool(c.as_bool().ok_or(JsError::new(
+                        "Failed to read boolean category value",
+                    ))?));
             } else {
                 return Err(JsError::new("Unsupported category value type"));
             }

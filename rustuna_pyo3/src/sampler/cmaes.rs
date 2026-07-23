@@ -189,9 +189,12 @@ impl Sampler for CmaEsSampler {
                 .transform
                 .as_ref()
                 .ok_or_else(|| Error::new(ErrorKind::Unexpected))?;
-            let guard = storage
-                .read()
-                .map_err(|_| Error::new(ErrorKind::Unexpected))?;
+            let guard = storage.read().map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::Unexpected,
+                    format!("Failed to acquire storage guard: {e}"),
+                )
+            })?;
             let mut solutions = Vec::with_capacity(population_size);
             for trial_id in self.solution_trial_ids.iter() {
                 if solutions.len() == population_size {
@@ -285,7 +288,9 @@ impl PyCmaEsSampler {
         py.detach(|| {
             self.sampler
                 .lock()
-                .map_err(|_| PyRuntimeError::new_err("Failed to acquire the sampler guard"))?
+                .map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to acquire the sampler guard: {e}"))
+                })?
                 .sample_independent(&context, arc_storage, &name, &distribution)
                 .map_err(|e| {
                     PyRuntimeError::new_err(format!("Failed to sample independent: {e:?}"))
@@ -309,7 +314,9 @@ impl PyCmaEsSampler {
         py.detach(|| {
             self.sampler
                 .lock()
-                .map_err(|_| PyRuntimeError::new_err("Failed to acquire the sampler guard"))?
+                .map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to acquire the sampler guard: {e}"))
+                })?
                 .sample_joint(&context, arc_storage, &search_space)
                 .map_err(err_to_exceptions)
         })
@@ -338,7 +345,9 @@ impl PyCmaEsSampler {
         py.detach(|| {
             self.sampler
                 .lock()
-                .map_err(|_| PyRuntimeError::new_err("Failed to acquire the sampler guard"))?
+                .map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to acquire the sampler guard: {e}"))
+                })?
                 .after_trial(&context, arc_storage, &state_values)
                 .map_err(|e| PyRuntimeError::new_err(format!("Failed to call after_trial: {e:?}")))
         })

@@ -560,9 +560,12 @@ impl Sampler for TpeSampler {
         distribution: &Distribution,
     ) -> Result<f64> {
         {
-            let mut guard = storage
-                .write()
-                .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
+            let mut guard = storage.write().map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::Unexpected,
+                    format!("Failed to acquire storage guard: {e}"),
+                )
+            })?;
             let trials = guard.get_trials(ctx.study_id)?;
             let complete_trials: Vec<&rustuna_core::trial::PersistedTrial> =
                 Self::usable_complete_trials(trials);
@@ -586,9 +589,12 @@ impl Sampler for TpeSampler {
         storage: Arc<RwLock<dyn Storage>>,
         search_space: &HashMap<String, Distribution>,
     ) -> Result<HashMap<String, f64>> {
-        let mut guard = storage
-            .write()
-            .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
+        let mut guard = storage.write().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::Unexpected,
+                format!("Failed to acquire storage guard: {e}"),
+            )
+        })?;
         let trials = guard.get_trials(ctx.study_id)?;
         let complete_trials: Vec<&rustuna_core::trial::PersistedTrial> =
             Self::usable_complete_trials(trials);

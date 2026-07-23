@@ -45,7 +45,9 @@ impl PyRandomSampler {
         let arc_storage = extract_storage(storage)?;
         self.sampler
             .lock()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the sampler guard"))?
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("Failed to acquire the sampler guard: {e}"))
+            })?
             .sample_independent(&ctx.context, arc_storage, name, &distribution.distribution)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to sample independent: {e:?}")))
     }

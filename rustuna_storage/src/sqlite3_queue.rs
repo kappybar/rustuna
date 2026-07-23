@@ -64,10 +64,12 @@ impl SQLite3TrialQueue {
 
 impl TrialQueue for SQLite3TrialQueue {
     fn enqueue(&mut self, trial_id: u32) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| Error::new(ErrorKind::StorageError))?;
+        let conn = self.conn.lock().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Failed to acquire SQLite connection: {e}"),
+            )
+        })?;
 
         // Use current timestamp in microseconds for ordering
         let enqueued_at = std::time::SystemTime::now()
@@ -84,7 +86,12 @@ impl TrialQueue for SQLite3TrialQueue {
                 params![self.namespace, enqueued_at],
                 |row| row.get(0),
             )
-            .unwrap_or(0);
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Failed to determine trial queue sequence: {e}"),
+                )
+            })?;
 
         conn.execute(
             "INSERT INTO trial_queue (namespace, trial_id, enqueued_at, sequence) 
@@ -102,10 +109,12 @@ impl TrialQueue for SQLite3TrialQueue {
     }
 
     fn dequeue(&mut self) -> Result<u32> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| Error::new(ErrorKind::StorageError))?;
+        let conn = self.conn.lock().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Failed to acquire SQLite connection: {e}"),
+            )
+        })?;
 
         // Use a transaction with IMMEDIATE to ensure exclusive access
         conn.execute("BEGIN IMMEDIATE", []).map_err(|e| {
@@ -143,15 +152,23 @@ impl TrialQueue for SQLite3TrialQueue {
                 Ok(trial_id)
             }
             Err(rusqlite::Error::QueryReturnedNoRows) => {
-                let _ = conn.execute("ROLLBACK", []);
+                conn.execute("ROLLBACK", []).map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Failed to roll back empty dequeue transaction: {e}"),
+                    )
+                })?;
                 Err(Error::new(ErrorKind::TrialQueueEmpty))
             }
             Err(e) => {
-                let _ = conn.execute("ROLLBACK", []);
-                Err(Error::with_reason(
-                    ErrorKind::StorageError,
-                    format!("Failed to dequeue trial: {e}"),
-                ))
+                let rollback_result = conn.execute("ROLLBACK", []);
+                let reason = match rollback_result {
+                    Ok(_) => format!("Failed to dequeue trial: {e}"),
+                    Err(rollback_error) => format!(
+                        "Failed to dequeue trial: {e}; failed to roll back transaction: {rollback_error}"
+                    ),
+                };
+                Err(Error::with_reason(ErrorKind::StorageError, reason))
             }
         }
     }

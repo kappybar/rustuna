@@ -67,10 +67,12 @@ impl Trial {
         if let Some(fixed_value) = self.fixed_params.get(name) {
             let result = if let Distribution::Categorical { cardinality } = distribution {
                 // CategoricalDistribution
-                let mut storage_guard = self
-                    .storage
-                    .write()
-                    .map_err(|_| Error::new(ErrorKind::StorageError))?;
+                let mut storage_guard = self.storage.write().map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Failed to acquire storage guard: {e}"),
+                    )
+                })?;
                 let labels =
                     storage_guard.get_category_labels(self.study_id, name, *cardinality)?;
                 drop(storage_guard);
@@ -95,10 +97,12 @@ impl Trial {
             };
 
             if let Some(internal_value) = result {
-                let mut storage_guard = self
-                    .storage
-                    .write()
-                    .map_err(|_| Error::new(ErrorKind::StorageError))?;
+                let mut storage_guard = self.storage.write().map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Failed to acquire storage guard: {e}"),
+                    )
+                })?;
                 storage_guard.set_trial_param(self.id, name, distribution, internal_value)?;
                 drop(storage_guard);
 
@@ -116,10 +120,12 @@ impl Trial {
         if let Some((d, val)) = self.joint_params.get(name) {
             if *d == *distribution {
                 let param_value = *val;
-                let mut storage_guard = self
-                    .storage
-                    .write()
-                    .map_err(|_| Error::new(ErrorKind::StorageError))?;
+                let mut storage_guard = self.storage.write().map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Failed to acquire storage guard: {e}"),
+                    )
+                })?;
                 storage_guard.set_trial_param(self.id, name, distribution, param_value)?;
                 drop(storage_guard);
                 return Ok(param_value);
@@ -132,18 +138,22 @@ impl Trial {
             trial_id: self.id,
             directions: self.directions.clone(),
         };
-        let mut sampler_guard = self
-            .sampler
-            .lock()
-            .map_err(|_| Error::new(ErrorKind::SamplerError))?;
+        let mut sampler_guard = self.sampler.lock().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::SamplerError,
+                format!("Failed to acquire sampler guard: {e}"),
+            )
+        })?;
         let param_value =
             sampler_guard.sample_independent(&context, self.storage.clone(), name, distribution)?;
         drop(sampler_guard);
 
-        let mut storage_guard = self
-            .storage
-            .write()
-            .map_err(|_| Error::new(ErrorKind::StorageError))?;
+        let mut storage_guard = self.storage.write().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Failed to acquire storage guard: {e}"),
+            )
+        })?;
         storage_guard.set_trial_param(self.id, name, distribution, param_value)?;
         drop(storage_guard);
 
@@ -186,9 +196,12 @@ impl Trial {
         // Save labels in the study system attr before calling suggest(),
         // so that fixed_params can look up category labels during suggest().
         let category_labels = category_labels_to_attrs(name, choices);
-        let mut guard = storage
-            .write()
-            .map_err(|_| Error::new(ErrorKind::Unexpected))?;
+        let mut guard = storage.write().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::Unexpected,
+                format!("Failed to acquire storage guard: {e}"),
+            )
+        })?;
         guard.set_study_attrs(study_id, category_labels, false)?;
         drop(guard);
 
@@ -219,10 +232,12 @@ impl Trial {
 
     /// Sets a single user attribute on the trial.
     pub fn set_user_attr(&mut self, key: &str, value: String) -> Result<()> {
-        let mut guard = self
-            .storage
-            .write()
-            .map_err(|_| Error::new(ErrorKind::StorageError))?;
+        let mut guard = self.storage.write().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Failed to acquire storage guard: {e}"),
+            )
+        })?;
         let mut attrs = Attrs::new();
 
         let key = AttrKey::User(key.into());
@@ -238,10 +253,12 @@ impl Trial {
         for (key, value) in &user_attrs {
             attrs.insert(AttrKey::User(key.as_str().into()), value.clone());
         }
-        let mut guard = self
-            .storage
-            .write()
-            .map_err(|_| Error::new(ErrorKind::StorageError))?;
+        let mut guard = self.storage.write().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Failed to acquire storage guard: {e}"),
+            )
+        })?;
         guard.set_trial_attrs(self.id, attrs, false)?;
         drop(guard);
 
@@ -470,9 +487,12 @@ mod tests {
         trial.set_user_attr("key", "user".to_string())?;
 
         // Set system attributes
-        let mut guard = storage
-            .write()
-            .map_err(|_| Error::new(ErrorKind::StorageError))?;
+        let mut guard = storage.write().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Failed to acquire storage guard: {e}"),
+            )
+        })?;
         let mut attrs = Attrs::new();
         attrs.insert(AttrKey::System("key".into()), "system".to_string());
         guard.set_trial_attrs(trial.id, attrs, false)?;
