@@ -1,0 +1,74 @@
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+use pyo3::exceptions::PyRuntimeError;
+use pyo3::prelude::*;
+use pyo3::Py;
+use rustuna_core::sampler::{RandomSampler, Sampler};
+
+use crate::distribution::PyDistribution;
+use crate::sampler::{extract_storage, PySamplerContext};
+use crate::trial::PyTrialState;
+
+#[derive(Clone)]
+#[pyclass(name = "RandomSampler")]
+#[pyo3(module = "rustuna")]
+pub struct PyRandomSampler {
+    pub sampler: Arc<Mutex<RandomSampler>>,
+}
+#[pymethods]
+impl PyRandomSampler {
+    #[new]
+    #[pyo3(signature = (*, seed = None))]
+    fn py_new(seed: Option<u64>) -> Self {
+        let random_sampler = match seed {
+            Some(seed) => RandomSampler::seed_from_u64(seed),
+            None => RandomSampler::new(),
+        };
+        Self {
+            sampler: Arc::new(Mutex::new(random_sampler)),
+        }
+    }
+
+    #[getter]
+    fn support_joint_sampling(&self) -> PyResult<bool> {
+        Ok(false)
+    }
+
+    fn sample_independent(
+        &self,
+        ctx: &PySamplerContext,
+        storage: Py<PyAny>,
+        name: &str,
+        distribution: &PyDistribution,
+    ) -> PyResult<f64> {
+        let arc_storage = extract_storage(storage)?;
+        self.sampler
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the sampler guard"))?
+            .sample_independent(&ctx.context, arc_storage, name, &distribution.distribution)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to sample independent: {e:?}")))
+    }
+
+    fn sample_joint(
+        &self,
+        ctx: &PySamplerContext,
+        storage: Py<PyAny>,
+        search_space: HashMap<String, PyDistribution>,
+    ) -> PyResult<HashMap<String, f64>> {
+        let _ = (ctx, storage, search_space);
+        Ok(HashMap::new())
+    }
+
+    #[pyo3(signature = (ctx, storage, state, values = None))]
+    fn after_trial(
+        &self,
+        ctx: &PySamplerContext,
+        storage: Py<PyAny>,
+        state: PyTrialState,
+        values: Option<Vec<f64>>,
+    ) -> PyResult<()> {
+        let _ = (ctx, storage, state, values);
+        Ok(())
+    }
+}

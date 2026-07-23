@@ -252,7 +252,7 @@ pub struct PyCmaEsSampler {
     pub sampler: Arc<Mutex<dyn Sampler>>,
 }
 
-// Unlike `PySampler`, these methods release the GIL before acquiring the sampler mutex because
+// These methods release the GIL before acquiring the sampler mutex because
 // `CmaEsSampler` re-attaches to Python internally. Acquiring the mutex while holding the GIL
 // could deadlock with another thread that holds the mutex and waits for the GIL.
 #[pymethods]
