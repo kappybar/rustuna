@@ -147,7 +147,11 @@ impl Study {
                     format!("Failed to acquire a queue guard: {e}"),
                 )
             })?;
-            queue_guard.dequeue().ok()
+            match queue_guard.dequeue() {
+                Ok(trial_id) => Some(trial_id),
+                Err(error) if matches!(error.kind, ErrorKind::TrialQueueEmpty) => None,
+                Err(error) => return Err(error),
+            }
         };
 
         let (trial_id, trial_number, datetime_start, datetime_complete, fixed_params) =

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 import rustuna
 
 from . import (
@@ -139,6 +141,17 @@ def test_queue_basic_enqueue_dequeue(queue_type: "TrialQueueType") -> None:
         factory.queue.enqueue(2)
         assert factory.queue.dequeue() == 1
         assert factory.queue.dequeue() == 2
+
+
+@pytest.mark.parametrize(
+    "queue_type",
+    ["in_memory", "directory", "sqlite3"],
+    ids=["InMemoryTrialQueue", "DirectoryTrialQueue", "SQLite3TrialQueue"],
+)
+def test_native_queue_empty_returns_none(queue_type: TrialQueueType) -> None:
+    with TrialQueueFactory(queue_type) as factory:
+        assert factory.queue is not None
+        assert factory.queue.dequeue() is None
 
 
 @parametrize_trial_queue

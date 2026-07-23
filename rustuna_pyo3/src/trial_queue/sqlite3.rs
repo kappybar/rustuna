@@ -1,6 +1,7 @@
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use rustuna_core::trial_queue::TrialQueue;
+use rustuna_core::ErrorKind;
 use rustuna_storage::sqlite3_queue::SQLite3TrialQueue;
 use std::sync::{Arc, RwLock};
 
@@ -17,8 +18,11 @@ pub struct PySQLite3TrialQueue {
 impl PySQLite3TrialQueue {
     #[new]
     fn py_new(db_path: &str, namespace: &str) -> PyResult<Self> {
-        let queue = SQLite3TrialQueue::new(db_path, namespace).map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to create SQLite3TrialQueue: {e:?}"))
+        let queue = SQLite3TrialQueue::new(db_path, namespace).map_err(|error| {
+            PyRuntimeError::new_err(format!(
+                "Failed to create SQLite3TrialQueue: {}",
+                error.reason
+            ))
         })?;
         Ok(Self {
             queue: Arc::new(RwLock::new(queue)),
@@ -26,18 +30,20 @@ impl PySQLite3TrialQueue {
     }
 
     fn enqueue(&self, trial_id: u32) -> PyResult<()> {
-        let mut guard = self
-            .queue
-            .write()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire queue lock"))?;
+        let mut guard = self.queue.write().map_err(|error| {
+            PyRuntimeError::new_err(format!("Failed to acquire trial queue lock: {error}"))
+        })?;
         guard.enqueue(trial_id).map_err(err_to_exceptions)
     }
 
-    fn dequeue(&self) -> PyResult<u32> {
-        let mut guard = self
-            .queue
-            .write()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire queue lock"))?;
-        guard.dequeue().map_err(err_to_exceptions)
+    fn dequeue(&self) -> PyResult<Option<u32>> {
+        let mut guard = self.queue.write().map_err(|error| {
+            PyRuntimeError::new_err(format!("Failed to acquire trial queue lock: {error}"))
+        })?;
+        match guard.dequeue() {
+            Ok(trial_id) => Ok(Some(trial_id)),
+            Err(error) if matches!(error.kind, ErrorKind::TrialQueueEmpty) => Ok(None),
+            Err(error) => Err(err_to_exceptions(error)),
+        }
     }
 }

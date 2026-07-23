@@ -11,11 +11,11 @@ impl PythonTrialQueueAdapter {
         Self { obj }
     }
 
-    fn map_pyerr(&self, err: PyErr) -> Error {
+    fn map_pyerr(&self, operation: &str, err: PyErr) -> Error {
         Python::attach(|py| {
             Error::with_reason(
                 ErrorKind::Unexpected,
-                format!("Python TrialQueueProtocol error: {}", err.value(py)),
+                format!("TrialQueueProtocol.{operation} failed: {}", err.value(py)),
             )
         })
     }
@@ -27,16 +27,18 @@ impl TrialQueue for PythonTrialQueueAdapter {
             self.obj
                 .call_method1(py, "enqueue", (trial_id,))
                 .map(|_| ())
-                .map_err(|err| self.map_pyerr(err))
+                .map_err(|err| self.map_pyerr("enqueue", err))
         })
     }
 
     fn dequeue(&mut self) -> Result<u32> {
         Python::attach(|py| {
-            self.obj
+            let trial_id = self
+                .obj
                 .call_method0(py, "dequeue")
-                .and_then(|value| value.extract::<u32>(py))
-                .map_err(|err| self.map_pyerr(err))
+                .and_then(|value| value.extract::<Option<u32>>(py))
+                .map_err(|err| self.map_pyerr("dequeue", err))?;
+            trial_id.ok_or_else(|| Error::new(ErrorKind::TrialQueueEmpty))
         })
     }
 }

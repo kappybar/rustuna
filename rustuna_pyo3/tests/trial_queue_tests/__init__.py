@@ -23,9 +23,9 @@ class DummyInMemoryTrialQueue:
     def enqueue(self, trial_id: int) -> None:
         self.queue.append(trial_id)
 
-    def dequeue(self) -> int:
+    def dequeue(self) -> int | None:
         if not self.queue:
-            raise RuntimeError("queue is empty")
+            return None
         return self.queue.pop(0)
 
 
