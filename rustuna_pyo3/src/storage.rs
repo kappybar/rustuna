@@ -4,12 +4,13 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
 pub mod binding;
+pub mod in_memory;
 pub mod journal;
 
 use pyo3::types::{PyList, PyType};
 use rustuna_core::attr::{AttrKey, CategoryLabel};
 use rustuna_core::distribution::Distribution;
-use rustuna_core::storage::{InMemoryStorage, Storage};
+use rustuna_core::storage::Storage;
 use rustuna_core::study::Direction;
 use rustuna_core::trial::TrialStateValues;
 use rustuna_storage::cache::CachedStorage;
@@ -31,14 +32,6 @@ pub struct PyStorage {
 
 #[pymethods]
 impl PyStorage {
-    #[classmethod]
-    fn in_memory(_cls: &Bound<'_, PyType>) -> PyResult<Self> {
-        Ok(PyStorage {
-            storage: Arc::new(RwLock::new(InMemoryStorage::new())),
-            kind: "in_memory",
-        })
-    }
-
     #[classmethod]
     #[pyo3(name = "sqlite3", signature = (file_path, *, create_database = true))]
     fn sqlite3(_cls: &Bound<'_, PyType>, file_path: &str, create_database: bool) -> PyResult<Self> {

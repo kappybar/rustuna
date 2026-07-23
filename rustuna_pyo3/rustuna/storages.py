@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from rustuna._protocols import StorageProtocol
-from rustuna._rustuna import Storage, JournalFileStorage
+from rustuna._rustuna import InMemoryStorage, JournalFileStorage, Storage
 
 __all__ = [
     "InMemoryStorage",
@@ -9,16 +9,6 @@ __all__ = [
     "SQLite3Storage",
     "StorageProtocol",
 ]
-
-
-# TODO(c-bata): Replace InMemoryStorage with a Python concrete class.
-def InMemoryStorage() -> StorageProtocol:
-    """Create an in-memory storage.
-
-    Returns:
-        An in-memory storage instance.
-    """
-    return Storage.in_memory()
 
 
 # TODO(c-bata): Replace InMemoryStorage with a Python concrete class.
