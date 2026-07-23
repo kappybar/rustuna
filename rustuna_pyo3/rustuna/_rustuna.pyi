@@ -1148,35 +1148,45 @@ class CmaEsSampler:
     ) -> None: ...
 
 # Trial Queue
-class TrialQueue:
-    """Factory class for creating trial queue instances.
+class DirectoryTrialQueue:
+    """A directory-based trial queue.
 
-    Trial queues are used to manage a FIFO queue of trial IDs for parallel optimization.
-    They provide persistence and multi-process safety for managing trial execution order.
+    This queue uses the filesystem to persist trial IDs and provides multi-process
+    safety through atomic file operations. The queue is stored in two subdirectories
+    under the base directory: 'pending/' for queued trials and 'processing/' for
+    trials being processed.
+
+    Args:
+        base_dir: Base directory path for the queue. Should be study-specific
+            (e.g., '{storage_dir}/queue/{study_id}/') to ensure isolation between studies.
     """
 
-    @classmethod
-    def in_memory(cls) -> TrialQueueProtocol: ...
-    @classmethod
-    def directory(cls, base_dir: str) -> TrialQueueProtocol: ...
-    @classmethod
-    def sqlite3(cls, db_path: str, namespace: str) -> TrialQueueProtocol: ...
+    def __init__(self, base_dir: str) -> None: ...
     def enqueue(self, trial_id: int) -> None: ...
     def dequeue(self) -> int: ...
 
-class PyObjectTrialQueue:
-    """Wrapper to convert a TrialQueueProtocol implementation to Rust TrialQueue trait.
+class InMemoryTrialQueue:
+    """An in-memory TrialQueue implementation.
 
-    This class wraps a Python object implementing TrialQueueProtocol and makes it
-    usable as a Rust TrialQueue trait implementation.
+    This queue stores trial IDs in memory and does not persist across process restarts.
+    Suitable for single-process optimization or when persistence is not required.
     """
 
-    def __init__(self, trial_queue: TrialQueueProtocol) -> None:
-        """Create a PyObjectTrialQueue from a TrialQueueProtocol instance.
+    def __init__(self) -> None: ...
+    def enqueue(self, trial_id: int) -> None: ...
+    def dequeue(self) -> int: ...
 
-        Args:
-            trial_queue: A Python object implementing TrialQueueProtocol.
-        """
+class SQLite3TrialQueue:
+    """An SQLite3 based TrialQueue implementation.
 
+    This queue uses SQLite to persist trial IDs with ACID guarantees. Multiple queues
+    can share the same database file, with namespace used for isolation.
+
+    Args:
+        db_path: Path to the SQLite database file.
+        namespace: Namespace to isolate trials for this queue.
+    """
+
+    def __init__(self, db_path: str, namespace: str) -> None: ...
     def enqueue(self, trial_id: int) -> None: ...
     def dequeue(self) -> int: ...
