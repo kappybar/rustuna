@@ -87,14 +87,11 @@ class TrialQueueProtocol(Protocol):
             trial_id: The trial ID to enqueue.
         """
 
-    def dequeue(self) -> int:
+    def dequeue(self) -> int | None:
         """Remove and return the next trial ID from the queue.
 
         Returns:
-            The next trial ID in FIFO order.
-
-        Raises:
-            Exception: If the queue is empty.
+            The next trial ID in FIFO order, or None when the queue is empty.
         """
 
 

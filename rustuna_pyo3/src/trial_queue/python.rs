@@ -33,10 +33,12 @@ impl TrialQueue for PythonTrialQueueAdapter {
 
     fn dequeue(&mut self) -> Result<u32> {
         Python::attach(|py| {
-            self.obj
+            let trial_id = self
+                .obj
                 .call_method0(py, "dequeue")
-                .and_then(|value| value.extract::<u32>(py))
-                .map_err(|err| self.map_pyerr("dequeue", err))
+                .and_then(|value| value.extract::<Option<u32>>(py))
+                .map_err(|err| self.map_pyerr("dequeue", err))?;
+            trial_id.ok_or_else(|| Error::new(ErrorKind::TrialQueueEmpty))
         })
     }
 }

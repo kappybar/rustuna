@@ -43,10 +43,11 @@ def _worker_pop_exact(
     popped_ids: list[int] = []
 
     while len(popped_ids) < count:
-        try:
-            popped_ids.append(queue.dequeue())
-        except Exception:
+        trial_id = queue.dequeue()
+        if trial_id is None:
             time.sleep(0.01)
+        else:
+            popped_ids.append(trial_id)
     return popped_ids
 
 
