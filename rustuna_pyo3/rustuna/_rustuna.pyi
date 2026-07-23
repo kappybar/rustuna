@@ -829,6 +829,75 @@ class PyObjectStorage:
     def discard_trials(self, trial_ids: list[int]) -> None: ...
     def may_omit_trials(self) -> bool: ...
 
+class JournalFileStorage:
+    """Create a Journal storage with its file backend.
+
+    Args:
+        file_path: Path to the journal log file.
+        load_discarded_trials: If True, ignore discard logs and load all trials.
+    """
+    def __init__(
+        self,
+        file_path: str,
+        *,
+        load_discarded_trials: bool = False,
+    ) -> None: ...
+    def create_new_study(
+        self, study_name: str, directions: list[StudyDirection]
+    ) -> PersistedStudy: ...
+    def delete_study(self, study_id: int) -> None: ...
+    def create_new_trial(
+        self,
+        study_id: int,
+        template_trial: PersistedTrial | None = None,
+    ) -> PersistedTrial: ...
+    def set_trial_param(
+        self,
+        trial_id: int,
+        name: str,
+        distribution: Distribution,
+        value: float,
+    ) -> None: ...
+    def set_trial_state_values(
+        self,
+        trial_id: int,
+        state: TrialState,
+        values: None | list[float] = None,
+    ) -> None: ...
+    def get_studies(self) -> list[PersistedStudy]: ...
+    def get_study(self, study_id: int) -> PersistedStudy: ...
+    def get_trials(
+        self, study_id: int, *, states: list[TrialState] | None = None
+    ) -> list[PersistedTrial]: ...
+    def get_trial(self, trial_id: int) -> PersistedTrial: ...
+    def get_cached_trial(self, trial_id: int) -> PersistedTrial: ...
+    def get_trial_id_from_study_id_trial_number(
+        self, study_id: int, trial_number: int
+    ) -> int: ...
+    def get_study_user_attr(self, study_id: int, key: str) -> str: ...
+    def get_study_system_attr(self, study_id: int, key: str) -> str: ...
+    def set_study_system_attrs(self, study_id: int, attrs: dict[str, str]) -> None: ...
+    def set_study_user_attrs(self, study_id: int, attrs: dict[str, str]) -> None: ...
+    def set_trial_system_attrs(self, trial_id: int, attrs: dict[str, str]) -> None: ...
+    def set_trial_user_attrs(self, trial_id: int, attrs: dict[str, str]) -> None: ...
+    def set_trial_intermediate_value(
+        self, trial_id: int, step: int, intermediate_value: float
+    ) -> None: ...
+    def set_category_labels(
+        self,
+        study_id: int,
+        param_name: str,
+        choices: list[CategoricalChoiceType],
+    ) -> None: ...
+    def get_category_labels(
+        self,
+        study_id: int,
+        param_name: str,
+        cardinality: int,
+    ) -> list[CategoricalChoiceType] | None: ...
+    def discard_trials(self, trial_ids: list[int]) -> None: ...
+    def may_omit_trials(self) -> bool: ...
+
 class Storage:
     """Storage for persisting optimization history."""
 
@@ -837,13 +906,6 @@ class Storage:
     @classmethod
     def sqlite3(
         cls, file_path: str, *, create_database: bool = True
-    ) -> StorageProtocol: ...
-    @classmethod
-    def journal_file(
-        cls,
-        file_path: str,
-        *,
-        load_discarded_trials: bool = False,
     ) -> StorageProtocol: ...
     def create_new_study(
         self, study_name: str, directions: list[StudyDirection]

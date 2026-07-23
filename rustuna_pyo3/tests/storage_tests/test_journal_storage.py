@@ -10,6 +10,28 @@ from optuna.storages.journal import JournalFileBackend
 import rustuna
 
 
+def test_journal_file_storage_can_be_used_by_native_sampler() -> None:
+    with tempfile.TemporaryDirectory() as workdir:
+        storage = rustuna.storages.JournalFileStorage(f"{workdir}/test.journal")
+        study = rustuna.create_study(storage=storage)
+        trial = study.ask()
+        ctx = rustuna.samplers.SamplerContext(
+            study_id=study._study_id,
+            trial_number=trial.number,
+            trial_id=trial._trial_id,
+            directions=study.directions,
+        )
+
+        value = rustuna.samplers.RandomSampler(seed=1).sample_independent(
+            ctx,
+            storage,
+            "x",
+            rustuna.distributions.FloatDistribution(0, 1),
+        )
+
+        assert 0 <= value <= 1
+
+
 def test_reading_trials_after_late_user_attr_write_keeps_trials_readable() -> None:
     with tempfile.TemporaryDirectory() as workdir:
         file_path = f"{workdir}/test.journal"

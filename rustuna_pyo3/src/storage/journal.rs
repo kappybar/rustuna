@@ -3,16 +3,14 @@ use std::sync::{Arc, RwLock};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
-pub mod journal;
-
-use pyo3::types::{PyList, PyType};
+use pyo3::types::PyList;
 use rustuna_core::attr::{AttrKey, CategoryLabel};
 use rustuna_core::distribution::Distribution;
-use rustuna_core::storage::{InMemoryStorage, Storage};
+use rustuna_core::storage::Storage;
 use rustuna_core::study::Direction;
 use rustuna_core::trial::TrialStateValues;
-use rustuna_storage::cache::CachedStorage;
-use rustuna_storage::sqlite3::SQLite3Storage;
+use rustuna_storage::journal::file::{JournalFileBackend, JournalFileSymlinkLock};
+use rustuna_storage::journal::storage::{JournalStorage, JournalStorageOptions};
 
 use crate::attrs::{pyobj_to_attrs_with_kind, AttrKind};
 use crate::distribution::{category_label_to_pyobject, pyobject_to_category_label, PyDistribution};
@@ -21,39 +19,32 @@ use crate::study::{PyDirection, PyPersistedStudy};
 use crate::trial::{PyPersistedTrial, PyTrialState};
 
 #[derive(Clone)]
-#[pyclass(name = "Storage")]
+#[pyclass(name = "JournalFileStorage")]
 #[pyo3(module = "rustuna")]
-pub struct PyStorage {
-    pub storage: Arc<RwLock<dyn Storage>>,
-    pub kind: &'static str,
+pub struct PyJournalFileStorage {
+    pub storage: Arc<RwLock<JournalStorage>>,
 }
 
 #[pymethods]
-impl PyStorage {
-    #[classmethod]
-    fn in_memory(_cls: &Bound<'_, PyType>) -> PyResult<Self> {
-        Ok(PyStorage {
-            storage: Arc::new(RwLock::new(InMemoryStorage::new())),
-            kind: "in_memory",
-        })
-    }
-
-    #[classmethod]
-    #[pyo3(name = "sqlite3", signature = (file_path, *, create_database = true))]
-    fn sqlite3(_cls: &Bound<'_, PyType>, file_path: &str, create_database: bool) -> PyResult<Self> {
-        let backend = SQLite3Storage::new(file_path).map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to open the SQLite3 file: {e:?}"))
+impl PyJournalFileStorage {
+    #[new]
+    #[pyo3(signature = (file_path, *, load_discarded_trials = false))]
+    fn py_new(file_path: &str, load_discarded_trials: bool) -> PyResult<Self> {
+        // TODO(c-bata): Add lock_obj argument to use JournalFileOpenLock.
+        let lock_obj = Box::new(JournalFileSymlinkLock::new(file_path));
+        let backend = JournalFileBackend::new(file_path, Some(lock_obj)).map_err(|e| {
+            PyRuntimeError::new_err(format!("Failed to create journal file: {e:?}"))
         })?;
-        if create_database {
-            backend.create_database().map_err(|e| {
-                PyRuntimeError::new_err(format!("Failed to create the database: {e:?}"))
-            })?;
-        }
-
-        let arc_storage = Arc::new(RwLock::new(CachedStorage::new(Box::new(backend))));
-        Ok(PyStorage {
+        let storage = JournalStorage::new_with_options(
+            Box::new(backend),
+            JournalStorageOptions {
+                load_discarded_trials,
+            },
+        )
+        .map_err(|e| PyRuntimeError::new_err(format!("Failed to create journal storage: {e:?}")))?;
+        let arc_storage = Arc::new(RwLock::new(storage));
+        Ok(PyJournalFileStorage {
             storage: arc_storage.clone(),
-            kind: "sqlite3",
         })
     }
 
@@ -403,7 +394,7 @@ impl PyStorage {
     }
 }
 
-impl PyStorage {
+impl PyJournalFileStorage {
     fn set_category_labels_internal(
         &mut self,
         study_id: u32,

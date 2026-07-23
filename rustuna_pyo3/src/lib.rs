@@ -34,6 +34,7 @@ fn rustuna(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<distribution::PyDistribution>()?;
     // storage
     m.add_class::<storage::PyStorage>()?;
+    m.add_class::<storage::journal::PyJournalFileStorage>()?;
     m.add_class::<pyobject_storage::PyPyObjectStorage>()?;
     // sampler
     m.add_class::<sampler::tpe::PyTpeSampler>()?;
