@@ -6,15 +6,14 @@ use pyo3::prelude::*;
 pub mod binding;
 pub mod in_memory;
 pub mod journal;
+pub mod sqlite3;
 
-use pyo3::types::{PyList, PyType};
+use pyo3::types::PyList;
 use rustuna_core::attr::{AttrKey, CategoryLabel};
 use rustuna_core::distribution::Distribution;
 use rustuna_core::storage::Storage;
 use rustuna_core::study::Direction;
 use rustuna_core::trial::TrialStateValues;
-use rustuna_storage::cache::CachedStorage;
-use rustuna_storage::sqlite3::SQLite3Storage;
 
 use crate::attrs::{pyobj_to_attrs_with_kind, AttrKind};
 use crate::distribution::{category_label_to_pyobject, pyobject_to_category_label, PyDistribution};
@@ -32,25 +31,6 @@ pub struct PyStorage {
 
 #[pymethods]
 impl PyStorage {
-    #[classmethod]
-    #[pyo3(name = "sqlite3", signature = (file_path, *, create_database = true))]
-    fn sqlite3(_cls: &Bound<'_, PyType>, file_path: &str, create_database: bool) -> PyResult<Self> {
-        let backend = SQLite3Storage::new(file_path).map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to open the SQLite3 file: {e:?}"))
-        })?;
-        if create_database {
-            backend.create_database().map_err(|e| {
-                PyRuntimeError::new_err(format!("Failed to create the database: {e:?}"))
-            })?;
-        }
-
-        let arc_storage = Arc::new(RwLock::new(CachedStorage::new(Box::new(backend))));
-        Ok(PyStorage {
-            storage: arc_storage.clone(),
-            kind: "sqlite3",
-        })
-    }
-
     fn create_new_study(
         &mut self,
         study_name: String,

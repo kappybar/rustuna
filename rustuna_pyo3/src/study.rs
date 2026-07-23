@@ -25,9 +25,10 @@ use crate::sampler::nsgaii::PyNSGAIISampler;
 use crate::sampler::python::PythonSamplerAdapter;
 use crate::sampler::random::PyRandomSampler;
 use crate::sampler::tpe::PyTpeSampler;
+use crate::storage::PyStorage;
 use crate::storage::in_memory::PyInMemoryStorage;
 use crate::storage::journal::PyJournalFileStorage;
-use crate::storage::PyStorage;
+use crate::storage::sqlite3::PySQLite3Storage;
 use crate::trial::{PyPersistedTrial, PyTrial, PyTrialState};
 use crate::trial_queue::directory::PyDirectoryTrialQueue;
 use crate::trial_queue::inmemory::PyInMemoryTrialQueue;
@@ -166,6 +167,8 @@ fn resolve_storage_pyobj(
         Ok((py_inmemory_storage.storage(), storage_pyobj))
     } else if let Ok(py_journal_storage) = storage_ref.extract::<PyJournalFileStorage>() {
         Ok((py_journal_storage.storage(), storage_pyobj))
+    } else if let Ok(py_sqlite3_storage) = storage_ref.extract::<PySQLite3Storage>() {
+        Ok((py_sqlite3_storage.storage(), storage_pyobj))
     } else {
         let mut wrapped = PyObjectStorage::new(storage);
         wrapped.sync_studies(true).map_err(err_to_exceptions)?;

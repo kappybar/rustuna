@@ -957,13 +957,19 @@ class JournalFileStorage:
     def discard_trials(self, trial_ids: list[int]) -> None: ...
     def may_omit_trials(self) -> bool: ...
 
-class Storage:
-    """Storage for persisting optimization history."""
+class SQLite3Storage:
+    """Create a SQLite3 storage.
 
-    @classmethod
-    def sqlite3(
-        cls, file_path: str, *, create_database: bool = True
-    ) -> StorageProtocol: ...
+    Args:
+        file_path: Path to the SQLite3 database file.
+        create_database: If True, initialize the database when it is missing.
+    """
+    def __init__(
+        self,
+        file_path: str,
+        *,
+        load_discarded_trials: bool = False,
+    ) -> None: ...
     def create_new_study(
         self, study_name: str, directions: list[StudyDirection]
     ) -> PersistedStudy: ...
