@@ -1190,20 +1190,3 @@ class SQLite3TrialQueue:
     def __init__(self, db_path: str, namespace: str) -> None: ...
     def enqueue(self, trial_id: int) -> None: ...
     def dequeue(self) -> int: ...
-
-class PyObjectTrialQueue:
-    """Wrapper to convert a TrialQueueProtocol implementation to Rust TrialQueue trait.
-
-    This class wraps a Python object implementing TrialQueueProtocol and makes it
-    usable as a Rust TrialQueue trait implementation.
-    """
-
-    def __init__(self, trial_queue: TrialQueueProtocol) -> None:
-        """Create a PyObjectTrialQueue from a TrialQueueProtocol instance.
-
-        Args:
-            trial_queue: A Python object implementing TrialQueueProtocol.
-        """
-
-    def enqueue(self, trial_id: int) -> None: ...
-    def dequeue(self) -> int: ...

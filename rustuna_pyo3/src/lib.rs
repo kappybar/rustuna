@@ -48,6 +48,5 @@ fn rustuna(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<trial_queue::directory::PyDirectoryTrialQueue>()?;
     m.add_class::<trial_queue::inmemory::PyInMemoryTrialQueue>()?;
     m.add_class::<trial_queue::sqlite3::PySQLite3TrialQueue>()?;
-    m.add_class::<trial_queue::PyPyObjectTrialQueue>()?;
     Ok(())
 }

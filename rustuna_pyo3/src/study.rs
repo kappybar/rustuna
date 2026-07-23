@@ -31,7 +31,6 @@ use crate::trial_queue::directory::PyDirectoryTrialQueue;
 use crate::trial_queue::inmemory::PyInMemoryTrialQueue;
 use crate::trial_queue::python::PythonTrialQueueAdapter;
 use crate::trial_queue::sqlite3::PySQLite3TrialQueue;
-use crate::trial_queue::PyPyObjectTrialQueue;
 
 type SharedStorage = Arc<RwLock<dyn Storage>>;
 type SharedSampler = Arc<Mutex<dyn Sampler>>;
@@ -118,14 +117,7 @@ fn into_trial_queue_pyobj(
     match trial_queue {
         Some(trial_queue) => {
             let trial_queue_ref = trial_queue.bind(py);
-            if let Ok(py_obj_trial_queue) = trial_queue_ref.extract::<PyPyObjectTrialQueue>() {
-                Ok((
-                    py_obj_trial_queue.queue.clone() as SharedTrialQueue,
-                    trial_queue.clone_ref(py),
-                ))
-            } else if let Ok(py_inmemory_trial_queue) =
-                trial_queue_ref.extract::<PyInMemoryTrialQueue>()
-            {
+            if let Ok(py_inmemory_trial_queue) = trial_queue_ref.extract::<PyInMemoryTrialQueue>() {
                 Ok((
                     py_inmemory_trial_queue.queue.clone() as SharedTrialQueue,
                     trial_queue.clone_ref(py),
