@@ -21,9 +21,10 @@ use crate::attrs::{convert_pydict_to_fixed_params, pyobj_to_attrs_with_kind, Att
 use crate::exception::err_to_exceptions;
 use crate::pyobject_storage::PyObjectStorage;
 use crate::sampler::cmaes::PyCmaEsSampler;
+use crate::sampler::nsgaii::PyNSGAIISampler;
 use crate::sampler::python::PythonSamplerAdapter;
 use crate::sampler::random::PyRandomSampler;
-use crate::sampler::PySampler;
+use crate::sampler::tpe::PyTpeSampler;
 use crate::storage::PyStorage;
 use crate::trial::{PyPersistedTrial, PyTrial, PyTrialState};
 use crate::trial_queue::{PyObjectTrialQueue, PyPyObjectTrialQueue, PyTrialQueue};
@@ -181,8 +182,10 @@ fn resolve_sampler_pyobj(
 ) -> PyResult<(SharedSampler, Py<PyAny>)> {
     let sampler_pyobj = sampler.clone_ref(py);
     let sampler_ref = sampler.bind(py);
-    if let Ok(py_sampler) = sampler_ref.extract::<PySampler>() {
-        Ok((py_sampler.sampler.clone(), sampler_pyobj))
+    if let Ok(py_tpe_sampler) = sampler_ref.extract::<PyTpeSampler>() {
+        Ok((py_tpe_sampler.sampler.clone(), sampler_pyobj))
+    } else if let Ok(py_nsgaii_sampler) = sampler_ref.extract::<PyNSGAIISampler>() {
+        Ok((py_nsgaii_sampler.sampler.clone(), sampler_pyobj))
     } else if let Ok(py_cmaes_sampler) = sampler_ref.extract::<PyCmaEsSampler>() {
         Ok((py_cmaes_sampler.sampler.clone(), sampler_pyobj))
     } else if let Ok(py_random_sampler) = sampler_ref.extract::<PyRandomSampler>() {
@@ -201,12 +204,8 @@ fn into_sampler_pyobj(
     match sampler {
         Some(sampler) => resolve_sampler_pyobj(py, sampler),
         None => {
-            let (sampler, kind): (SharedSampler, &'static str) =
-                (Arc::new(Mutex::new(TpeSampler::new())), "tpe");
-            let py_sampler = PySampler {
-                sampler: sampler.clone(),
-                kind,
-            };
+            let sampler = Arc::new(Mutex::new(TpeSampler::new()));
+            let py_sampler = PyTpeSampler { sampler: sampler.clone() };
             let sampler_pyobj = Py::new(py, py_sampler)?.into_any();
             Ok((sampler, sampler_pyobj))
         }
