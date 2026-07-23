@@ -1,25 +1,22 @@
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use rustuna_core::trial_queue::TrialQueue;
-use rustuna_storage::sqlite3_queue::SQLite3TrialQueue;
+use rustuna_core::trial_queue::{InMemoryTrialQueue, TrialQueue};
 use std::sync::{Arc, RwLock};
 
 use crate::exception::err_to_exceptions;
 
 #[derive(Clone)]
-#[pyclass(name = "SQLite3TrialQueue")]
+#[pyclass(name = "InMemoryTrialQueue")]
 #[pyo3(module = "rustuna")]
-pub struct PySQLite3TrialQueue {
-    pub queue: Arc<RwLock<SQLite3TrialQueue>>,
+pub struct PyInMemoryTrialQueue {
+    pub queue: Arc<RwLock<InMemoryTrialQueue>>,
 }
 
 #[pymethods]
-impl PySQLite3TrialQueue {
+impl PyInMemoryTrialQueue {
     #[new]
-    fn py_new(db_path: &str, namespace: &str) -> PyResult<Self> {
-        let queue = SQLite3TrialQueue::new(db_path, namespace).map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to create SQLite3TrialQueue: {e:?}"))
-        })?;
+    fn py_new() -> PyResult<Self> {
+        let queue = InMemoryTrialQueue::new();
         Ok(Self {
             queue: Arc::new(RwLock::new(queue)),
         })

@@ -1,11 +1,12 @@
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
-use rustuna_core::trial_queue::{InMemoryTrialQueue, TrialQueue};
+use rustuna_core::trial_queue::TrialQueue;
 use rustuna_core::{Error, ErrorKind, Result};
 use rustuna_storage::directory_queue::DirectoryTrialQueue;
 use std::sync::{Arc, RwLock};
 
+pub mod inmemory;
 pub mod sqlite3;
 
 use crate::exception::err_to_exceptions;
@@ -65,14 +66,6 @@ pub struct PyPyObjectTrialQueue {
 
 #[pymethods]
 impl PyTrialQueue {
-    #[classmethod]
-    fn in_memory(_cls: &Bound<'_, PyType>) -> PyResult<Self> {
-        let queue = InMemoryTrialQueue::new();
-        Ok(PyTrialQueue {
-            queue: Arc::new(RwLock::new(queue)),
-        })
-    }
-
     #[classmethod]
     fn directory(_cls: &Bound<'_, PyType>, base_dir: &str) -> PyResult<Self> {
         let queue = DirectoryTrialQueue::new(base_dir).map_err(|e| {

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from rustuna._protocols import TrialQueueProtocol
-from rustuna._rustuna import SQLite3TrialQueue, TrialQueue
+from rustuna._rustuna import InMemoryTrialQueue, SQLite3TrialQueue, TrialQueue
 
 __all__ = [
     "TrialQueueProtocol",
@@ -9,19 +9,6 @@ __all__ = [
     "SQLite3TrialQueue",
     "DirectoryTrialQueue",
 ]
-
-
-# TODO(c-bata): Replace InMemoryTrialQueue with a Python concrete class.
-def InMemoryTrialQueue() -> TrialQueueProtocol:
-    """An in-memory TrialQueue implementation.
-
-    This queue stores trial IDs in memory and does not persist across process restarts.
-    Suitable for single-process optimization or when persistence is not required.
-
-    Returns:
-        An in-memory trial queue instance.
-    """
-    return TrialQueue.in_memory()
 
 
 # TODO(c-bata): Replace DirectoryTrialQueue with a Python concrete class.
