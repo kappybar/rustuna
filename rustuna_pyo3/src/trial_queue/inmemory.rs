@@ -34,21 +34,25 @@ impl PyInMemoryTrialQueue {
         Self::new()
     }
 
-    fn enqueue(&self, trial_id: u32) -> PyResult<()> {
-        let mut guard = self.queue.write().map_err(|error| {
-            PyRuntimeError::new_err(format!("Failed to acquire trial queue lock: {error}"))
-        })?;
-        guard.enqueue(trial_id).map_err(err_to_exceptions)
+    fn enqueue(&self, py: Python<'_>, trial_id: u32) -> PyResult<()> {
+        py.detach(|| {
+            let mut guard = self.queue.write().map_err(|error| {
+                PyRuntimeError::new_err(format!("Failed to acquire trial queue lock: {error}"))
+            })?;
+            guard.enqueue(trial_id).map_err(err_to_exceptions)
+        })
     }
 
-    fn dequeue(&self) -> PyResult<Option<u32>> {
-        let mut guard = self.queue.write().map_err(|error| {
-            PyRuntimeError::new_err(format!("Failed to acquire trial queue lock: {error}"))
-        })?;
-        match guard.dequeue() {
-            Ok(trial_id) => Ok(Some(trial_id)),
-            Err(error) if matches!(error.kind, ErrorKind::TrialQueueEmpty) => Ok(None),
-            Err(error) => Err(err_to_exceptions(error)),
-        }
+    fn dequeue(&self, py: Python<'_>) -> PyResult<Option<u32>> {
+        py.detach(|| {
+            let mut guard = self.queue.write().map_err(|error| {
+                PyRuntimeError::new_err(format!("Failed to acquire trial queue lock: {error}"))
+            })?;
+            match guard.dequeue() {
+                Ok(trial_id) => Ok(Some(trial_id)),
+                Err(error) if matches!(error.kind, ErrorKind::TrialQueueEmpty) => Ok(None),
+                Err(error) => Err(err_to_exceptions(error)),
+            }
+        })
     }
 }
