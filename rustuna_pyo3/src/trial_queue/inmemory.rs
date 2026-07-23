@@ -29,26 +29,21 @@ impl PyInMemoryTrialQueue {
 #[pymethods]
 impl PyInMemoryTrialQueue {
     #[new]
-    fn py_new() -> PyResult<Self> {
-        let queue = InMemoryTrialQueue::new();
-        Ok(Self {
-            queue: Arc::new(RwLock::new(queue)),
-        })
+    fn py_new() -> Self {
+        Self::new()
     }
 
     fn enqueue(&self, trial_id: u32) -> PyResult<()> {
-        let mut guard = self
-            .queue
-            .write()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire queue lock"))?;
+        let mut guard = self.queue.write().map_err(|error| {
+            PyRuntimeError::new_err(format!("Failed to acquire trial queue lock: {error}"))
+        })?;
         guard.enqueue(trial_id).map_err(err_to_exceptions)
     }
 
     fn dequeue(&self) -> PyResult<u32> {
-        let mut guard = self
-            .queue
-            .write()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire queue lock"))?;
+        let mut guard = self.queue.write().map_err(|error| {
+            PyRuntimeError::new_err(format!("Failed to acquire trial queue lock: {error}"))
+        })?;
         guard.dequeue().map_err(err_to_exceptions)
     }
 }

@@ -17,8 +17,11 @@ pub struct PyDirectoryTrialQueue {
 impl PyDirectoryTrialQueue {
     #[new]
     fn py_new(base_dir: &str) -> PyResult<Self> {
-        let queue = DirectoryTrialQueue::new(base_dir).map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to create DirectoryTrialQueue: {e:?}"))
+        let queue = DirectoryTrialQueue::new(base_dir).map_err(|error| {
+            PyRuntimeError::new_err(format!(
+                "Failed to create DirectoryTrialQueue: {}",
+                error.reason
+            ))
         })?;
         Ok(Self {
             queue: Arc::new(RwLock::new(queue)),
@@ -26,18 +29,16 @@ impl PyDirectoryTrialQueue {
     }
 
     fn enqueue(&self, trial_id: u32) -> PyResult<()> {
-        let mut guard = self
-            .queue
-            .write()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire queue lock"))?;
+        let mut guard = self.queue.write().map_err(|error| {
+            PyRuntimeError::new_err(format!("Failed to acquire trial queue lock: {error}"))
+        })?;
         guard.enqueue(trial_id).map_err(err_to_exceptions)
     }
 
     fn dequeue(&self) -> PyResult<u32> {
-        let mut guard = self
-            .queue
-            .write()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire queue lock"))?;
+        let mut guard = self.queue.write().map_err(|error| {
+            PyRuntimeError::new_err(format!("Failed to acquire trial queue lock: {error}"))
+        })?;
         guard.dequeue().map_err(err_to_exceptions)
     }
 }
