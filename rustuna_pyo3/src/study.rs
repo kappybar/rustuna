@@ -205,7 +205,9 @@ fn into_sampler_pyobj(
         Some(sampler) => resolve_sampler_pyobj(py, sampler),
         None => {
             let sampler = Arc::new(Mutex::new(TpeSampler::new()));
-            let py_sampler = PyTpeSampler { sampler: sampler.clone() };
+            let py_sampler = PyTpeSampler {
+                sampler: sampler.clone(),
+            };
             let sampler_pyobj = Py::new(py, py_sampler)?.into_any();
             Ok((sampler, sampler_pyobj))
         }

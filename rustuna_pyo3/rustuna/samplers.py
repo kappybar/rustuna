@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 from rustuna._protocols import SamplerProtocol
-from rustuna._rustuna import CmaEsSampler, RandomSampler, TPESampler, NSGAIISampler, SamplerContext
+from rustuna._rustuna import (
+    CmaEsSampler,
+    NSGAIISampler,
+    RandomSampler,
+    SamplerContext,
+    TPESampler,
+)
 
 __all__ = [
     "SamplerContext",
@@ -11,4 +17,3 @@ __all__ = [
     "NSGAIISampler",
     "CmaEsSampler",
 ]
-
