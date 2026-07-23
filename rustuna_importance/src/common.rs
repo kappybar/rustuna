@@ -147,10 +147,12 @@ pub(crate) fn get_filtered_trials(
     study: &Study,
     target: &dyn Fn(&PersistedTrial) -> f64,
 ) -> Result<Vec<PersistedTrial>> {
-    let mut guard = study
-        .storage
-        .write()
-        .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
+    let mut guard = study.storage.write().map_err(|e| {
+        Error::with_reason(
+            ErrorKind::Unexpected,
+            format!("Failed to acquire storage guard: {e}"),
+        )
+    })?;
     // TODO(c-bata): Avoid to clone trials.
     let completed_trials = guard
         .get_trials(study.id)?

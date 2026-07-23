@@ -24,7 +24,10 @@ impl JsStudy {
                         Ok(js_value) => js_value
                             .as_f64()
                             .ok_or(Error::new(ErrorKind::ObjectiveError)),
-                        Err(_) => Err(Error::new(ErrorKind::ObjectiveError)),
+                        Err(err) => Err(Error::with_reason(
+                            ErrorKind::ObjectiveError,
+                            format!("Objective function failed: {err:?}"),
+                        )),
                     }?;
                     Ok(vec![val])
                 },

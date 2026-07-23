@@ -30,9 +30,12 @@ impl Sampler for PythonSamplerAdapter {
         name: &str,
         distribution: &rustuna_core::distribution::Distribution,
     ) -> rustuna_core::Result<f64> {
-        let mut guard = storage
-            .write()
-            .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
+        let mut guard = storage.write().map_err(|e| {
+            rustuna_core::Error::with_reason(
+                rustuna_core::ErrorKind::StorageError,
+                format!("Failed to acquire storage guard: {e}"),
+            )
+        })?;
         let study = guard.get_study(ctx.study_id)?;
         let study_attrs = study.attrs.clone();
         drop(guard);

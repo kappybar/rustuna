@@ -39,7 +39,7 @@ impl PyTpeSampler {
         let guard = self
             .sampler
             .lock()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire sampler lock"))?;
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to acquire sampler lock: {e}")))?;
         Ok(guard.support_joint_sampling())
     }
 
@@ -53,7 +53,9 @@ impl PyTpeSampler {
         let arc_storage = extract_storage(storage)?;
         self.sampler
             .lock()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the sampler guard"))?
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("Failed to acquire the sampler guard: {e}"))
+            })?
             .sample_independent(
                 &ctx.context.clone(),
                 arc_storage,
@@ -72,7 +74,9 @@ impl PyTpeSampler {
         let arc_storage = extract_storage(storage)?;
         self.sampler
             .lock()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the sampler guard"))?
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("Failed to acquire the sampler guard: {e}"))
+            })?
             .sample_joint(
                 &ctx.context.clone(),
                 arc_storage,
@@ -104,7 +108,9 @@ impl PyTpeSampler {
         };
         self.sampler
             .lock()
-            .map_err(|_| PyRuntimeError::new_err("Failed to acquire the sampler guard"))?
+            .map_err(|e| {
+                PyRuntimeError::new_err(format!("Failed to acquire the sampler guard: {e}"))
+            })?
             .after_trial(&ctx.context, arc_storage, &state_values)
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to call after_trial: {e:?}")))
     }

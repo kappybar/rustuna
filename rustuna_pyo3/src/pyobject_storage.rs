@@ -253,9 +253,7 @@ impl PyObjectStorage {
     }
 
     pub fn sync_studies(&mut self, sync_attrs: bool) -> rustuna_core::Result<()> {
-        let studies = self
-            .obj_get_studies()
-            .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
+        let studies = self.obj_get_studies().map_err(Self::map_pyerr)?;
         for src_study in studies {
             self.register_src_study_to_cache(src_study, sync_attrs)?
         }
@@ -270,9 +268,7 @@ impl PyObjectStorage {
         match self.cache_study_to_src_study.get(&cache_study_id) {
             Some(src_study_id) => {
                 if sync_attrs {
-                    let src_study = self.obj_get_study(*src_study_id).map_err(|_| {
-                        rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError)
-                    })?;
+                    let src_study = self.obj_get_study(*src_study_id).map_err(Self::map_pyerr)?;
                     self.cache
                         .set_study_attrs(cache_study_id, src_study.attrs, false)?;
                 }
@@ -353,7 +349,7 @@ impl PyObjectStorage {
 
         let mut src_trials = self
             .obj_get_trials(*src_study_id)
-            .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
+            .map_err(Self::map_pyerr)?;
         src_trials.sort_by_key(|trial| trial.number);
 
         let mut cache_n_trials = self.cache.get_trials(cache_study_id)?.len() as u32;
@@ -375,19 +371,24 @@ impl PyObjectStorage {
 
     fn map_pyerr(err: PyErr) -> Error {
         let reason = err.to_string();
-        let kind = Python::attach(|py| {
-            let class_name = err
-                .get_type(py)
+        let class_name = match Python::attach(|py| {
+            err.get_type(py)
                 .name()
-                .ok()
                 .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            if class_name == "DuplicatedStudyError" {
-                ErrorKind::DuplicatedStudy
-            } else {
-                ErrorKind::StorageError
+        }) {
+            Ok(class_name) => class_name,
+            Err(type_error) => {
+                return Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("{reason}; failed to inspect Python exception type: {type_error}"),
+                )
             }
-        });
+        };
+        let kind = if class_name == "DuplicatedStudyError" {
+            ErrorKind::DuplicatedStudy
+        } else {
+            ErrorKind::StorageError
+        };
         Error::with_reason(kind, reason)
     }
 }
@@ -420,7 +421,7 @@ impl Storage for PyObjectStorage {
                     rustuna_core::ErrorKind::StudyNotFound,
                 ))?;
         self.obj_delete_study(src_study_id)
-            .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
+            .map_err(Self::map_pyerr)?;
         self.cache.delete_study(study_id)?;
         self.cache_study_to_src_study.remove(&study_id);
         self.src_study_to_cache_study.remove(&src_study_id);
@@ -510,7 +511,7 @@ impl Storage for PyObjectStorage {
     ) -> rustuna_core::Result<()> {
         let state_values_clone = state_values.clone();
         self.obj_set_trial_state_values(trial_id, &state_values_clone)
-            .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
+            .map_err(Self::map_pyerr)?;
 
         match self.cache.set_trial_state_values(trial_id, state_values) {
             Ok(_) => Ok(()),
@@ -652,7 +653,7 @@ impl Storage for PyObjectStorage {
                     rustuna_core::ErrorKind::StudyNotFound,
                 ))?;
         self.obj_set_study_attrs(*src_study_id, attrs.clone())
-            .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
+            .map_err(Self::map_pyerr)?;
         match self.cache.set_study_attrs(study_id, attrs, false) {
             Ok(_) => Ok(()),
             Err(e) => match e.kind {
@@ -675,7 +676,7 @@ impl Storage for PyObjectStorage {
         let attrs_for_obj = attrs.clone();
         let attrs_for_retry = attrs.clone();
         self.obj_set_trial_attrs(trial_id, attrs_for_obj)
-            .map_err(|_| rustuna_core::Error::new(rustuna_core::ErrorKind::StorageError))?;
+            .map_err(Self::map_pyerr)?;
         match self.cache.set_trial_attrs(trial_id, attrs, false) {
             Ok(_) => Ok(()),
             Err(e) => match e.kind {
