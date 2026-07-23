@@ -46,6 +46,7 @@ fn rustuna(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<importance::PyPedAnovaImportanceEvaluator>()?;
     // trial_queue
     m.add_class::<trial_queue::PyTrialQueue>()?;
+    m.add_class::<trial_queue::sqlite3::PySQLite3TrialQueue>()?;
     m.add_class::<trial_queue::PyPyObjectTrialQueue>()?;
     Ok(())
 }

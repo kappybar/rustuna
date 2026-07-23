@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from rustuna._protocols import TrialQueueProtocol
-from rustuna._rustuna import TrialQueue
+from rustuna._rustuna import SQLite3TrialQueue, TrialQueue
 
 __all__ = [
     "TrialQueueProtocol",
@@ -24,24 +24,7 @@ def InMemoryTrialQueue() -> TrialQueueProtocol:
     return TrialQueue.in_memory()
 
 
-# TODO(c-bata): Replace SQLite3TrialQueue with a Python concrete class.
-def SQLite3TrialQueue(db_path: str, *, namespace: str) -> TrialQueueProtocol:
-    """An SQLite3 based TrialQueue implementation.
-
-    This queue uses SQLite to persist trial IDs with ACID guarantees. Multiple queues
-    can share the same database file, with namespace used for isolation.
-
-    Args:
-        db_path: Path to the SQLite database file.
-        namespace: Namespace to isolate trials for this queue.
-
-    Returns:
-        An SQLite3-based trial queue instance.
-    """
-    return TrialQueue.sqlite3(db_path=db_path, namespace=namespace)
-
-
-# TODO(c-bata): Replace SQLite3TrialQueue with a Python concrete class.
+# TODO(c-bata): Replace DirectoryTrialQueue with a Python concrete class.
 def DirectoryTrialQueue(base_dir: str) -> TrialQueueProtocol:
     """A directory-based trial queue.
 

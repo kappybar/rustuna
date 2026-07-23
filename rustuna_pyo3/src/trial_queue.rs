@@ -4,8 +4,9 @@ use pyo3::types::PyType;
 use rustuna_core::trial_queue::{InMemoryTrialQueue, TrialQueue};
 use rustuna_core::{Error, ErrorKind, Result};
 use rustuna_storage::directory_queue::DirectoryTrialQueue;
-use rustuna_storage::sqlite3_queue::SQLite3TrialQueue;
 use std::sync::{Arc, RwLock};
+
+pub mod sqlite3;
 
 use crate::exception::err_to_exceptions;
 
@@ -76,16 +77,6 @@ impl PyTrialQueue {
     fn directory(_cls: &Bound<'_, PyType>, base_dir: &str) -> PyResult<Self> {
         let queue = DirectoryTrialQueue::new(base_dir).map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to create DirectoryTrialQueue: {e:?}"))
-        })?;
-        Ok(PyTrialQueue {
-            queue: Arc::new(RwLock::new(queue)),
-        })
-    }
-
-    #[classmethod]
-    fn sqlite3(_cls: &Bound<'_, PyType>, db_path: &str, namespace: &str) -> PyResult<Self> {
-        let queue = SQLite3TrialQueue::new(db_path, namespace).map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to create SQLite3TrialQueue: {e:?}"))
         })?;
         Ok(PyTrialQueue {
             queue: Arc::new(RwLock::new(queue)),
