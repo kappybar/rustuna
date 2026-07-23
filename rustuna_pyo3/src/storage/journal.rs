@@ -3,6 +3,7 @@ use std::sync::{Arc, RwLock};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
+use rustuna_core::storage::Storage;
 use rustuna_storage::journal::file::{JournalFileBackend, JournalFileSymlinkLock};
 use rustuna_storage::journal::storage::{JournalStorage, JournalStorageOptions};
 
@@ -15,7 +16,13 @@ use crate::trial::{PyPersistedTrial, PyTrialState};
 #[pyclass(name = "JournalFileStorage")]
 #[pyo3(module = "rustuna")]
 pub struct PyJournalFileStorage {
-    pub binding: StorageBinding,
+    pub(crate) binding: StorageBinding,
+}
+
+impl PyJournalFileStorage {
+    pub fn storage(&self) -> Arc<RwLock<dyn Storage>> {
+        self.binding.storage.clone()
+    }
 }
 
 #[pymethods]
@@ -36,7 +43,7 @@ impl PyJournalFileStorage {
         )
         .map_err(|e| PyRuntimeError::new_err(format!("Failed to create journal storage: {e:?}")))?;
         let binding = StorageBinding::new(Arc::new(RwLock::new(storage)));
-        Ok(PyJournalFileStorage { binding: binding })
+        Ok(PyJournalFileStorage { binding })
     }
 
     fn create_new_study(

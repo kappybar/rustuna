@@ -24,7 +24,7 @@ fn extract_storage(storage: Py<PyAny>) -> PyResult<Arc<RwLock<dyn Storage>>> {
         if let Ok(py_storage) = storage_ref.extract::<PyStorage>() {
             Ok(py_storage.storage.clone())
         } else if let Ok(py_journal_storage) = storage_ref.extract::<PyJournalFileStorage>() {
-            Ok(py_journal_storage.storage.clone() as Arc<RwLock<dyn Storage>>)
+            Ok(py_journal_storage.storage())
         } else if let Ok(py_obj_storage) = storage_ref.extract::<PyPyObjectStorage>() {
             Ok(py_obj_storage.storage.clone() as Arc<RwLock<dyn Storage>>)
         } else {

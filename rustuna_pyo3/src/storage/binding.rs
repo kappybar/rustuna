@@ -76,7 +76,7 @@ impl StorageBinding {
                     .create_new_trial(study_id)
                     .map_err(err_to_exceptions)?
             };
-            Ok(PyPersistedTrial::from_storage(self.storage.clone(), &trial))
+            Ok(PyPersistedTrial::from_storage(self.storage.clone(), trial))
         })
     }
 

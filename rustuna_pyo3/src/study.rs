@@ -162,10 +162,7 @@ fn resolve_storage_pyobj(
     if let Ok(py_storage) = storage_ref.extract::<PyStorage>() {
         Ok((py_storage.storage.clone(), storage_pyobj))
     } else if let Ok(py_journal_storage) = storage_ref.extract::<PyJournalFileStorage>() {
-        Ok((
-            py_journal_storage.storage.clone() as Arc<RwLock<dyn Storage>>,
-            storage_pyobj,
-        ))
+        Ok((py_journal_storage.storage(), storage_pyobj))
     } else {
         let mut wrapped = PyObjectStorage::new(storage);
         wrapped.sync_studies(true).map_err(err_to_exceptions)?;
