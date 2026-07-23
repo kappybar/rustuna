@@ -1,19 +1,41 @@
 # Rustuna
 
-A faster Optuna implementation in Rust, featuring Python, JavaScript, and C bindings.
+:link: [**Website**](https://optuna.org/)
+| [**Twitter**](https://twitter.com/OptunaAutoML)
+| [**LinkedIn**](https://www.linkedin.com/showcase/optuna/)
+| [**Medium**](https://medium.com/optuna)
 
-## Getting Started
 
-### Python
+*Rustuna* is a faster Optuna implementation in Rust, featuring Python and JavaScript bindings.
 
-You can install Rustuna via pip. Unlike Optuna, Rustuna doesn't have runtime dependencies, not even on NumPy.
-This not only eliminates concerns of version conflicts for users but also significantly speeds up imports.
+> [!NOTE]
+> Rustuna is currently experimental. Compared with Optuna, it still lacks some features and APIs, and it has not yet been optimized enough to deliver better performance for every use case. Since the project has not had the same level of maturity as Optuna, bugs and rough edges likely remain. We appreciate your understanding when using it.
+> 
+> If you are excited to try new software, we would love for you to give Rustuna a try and share your feedback with us.
 
-```
-$ pip install rustuna
-```
+## Why Rustuna?
 
-Here's a basic use case:
+The Optuna implementation in Rust is primarily motivated by two factors.
+
+### Making Optuna Faster
+
+![Rustuna vs Optuna: Speed Comparison](./docs/docs/assets/images/why-rustuna-1.jpg)
+
+Optuna primarily targets hyperparameter optimization in machine learning. In such scenarios, model training and evaluation are typically time-consuming processes, so Optuna’s execution time seldom becomes the bottleneck.
+However, black-box optimization has potential applications far beyond machine learning hyperparameter tuning. Rustuna is designed with such broader use cases in mind, including large-scale optimization workloads that may involve tens of thousands of trials or more.
+
+### Broadening Language Support
+
+The Rust-based implementation can be used not only from Rust and Python, but also through JavaScript bindings, which are used in the development of [Optuna Dashboard](https://github.com/optuna/optuna-dashboard).
+Looking ahead, we are also interested in exploring support for additional languages.
+
+## Design Philosophy
+
+### Balancing Compatibility with Optuna and Performance
+
+Rustuna provides essentially the same API as Optuna.
+Users do not need to learn a new API, and they can transition straightforwardly from existing projects while continuing to benefit from the ecosystem that Optuna has built.
+For example, the following code works as is by simply changing the import statement.
 
 ```python
 import rustuna as optuna
@@ -29,69 +51,32 @@ study.optimize(objective, n_trials=1000)
 print(study.best_trial)
 ```
 
-### JavaScript
+That said, Rustuna does not maintain this level of compatibility in every case.
+Prioritizing compatibility too heavily would limit the performance improvements Rustuna can achieve.
+For example, some features, such as `study.enqueue_trial()`, are implemented differently from Optuna’s and therefore cannot always be used in exactly the same way.
+This is why we say that Rustuna provides “essentially” the same API as Optuna.
+
+### Not Aiming to Completely Replace Optuna
+
+Rustuna is not intended to serve as a complete replacement for Optuna.
+Instead of re-engineering all of Optuna’s features in Rust, we aim to build a library that works alongside Optuna so that the strengths of each can complement one another.
+
+For example, the [optuna.visualization module](https://optuna.readthedocs.io/en/stable/reference/visualization/index.html) provides rich functionality for visualizing and analyzing Optuna study results.
+We do not plan to reimplement these features in Rust using libraries such as Plotly or Matplotlib. Instead, we aim to provide ways to use Rustuna’s results with the `optuna.visualization` module or with [Optuna Dashboard](https://github.com/optuna/optuna-dashboard).
+We also do not currently plan to support I/O-bound features such as storage backends for MySQL or PostgreSQL.
+
+## Installation 
+
+### Python
+
+You can install Rustuna via pip. Unlike Optuna, Rustuna doesn't have runtime dependencies, not even on NumPy. This not only eliminates concerns of version conflicts for users but also significantly speeds up imports.
 
 ```
-$ npm i --save rustuna
+$ pip install rustuna
 ```
 
-```js
-import * as rustuna from "rustuna.js";
+Ready to try Rustuna in practice? The best place to start is the [Getting Started](docs/docs/tutorial/getting-started.md) guide, which walks through the basic functionality and core APIs.
 
-const study = rustuna.create_study("test");
+## License
 
-const objective = (trial: rustuna.Trial) => {
-	const x = trial.suggest_float("x", -10.0, 10.0);
-	const y = trial.suggest_int("y", -10, 10);
-	const z = trial.suggest_categorical("z", ["foo", "bar"]);
-
-	const value = (x - 5) ** 2 + (y + 2) ** 2;
-	console.log(`x: ${x}, y: ${y}, z: ${z}, value: ${value}`);
-	return value;
-};
-study.optimize(objective, 10);
-
-console.log(study.best_trial);
-```
-
-### Rust
-
-```rust
-use std::sync::{Arc, Mutex};
-
-use rustuna_core::objective_single::get_best_trial;
-use rustuna_core::storage::InMemoryStorage;
-use rustuna_core::study::{Direction, create_study};
-use rustuna_core::Result;
-use rustuna_sampler::tpe::TpeSampler;
-
-fn main() -> Result<()> {
-    let storage = InMemoryStorage::new();
-    let mut study = create_study("simple-quadratic", storage, vec![Direction::Minimize])?;
-
-    let sampler = Arc::new(Mutex::new(TpeSampler::new()));
-    study.optimize(
-        |mut t| {
-            let x = t.suggest_float("x", 0.0, 10.0)?;
-            let y = t.suggest_float("y", 0.0, 10.0)?;
-            let value = (x - 3.0).powi(2) + (y - 5.0).powi(2);
-            println!("{:2} x: {}, y: {}, value: {}", t.number, x, y, value);
-            Ok(vec![value])
-        },
-        sampler,
-        100,
-    )?;
-
-    println!("Best trial: {:?}", get_best_trial(&study)?);
-    Ok(())
-}
-```
-
-## Crates
-
-- `rustuna_core` : Core components of Rustuna.
-- `rustuna_js` : The JavaScript binding.
-- `rustuna_pyo3` : The Python binding.
-- `rustuna_sampler` : A collection of Rustuna samplers.
-- `rustuna_storage` : A collection of Rustuna storage implementations.
-- `rustuna_importance` : A collection of hyperparameter importance evaluators.
+MIT License
