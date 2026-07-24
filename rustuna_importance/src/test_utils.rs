@@ -34,10 +34,10 @@ fn multi_objective(mut trial: Trial) -> Result<Vec<f64>> {
 fn conditional_objective(mut trial: Trial) -> Result<Vec<f64>> {
     let c = trial.suggest_float("c", 0.0, 1.0)?;
     if c < 0.5 {
-        let x = trial.suggest_float("x", 0.0, 10.0)?;
+        let x = trial.suggest_float("x", -10.0, 0.0)?;
         Ok(vec![x])
     } else {
-        let y = trial.suggest_float("y", -10.0, 0.0)?;
+        let y = trial.suggest_float("y", 0.0, 10.0)?;
         Ok(vec![y])
     }
 }
