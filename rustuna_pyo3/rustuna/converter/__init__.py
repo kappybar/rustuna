@@ -10,6 +10,7 @@ from ._distribution import (
     to_rustuna_distribution,
     to_rustuna_distributions,
 )
+from ._importance import ToOptunaImportanceEvaluator
 from ._sampler import (
     ToOptunaSampler,
 )
@@ -41,6 +42,7 @@ __all__ = [
     "ToOptunaSampler",
     "ToOptunaStorage",
     "ToRustunaStorage",
+    "ToOptunaImportanceEvaluator",
     "to_frozen_study",
     "to_persisted_study",
     "FrozenTrialLike",
