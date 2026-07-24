@@ -27,15 +27,11 @@ class TestBasicImportanceEvaluator(BasicImportanceEvaluatorTestCase):
         [
             pytest.param(
                 0,
-                marks=pytest.mark.skip(
-                    reason="Rustuna does not support target yet"
-                ),
+                marks=pytest.mark.skip(reason="Rustuna does not support target yet"),
             ),
             pytest.param(
                 1,
-                marks=pytest.mark.skip(
-                    reason="Rustuna does not support target yet"
-                ),
+                marks=pytest.mark.skip(reason="Rustuna does not support target yet"),
             ),
             None,
         ],

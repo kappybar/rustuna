@@ -459,7 +459,6 @@ class PedAnovaImportanceEvaluator:
         region_quantile: float = 1.0,
         evaluate_on_local: bool = True,
     ) -> None: ...
-
     def evaluate(
         self,
         study: Study,
