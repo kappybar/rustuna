@@ -169,25 +169,6 @@ pub(crate) fn get_filtered_trials(
     }
 }
 
-pub(crate) fn get_distributions(
-    trials: &[PersistedTrial],
-    params: &Option<Vec<String>>,
-) -> Vec<HashMap<String, Distribution>> {
-    let params_set = params
-        .as_ref()
-        .map(|p| p.iter().cloned().collect::<HashSet<_>>());
-    let dists = trials
-        .iter()
-        .map(|t| {
-            t.distributions
-                .iter()
-                .filter(|(name, _)| params_set.as_ref().is_none_or(|s| s.contains(*name)))
-                .map(|(name, dist)| (name.clone(), dist.clone()))
-                .collect::<HashMap<_, _>>()
-        })
-        .collect::<Vec<_>>();
-    dists
-}
 
 #[cfg(test)]
 mod tests {
