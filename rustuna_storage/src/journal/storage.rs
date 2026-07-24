@@ -21,8 +21,9 @@ use super::{JournalBackend, JournalLog, JournalOperation};
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 /// Options for [`JournalStorage`].
 pub struct JournalStorageOptions {
-    /// If `true`, discard logs are ignored during replay and all trials are loaded.
-    pub load_discarded_trials: bool,
+    /// If `true`, discarded trials are omitted when replaying the journal.
+    /// Discard logs are written regardless of this option.
+    pub apply_discard: bool,
 }
 
 /// Storage implementation backed by an append-only journal log.
@@ -48,7 +49,7 @@ impl JournalStorage {
         let worker_id_prefix = format!("{}-{}-", unique_prefix(), std::process::id());
         let mut storage = JournalStorage {
             backend,
-            replay: JournalReplayState::new(worker_id_prefix, options.load_discarded_trials),
+            replay: JournalReplayState::new(worker_id_prefix, options.apply_discard),
         };
         storage.sync_with_backend()?;
         Ok(storage)
@@ -735,11 +736,11 @@ struct JournalReplayState {
     last_created_trial_id_by_this_process: Option<u32>,
     studies_sorted: Vec<PersistedStudy>,
     study_caches: HashMap<u32, StudyCache>,
-    load_discarded_trials: bool,
+    apply_discard: bool,
 }
 
 impl JournalReplayState {
-    fn new(worker_id_prefix: String, load_discarded_trials: bool) -> Self {
+    fn new(worker_id_prefix: String, apply_discard: bool) -> Self {
         JournalReplayState {
             log_number_read: 0,
             worker_id_prefix,
@@ -753,7 +754,7 @@ impl JournalReplayState {
             last_created_trial_id_by_this_process: None,
             studies_sorted: Vec::new(),
             study_caches: HashMap::new(),
-            load_discarded_trials,
+            apply_discard,
         }
     }
 
@@ -785,7 +786,7 @@ impl JournalReplayState {
                     self.apply_set_trial_system_attr(log, worker_id)?
                 }
                 JournalOperation::DiscardTrials => {
-                    if !self.load_discarded_trials {
+                    if self.apply_discard {
                         self.apply_discard_trials(log, worker_id)?
                     }
                 }
@@ -2170,7 +2171,12 @@ mod tests {
         }
 
         let backend = InMemoryJournalBackend { logs: logs.clone() };
-        let mut reloaded = JournalStorage::new(Box::new(backend))?;
+        let mut reloaded = JournalStorage::new_with_options(
+            Box::new(backend),
+            JournalStorageOptions {
+                apply_discard: true,
+            },
+        )?;
         let trials = reloaded.get_trials(study_id)?;
         assert!(trials[0].is_none());
         Ok(())
@@ -2278,7 +2284,7 @@ mod tests {
     }
 
     #[test]
-    fn load_discarded_trials_ignores_discard_logs() -> Result<()> {
+    fn apply_discard_false_keeps_discarded_trials() -> Result<()> {
         let (mut storage, logs) = new_storage()?;
         let study_id = storage.create_new_study("s", vec![Direction::Minimize])?.id;
         let trial_id = storage.create_new_trial(study_id)?.id;
@@ -2288,7 +2294,7 @@ mod tests {
         let mut storage2 = JournalStorage::new_with_options(
             Box::new(backend),
             JournalStorageOptions {
-                load_discarded_trials: true,
+                apply_discard: false,
             },
         )?;
         let trials = storage2.get_trials(study_id)?;

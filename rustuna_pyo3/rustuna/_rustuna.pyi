@@ -760,19 +760,16 @@ class ToRustStorage:
     This class wraps a Python object implementing StorageProtocol and makes it
     usable as a Rust Storage trait implementation.
 
+    Args:
+        storage: A Python object implementing StorageProtocol.
+
     Note:
         This class is not intended for direct use by end users. It is used internally
         by rustuna converters (e.g., ToOptunaSampler) to bridge Python StorageProtocol
         implementations with Rust components.
     """
 
-    def __init__(self, storage: StorageProtocol) -> None:
-        """Create a ToRustStorage from a StorageProtocol instance.
-
-        Args:
-            storage: A Python object implementing StorageProtocol.
-        """
-
+    def __init__(self, storage: StorageProtocol) -> None: ...
     def create_new_study(
         self, study_name: str, directions: list[StudyDirection]
     ) -> PersistedStudy: ...
@@ -830,8 +827,12 @@ class ToRustStorage:
     def may_omit_trials(self) -> bool: ...
 
 class InMemoryStorage:
-    """Create an in-memory storage."""
-    def __init__(self) -> None: ...
+    """Create an in-memory storage.
+
+    Args:
+        apply_discard: If True, apply discard_trials() and omit discarded trials from subsequent reads.
+    """
+    def __init__(self, *, apply_discard: bool = False) -> None: ...
     def create_new_study(
         self, study_name: str, directions: list[StudyDirection]
     ) -> PersistedStudy: ...
@@ -893,13 +894,13 @@ class JournalFileStorage:
 
     Args:
         file_path: Path to the journal log file.
-        load_discarded_trials: If True, ignore discard logs and load all trials.
+        apply_discard: If True, apply discard operations when reading the storage. Journal logs are written regardless of this option.
     """
     def __init__(
         self,
         file_path: str,
         *,
-        load_discarded_trials: bool = False,
+        apply_discard: bool = False,
     ) -> None: ...
     def create_new_study(
         self, study_name: str, directions: list[StudyDirection]

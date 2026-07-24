@@ -28,8 +28,8 @@ impl PyJournalFileStorage {
 #[pymethods]
 impl PyJournalFileStorage {
     #[new]
-    #[pyo3(signature = (file_path, *, load_discarded_trials = false))]
-    fn py_new(file_path: &str, load_discarded_trials: bool) -> PyResult<Self> {
+    #[pyo3(signature = (file_path, *, apply_discard = false))]
+    fn py_new(file_path: &str, apply_discard: bool) -> PyResult<Self> {
         // TODO(c-bata): Add lock_obj argument to use JournalFileOpenLock.
         let lock_obj = Box::new(JournalFileSymlinkLock::new(file_path));
         let backend = JournalFileBackend::new(file_path, Some(lock_obj)).map_err(|e| {
@@ -37,9 +37,7 @@ impl PyJournalFileStorage {
         })?;
         let storage = JournalStorage::new_with_options(
             Box::new(backend),
-            JournalStorageOptions {
-                load_discarded_trials,
-            },
+            JournalStorageOptions { apply_discard },
         )
         .map_err(|e| PyRuntimeError::new_err(format!("Failed to create journal storage: {e:?}")))?;
         let binding = StorageBinding::new(Arc::new(RwLock::new(storage)));

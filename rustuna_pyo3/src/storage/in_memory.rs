@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use pyo3::prelude::*;
 
-use rustuna_core::storage::{InMemoryStorage, Storage};
+use rustuna_core::storage::{InMemoryStorage, InMemoryStorageOptions, Storage};
 
 use crate::distribution::PyDistribution;
 use crate::storage::binding::StorageBinding;
@@ -18,13 +18,15 @@ pub struct PyInMemoryStorage {
 
 impl Default for PyInMemoryStorage {
     fn default() -> Self {
-        Self::new()
+        Self::new(InMemoryStorageOptions::default())
     }
 }
 
 impl PyInMemoryStorage {
-    pub fn new() -> Self {
-        let binding = StorageBinding::new(Arc::new(RwLock::new(InMemoryStorage::new())));
+    pub fn new(option: InMemoryStorageOptions) -> Self {
+        let binding = StorageBinding::new(Arc::new(RwLock::new(InMemoryStorage::new_with_option(
+            option,
+        ))));
         PyInMemoryStorage { binding }
     }
 
@@ -36,8 +38,9 @@ impl PyInMemoryStorage {
 #[pymethods]
 impl PyInMemoryStorage {
     #[new]
-    fn py_new() -> Self {
-        PyInMemoryStorage::new()
+    #[pyo3(signature = (*, apply_discard = false))]
+    fn py_new(apply_discard: bool) -> Self {
+        PyInMemoryStorage::new(InMemoryStorageOptions { apply_discard })
     }
 
     fn create_new_study(
