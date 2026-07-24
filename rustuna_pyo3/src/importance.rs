@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use pyo3::exceptions::{PyRuntimeError, PyUserWarning, PyValueError};
+use pyo3::exceptions::{PyUserWarning, PyValueError};
 use pyo3::prelude::*;
 use pyo3::PyResult;
 
 use rustuna_importance::{
-    get_param_importances_with, ImportanceOptions, PedAnovaImportanceEvaluator,
+    get_param_importances_with, ImportanceOptions, ImportanceEvaluator, PedAnovaImportanceEvaluator,
 };
 
 use crate::study::PyStudy;
