@@ -303,8 +303,8 @@ mod tests {
             vec![Direction::Minimize],
         )?;
         for evaluator in evaluators {
-            let err = get_param_importances(&study, &evaluator).unwrap_err();
-            assert!(matches!(err.kind, ErrorKind::NoCompletedTrial));
+            let importance = get_param_importances(&study, &evaluator)?;
+            assert!(importance.values().all(|v| *v == 1.0), "{importance:?}");
         }
         Ok(())
     }
