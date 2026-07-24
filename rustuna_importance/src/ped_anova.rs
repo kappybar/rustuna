@@ -412,19 +412,21 @@ mod tests {
     use rustuna_core::Result;
 
     #[test]
-    fn test_n_trials_equal_to_min_n_top_trials() -> Result<()> {
+    fn test_n_trials_less_than_three() -> Result<()> {
         let evaluator = PedAnovaImportanceEvaluator::default();
-        let study = test_utils::get_study(
-            42,
-            evaluator.min_n_top_trials,
-            ObjectiveType::Single,
-            Direction::Minimize,
-        )?;
-        let importances = evaluator.evaluate(&study)?;
-        assert!(
-            importances.values().all(|v| v.abs() <= 1e-12),
-            "{importances:?}"
-        );
+        for n_trials in 0..=2 {
+            let study = test_utils::get_study(
+                42,
+                n_trials,
+                ObjectiveType::Single,
+                Direction::Minimize,
+            )?;
+            let importances = evaluator.evaluate(&study)?;
+            assert!(
+                (n_trials == 2) ^ importances.values().all(|v| v.abs() <= 1e-12),
+                "{importances:?}"
+            );
+        }
         Ok(())
     }
 
