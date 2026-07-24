@@ -162,11 +162,7 @@ pub(crate) fn get_filtered_trials(
         .filter(|t| target(t).is_finite())
         .cloned()
         .collect::<Vec<_>>();
-    if completed_trials.is_empty() {
-        Err(Error::new(ErrorKind::NoCompletedTrial))
-    } else {
-        Ok(completed_trials)
-    }
+    Ok(completed_trials)
 }
 
 
