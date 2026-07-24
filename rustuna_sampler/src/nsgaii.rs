@@ -233,7 +233,7 @@ impl Sampler for NSGAIISampler {
         distribution: &Distribution,
     ) -> Result<f64> {
         if distribution.is_single() {
-            return Ok(distribution.get_single_value());
+            return distribution.get_single_value();
         }
 
         match distribution {

@@ -156,18 +156,19 @@ impl Distribution {
     /// - For `Float` distributions: the `low` value
     /// - For `Int` distributions: the `low` value as f64
     /// - For `Categorical` distributions: `0.0` (index of the first and only choice)
-    pub fn get_single_value(&self) -> f64 {
-        assert!(
-            self.is_single(),
-            "get_single_value called on a non-single distribution: {:?}",
-            self
-        );
+    pub fn get_single_value(&self) -> Result<f64> {
+        if !self.is_single() {
+            return Err(Error::with_reason(
+                ErrorKind::Unexpected,
+                format!("Cannot get single value from non-single distribution: {:?}", self),
+            ));
+        }
 
-        match self {
+        Ok(match self {
             Distribution::Float { low, .. } => *low,
             Distribution::Int { low, .. } => *low as f64,
             Distribution::Categorical { .. } => 0.0,
-        }
+        })
     }
 
     /// Returns whether the internal representation is contained in this distribution.

@@ -169,7 +169,7 @@ impl Sampler for RandomSampler {
     ) -> Result<f64> {
         // Single-value distributions have only one possible value.
         if distribution.is_single() {
-            return Ok(distribution.get_single_value());
+            return distribution.get_single_value();
         }
 
         match distribution {
