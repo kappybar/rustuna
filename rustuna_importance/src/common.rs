@@ -175,7 +175,6 @@ mod tests {
     use rustuna_core::storage::InMemoryStorage;
     use rustuna_core::study::{self, Direction};
     use rustuna_core::trial::PersistedTrial;
-    use rustuna_core::distribution::Distribution;
     use rustuna_core::{ErrorKind, Result};
     use std::collections::HashSet;
 
