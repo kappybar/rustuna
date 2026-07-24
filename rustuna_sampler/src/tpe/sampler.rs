@@ -559,6 +559,10 @@ impl Sampler for TpeSampler {
         name: &str,
         distribution: &Distribution,
     ) -> Result<f64> {
+        if distribution.is_single() {
+            return distribution.get_single_value();
+        }
+
         {
             let mut guard = storage.write().map_err(|e| {
                 Error::with_reason(
@@ -601,6 +605,7 @@ impl Sampler for TpeSampler {
         if complete_trials.len() < self.n_startup_trials {
             return Ok(HashMap::new());
         }
+
         self.sample(ctx, &complete_trials, search_space)
     }
 
@@ -901,5 +906,64 @@ mod tests {
                 40,
             )
             .unwrap();
+    }
+
+    /// Test with single-value parameters to check if bandwidth=0 issue occurs.
+    /// Single-value parameters should be excluded from the search space to avoid
+    /// creating Parzen estimators with zero bandwidth.
+    #[test]
+    fn test_single_value_parameters() {
+        let storage = InMemoryStorage::new();
+        let directions = vec![Direction::Minimize];
+        let study = create_study(
+            "single-value-test",
+            storage,
+            TpeSampler::seed_from_u64(42),
+            directions,
+        )
+        .unwrap();
+
+        let result = study.optimize(
+            |mut t| {
+                // Normal parameter
+                let x = t.suggest_float("x", -10.0, 10.0)?;
+
+                // Single-value parameters (should be excluded from search space)
+                let y = t.suggest_float("y", 5.0, 5.0)?; // single value: 5.0
+                let z = t.suggest_int("z", 3, 3)?; // single value: 3
+
+                let value = (x - 2.0).powi(2) + y + z as f64;
+                println!(
+                    "{:2} x: {}, y: {}, z: {}, value: {}",
+                    t.number, x, y, z, value
+                );
+                Ok(vec![value])
+            },
+            30,
+        );
+
+        assert!(
+            result.is_ok(),
+            "Optimization should complete without panicking"
+        );
+
+        // Verify single-value params were always constant
+        let trials = study.get_trials().unwrap();
+        for trial in trials.iter() {
+            if let Some(y_val) = trial.internal_params.get("y") {
+                assert!(
+                    (y_val - 5.0).abs() < 1e-10,
+                    "y should always be 5.0, got {}",
+                    y_val
+                );
+            }
+            if let Some(z_val) = trial.internal_params.get("z") {
+                assert!(
+                    (z_val - 3.0).abs() < 1e-10,
+                    "z should always be 3.0, got {}",
+                    z_val
+                );
+            }
+        }
     }
 }

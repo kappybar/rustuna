@@ -31,7 +31,11 @@ impl StudyCache {
 
     pub fn get_joint_search_space(&self) -> HashMap<String, Distribution> {
         match self.joint_search_space {
-            Some(ref search_space) => search_space.clone(),
+            Some(ref search_space) => search_space
+                .iter()
+                .filter(|(_, dist)| !dist.is_single())
+                .map(|(name, dist)| (name.clone(), dist.clone()))
+                .collect(),
             None => HashMap::new(),
         }
     }
