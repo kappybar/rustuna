@@ -1,8 +1,7 @@
-use rustuna_core::distribution::Distribution;
 use rustuna_core::study::Study;
 use rustuna_core::trial::{PersistedTrial, TrialStateValues};
 use rustuna_core::{Error, ErrorKind, Result};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// Options shared by parameter-importance evaluators.
 pub struct ImportanceOptions<'a> {
@@ -171,6 +170,7 @@ mod tests {
     use crate::ped_anova::PedAnovaImportanceEvaluator;
     use crate::test_utils;
     use crate::test_utils::ObjectiveType;
+    use rustuna_core::distribution::Distribution;
     use rustuna_core::sampler::RandomSampler;
     use rustuna_core::storage::InMemoryStorage;
     use rustuna_core::study::{self, Direction};
