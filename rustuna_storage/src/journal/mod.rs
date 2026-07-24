@@ -68,8 +68,7 @@ impl JournalOperation {
 pub struct JournalLog {
     pub op_code: i32,
     pub worker_id: String,
-    // Design note: keep raw JSON to avoid eager parsing of user_attrs (dict[str, str] in Rustuna)
-    // and preserve Optuna journal schema while letting Python-side conversion handle JSON types.
+    // Keep raw JSON so Rustuna can preserve string attributes without encoding them twice.
     #[serde(flatten)]
     pub fields: HashMap<String, Box<RawValue>>,
 }
