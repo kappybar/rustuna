@@ -338,11 +338,11 @@ impl Sampler for NSGAIISampler {
             ctx,
             storage,
             parent_population_numbers,
-            &search_space,
+            search_space,
         )?;
 
         let child = if self.rng.gen_bool(self.crossover_prob) {
-            self.crossover(parent0, parent1, &search_space)
+            self.crossover(parent0, parent1, search_space)
         } else {
             parent0
         };
