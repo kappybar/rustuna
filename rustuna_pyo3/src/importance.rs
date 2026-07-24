@@ -78,7 +78,7 @@ impl PyPedAnovaImportanceEvaluator {
             params,
         };
         let importances =
-            get_param_importances_with(&study.study, &self.evaluator, options).map_err(|err| {
+            self.evaluate_with(&study.study, &self.evaluator, options).map_err(|err| {
                 PyRuntimeError::new_err(format!("Failed to evaluate parameter importances: {err}"))
             })?;
         Ok(importances)
