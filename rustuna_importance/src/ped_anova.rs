@@ -265,6 +265,27 @@ impl ImportanceEvaluator for PedAnovaImportanceEvaluator {
     }
 }
 
+fn resolve_params(trials: &[PersistedTrial], params: Option<Vec<String>>) -> Result<Vec<String>> {
+    let all_params = trials.iter()
+        .flat_map(|t| t.distributions.keys())
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    match params {
+        Some(params) => {
+            let missing = params.iter().filter(|p| !all_params.contains(*p)).cloned().collect::<Vec<_>>();
+            if missing.is_empty() {
+                Ok(params)
+            }else {
+                Err(Error::with_reason(
+                    ErrorKind::ImportanceEvaluatorError,
+                    format!("Study must contain at least one completed trial for each specified parameter. Missing parameters: {missing:?}.")
+                ))
+            }
+        }
+        None => Ok(all_params.into_iter().collect()),
+    }
+}
+
 fn partition_by_regime<'a>(
     param_name: &str,
     trials: &'a [&'a PersistedTrial],
