@@ -309,13 +309,6 @@ impl Sampler for NSGAIISampler {
         storage: Arc<RwLock<dyn Storage>>,
         search_space: &HashMap<String, Distribution>,
     ) -> Result<HashMap<String, f64>> {
-        // Exclude single-value distributions from the search space.
-        let filtered_search_space: HashMap<String, Distribution> = search_space
-            .iter()
-            .filter(|(_, dist)| !dist.is_single())
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-
         let mut guard = storage
             .write()
             .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
@@ -345,11 +338,11 @@ impl Sampler for NSGAIISampler {
             ctx,
             storage,
             parent_population_numbers,
-            &filtered_search_space,
+            &search_space,
         )?;
 
         let child = if self.rng.gen_bool(self.crossover_prob) {
-            self.crossover(parent0, parent1, &filtered_search_space)
+            self.crossover(parent0, parent1, &search_space)
         } else {
             parent0
         };
@@ -358,7 +351,7 @@ impl Sampler for NSGAIISampler {
             .mutation_prob
             .unwrap_or(1.0 / 1.0_f64.max(child.len() as f64));
         let mut params = HashMap::new();
-        for name in filtered_search_space.keys() {
+        for name in search_space.keys() {
             if !self.rng.gen_bool(mutation_prob) {
                 let param_value = *child.get(name).unwrap();
                 params.insert(name.clone(), param_value);

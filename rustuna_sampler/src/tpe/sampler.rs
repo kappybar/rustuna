@@ -600,14 +600,7 @@ impl Sampler for TpeSampler {
             return Ok(HashMap::new());
         }
 
-        // Exclude single-value distributions from the search space.
-        let filtered_search_space: HashMap<String, Distribution> = search_space
-            .iter()
-            .filter(|(_, dist)| !dist.is_single())
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-
-        self.sample(ctx, &complete_trials, &filtered_search_space)
+        self.sample(ctx, &complete_trials, search_space)
     }
 
     fn after_trial(
