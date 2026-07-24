@@ -147,10 +147,6 @@ impl Distribution {
 
     /// Returns the single value that this distribution produces.
     ///
-    /// # Panics
-    ///
-    /// Panics if `is_single()` returns `false`.
-    ///
     /// # Returns
     ///
     /// - For `Float` distributions: the `low` value
