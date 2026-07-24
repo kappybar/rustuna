@@ -19,7 +19,7 @@ class TestBasicImportanceEvaluator(BasicImportanceEvaluatorTestCase):
     def evaluator(self, request: SubRequest) -> Callable[..., BaseImportanceEvaluator]:
         return lambda: ToOptunaImportanceEvaluator(request.param())
 
-    # TODO(kAIto47802): Remove this skip once Rustuna PED-ANOVA supports target.
+    # TODO(kAIto47802): Remove these skip once Rustuna's PED-ANOVA supports target.
     @pytest.mark.filterwarnings("ignore::UserWarning")
     @pytest.mark.parametrize("inf_value", [float("inf"), -float("inf")])
     @pytest.mark.parametrize(
@@ -52,7 +52,7 @@ class TestBasicImportanceEvaluator(BasicImportanceEvaluatorTestCase):
             target_idx,
         )
 
-    # TODO(kAIto47802): Remove this skip once Rustuna PED-ANOVA supports target.
+    # TODO(kAIto47802): Remove this skip once Rustuna's PED-ANOVA supports target.
     @pytest.mark.skip(reason="Rustuna does not support target yet")
     def test_importance_evaluator_with_target(
         self,

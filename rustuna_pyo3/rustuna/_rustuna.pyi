@@ -460,6 +460,12 @@ class PedAnovaImportanceEvaluator:
         evaluate_on_local: bool = True,
     ) -> None: ...
 
+    def evaluate(
+        self,
+        study: Study,
+        params: list[str] | None = None,
+    ) -> dict[str, float]: ...
+
 def get_param_importances(
     study: Study,
     *,
