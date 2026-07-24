@@ -256,16 +256,21 @@ impl ImportanceEvaluator for PedAnovaImportanceEvaluator {
 }
 
 fn resolve_params(trials: &[PersistedTrial], params: Option<Vec<String>>) -> Result<Vec<String>> {
-    let all_params = trials.iter()
+    let all_params = trials
+        .iter()
         .flat_map(|t| t.distributions.keys())
         .cloned()
         .collect::<BTreeSet<_>>();
     match params {
         Some(params) => {
-            let missing = params.iter().filter(|p| !all_params.contains(*p)).cloned().collect::<Vec<_>>();
+            let missing = params
+                .iter()
+                .filter(|p| !all_params.contains(*p))
+                .cloned()
+                .collect::<Vec<_>>();
             if missing.is_empty() {
                 Ok(params)
-            }else {
+            } else {
                 Err(Error::with_reason(
                     ErrorKind::ImportanceEvaluatorError,
                     format!("Study must contain at least one completed trial for each specified parameter. Missing parameters: {missing:?}.")
@@ -426,12 +431,8 @@ mod tests {
     fn test_n_trials_less_than_three() -> Result<()> {
         let evaluator = PedAnovaImportanceEvaluator::default();
         for n_trials in 0..=2 {
-            let study = test_utils::get_study(
-                42,
-                n_trials,
-                ObjectiveType::Single,
-                Direction::Minimize,
-            )?;
+            let study =
+                test_utils::get_study(42, n_trials, ObjectiveType::Single, Direction::Minimize)?;
             let importances = evaluator.evaluate(&study)?;
             assert!(
                 (n_trials == 2) ^ importances.values().all(|v| v.abs() <= 1e-12),
