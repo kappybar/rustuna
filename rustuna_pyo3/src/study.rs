@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use rustuna_core::attr::AttrKey;
 use rustuna_core::sampler::Sampler;
-use rustuna_core::storage::{InMemoryStorage, Storage};
+use rustuna_core::storage::Storage;
 use rustuna_core::study::{
     create_study_with_arc, get_best_trial, get_pareto_front, Direction, PersistedStudy, Study,
 };
@@ -19,13 +19,15 @@ use rustuna_sampler::tpe::TpeSampler;
 use crate::attrs::pyobj_to_attrs;
 use crate::attrs::{convert_pydict_to_fixed_params, pyobj_to_attrs_with_kind, AttrKind};
 use crate::exception::err_to_exceptions;
-use crate::pyobject_storage::PyObjectStorage;
 use crate::sampler::cmaes::PyCmaEsSampler;
 use crate::sampler::nsgaii::PyNSGAIISampler;
 use crate::sampler::python::PythonSamplerAdapter;
 use crate::sampler::random::PyRandomSampler;
 use crate::sampler::tpe::PyTpeSampler;
-use crate::storage::PyStorage;
+use crate::storage::in_memory::PyInMemoryStorage;
+use crate::storage::journal::PyJournalFileStorage;
+use crate::storage::sqlite3::PySQLite3Storage;
+use crate::storage::to_rust::ToRustStorage;
 use crate::trial::{PyPersistedTrial, PyTrial, PyTrialState};
 use crate::trial_queue::directory::PyDirectoryTrialQueue;
 use crate::trial_queue::inmemory::PyInMemoryTrialQueue;
@@ -158,10 +160,14 @@ fn resolve_storage_pyobj(
 ) -> PyResult<(SharedStorage, Py<PyAny>)> {
     let storage_pyobj = storage.clone_ref(py);
     let storage_ref = storage.bind(py);
-    if let Ok(py_storage) = storage_ref.extract::<PyStorage>() {
-        Ok((py_storage.storage.clone(), storage_pyobj))
+    if let Ok(py_inmemory_storage) = storage_ref.extract::<PyInMemoryStorage>() {
+        Ok((py_inmemory_storage.storage(), storage_pyobj))
+    } else if let Ok(py_journal_storage) = storage_ref.extract::<PyJournalFileStorage>() {
+        Ok((py_journal_storage.storage(), storage_pyobj))
+    } else if let Ok(py_sqlite3_storage) = storage_ref.extract::<PySQLite3Storage>() {
+        Ok((py_sqlite3_storage.storage(), storage_pyobj))
     } else {
-        let mut wrapped = PyObjectStorage::new(storage);
+        let mut wrapped = ToRustStorage::new(storage);
         wrapped.sync_studies(true).map_err(err_to_exceptions)?;
         let wrapped: SharedStorage = Arc::new(RwLock::new(wrapped));
         Ok((wrapped, storage_pyobj))
@@ -175,11 +181,8 @@ fn into_storage_pyobj(
     match storage {
         Some(storage) => resolve_storage_pyobj(py, storage),
         None => {
-            let storage = PyStorage {
-                storage: Arc::new(RwLock::new(InMemoryStorage::new())),
-                kind: "in_memory",
-            };
-            let storage_arc = storage.storage.clone();
+            let storage = PyInMemoryStorage::new();
+            let storage_arc = storage.storage();
             let storage_pyobj = Py::new(py, storage)?.into_any();
             Ok((storage_arc, storage_pyobj))
         }

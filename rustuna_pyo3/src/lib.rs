@@ -6,7 +6,6 @@ mod attrs;
 mod distribution;
 mod exception;
 mod importance;
-mod pyobject_storage;
 mod sampler;
 mod storage;
 mod study;
@@ -33,8 +32,10 @@ fn rustuna(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // distribution
     m.add_class::<distribution::PyDistribution>()?;
     // storage
-    m.add_class::<storage::PyStorage>()?;
-    m.add_class::<pyobject_storage::PyPyObjectStorage>()?;
+    m.add_class::<storage::in_memory::PyInMemoryStorage>()?;
+    m.add_class::<storage::journal::PyJournalFileStorage>()?;
+    m.add_class::<storage::sqlite3::PySQLite3Storage>()?;
+    m.add_class::<storage::to_rust::PyToRustStorage>()?;
     // sampler
     m.add_class::<sampler::tpe::PyTpeSampler>()?;
     m.add_class::<sampler::nsgaii::PyNSGAIISampler>()?;

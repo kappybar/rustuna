@@ -17,23 +17,23 @@ use crate::exception::err_to_exceptions;
 use crate::study::{pyobject_to_persisted_study, PyDirection};
 use crate::trial::{pyobject_to_persisted_trial, PyPersistedTrial, PyTrialState};
 
-// PyObjectStorage wraps an Optuna storage object and maintains an in-memory cache.
+// ToRustStorage wraps an Optuna storage object and maintains an in-memory cache.
 //
 // When using Optuna's API (e.g., `study.optimize()` with `ToOptunaSampler`), write operations
 // (such as `set_trial_state_values`) are performed directly on the Optuna storage, bypassing
-// PyObjectStorage's write methods. Therefore, the cache is not updated during these operations.
+// ToRustStorage's write methods. Therefore, the cache is not updated during these operations.
 //
 // To ensure consistency, all `get_*` methods must synchronize with the backend storage before
 // returning cached data.
-pub struct PyObjectStorage {
+pub struct ToRustStorage {
     obj: Py<PyAny>,
     cache: InMemoryStorage,
     cache_study_to_src_study: HashMap<u32, u32>,
     src_study_to_cache_study: HashMap<u32, u32>,
 }
-impl PyObjectStorage {
+impl ToRustStorage {
     pub fn new(obj: Py<PyAny>) -> Self {
-        PyObjectStorage {
+        ToRustStorage {
             obj,
             cache: InMemoryStorage::new(),
             cache_study_to_src_study: HashMap::new(),
@@ -392,7 +392,7 @@ impl PyObjectStorage {
         Error::with_reason(kind, reason)
     }
 }
-impl Storage for PyObjectStorage {
+impl Storage for ToRustStorage {
     fn create_new_study(
         &mut self,
         study_name: &str,
@@ -720,24 +720,21 @@ impl Storage for PyObjectStorage {
     }
 }
 
-// TODO(c-bata): Rename PyStorage, PyObjectStorage, and PyPyObjectStorage to more descriptive names.
-// Current naming is confusing: PyStorage wraps Rust-native storages, PyObjectStorage implements
-// Storage trait from Python StorageProtocol, and PyPyObjectStorage exposes PyObjectStorage to Python.
 #[derive(Clone)]
-#[pyclass(name = "PyObjectStorage")]
+#[pyclass(name = "ToRustStorage")]
 #[pyo3(module = "rustuna")]
-pub struct PyPyObjectStorage {
-    pub storage: Arc<RwLock<PyObjectStorage>>,
+pub struct PyToRustStorage {
+    pub storage: Arc<RwLock<ToRustStorage>>,
 }
 
 #[pymethods]
-impl PyPyObjectStorage {
+impl PyToRustStorage {
     #[new]
     fn new(storage: Py<PyAny>) -> PyResult<Self> {
         Python::attach(|_py| {
-            let mut inner = PyObjectStorage::new(storage);
+            let mut inner = ToRustStorage::new(storage);
             inner.sync_studies(true).map_err(err_to_exceptions)?;
-            Ok(PyPyObjectStorage {
+            Ok(PyToRustStorage {
                 storage: Arc::new(RwLock::new(inner)),
             })
         })

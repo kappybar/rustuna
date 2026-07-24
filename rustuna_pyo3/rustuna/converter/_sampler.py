@@ -11,7 +11,7 @@ from optuna.study import Study
 from optuna.trial import FrozenTrial, TrialState
 
 import rustuna
-from rustuna._rustuna import PyObjectStorage
+from rustuna._rustuna import ToRustStorage
 from rustuna.converter import (
     to_rustuna_directions,
     to_rustuna_distribution,
@@ -29,11 +29,11 @@ class ToOptunaSampler(BaseSampler):
     def __init__(self, sampler: SamplerProtocol) -> None:
         self._sampler = sampler
         self._inter_section_search_space = IntersectionSearchSpace()
-        self._storage: PyObjectStorage | None = None
+        self._storage: ToRustStorage | None = None
 
     def _get_storage(self, storage: BaseStorage) -> StorageProtocol:
         if self._storage is None:
-            self._storage = PyObjectStorage(ToRustunaStorage(storage))
+            self._storage = ToRustStorage(ToRustunaStorage(storage))
         return self._storage
 
     def sample_relative(
