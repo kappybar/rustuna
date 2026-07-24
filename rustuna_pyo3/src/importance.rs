@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use pyo3::exceptions::{PyUserWarning, PyValueError};
+use pyo3::exceptions::PyUserWarning;
 use pyo3::prelude::*;
 use pyo3::PyResult;
 
@@ -8,6 +8,7 @@ use rustuna_importance::{
     get_param_importances_with, ImportanceEvaluator, ImportanceOptions, PedAnovaImportanceEvaluator,
 };
 
+use crate::exception::err_to_exceptions;
 use crate::study::PyStudy;
 
 #[pyfunction]
@@ -28,9 +29,7 @@ pub fn py_get_param_importances(
         .map(|wrapper| &wrapper.evaluator)
         .unwrap_or(&default_evaluator);
     let importances =
-        get_param_importances_with(&study.study, evaluator, options).map_err(|err| {
-            PyValueError::new_err(format!("Failed to evaluate parameter importances: {err}"))
-        })?;
+        get_param_importances_with(&study.study, evaluator, options).map_err(err_to_exceptions)?;
     Ok(importances)
 }
 
@@ -52,7 +51,7 @@ impl PyPedAnovaImportanceEvaluator {
     ) -> PyResult<Self> {
         let evaluator =
             PedAnovaImportanceEvaluator::new(target_quantile, region_quantile, evaluate_on_local)
-                .map_err(|err| PyValueError::new_err(err.reason))?;
+                .map_err(err_to_exceptions)?;
         if region_quantile != 1.0 && !evaluate_on_local {
             PyErr::warn(
                 py,
@@ -80,9 +79,7 @@ impl PyPedAnovaImportanceEvaluator {
         let importances = self
             .evaluator
             .evaluate_with(&study.study, options)
-            .map_err(|err| {
-                PyValueError::new_err(format!("Failed to evaluate parameter importances: {err}"))
-            })?;
+            .map_err(err_to_exceptions)?;
         Ok(importances)
     }
 }
