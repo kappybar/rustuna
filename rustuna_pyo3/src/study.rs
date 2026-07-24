@@ -21,8 +21,8 @@ use crate::attrs::{convert_pydict_to_fixed_params, pyobj_to_attrs_with_kind, Att
 use crate::exception::err_to_exceptions;
 use crate::sampler::cmaes::PyCmaEsSampler;
 use crate::sampler::nsgaii::PyNSGAIISampler;
-use crate::sampler::python::PythonSamplerAdapter;
 use crate::sampler::random::PyRandomSampler;
+use crate::sampler::to_rust::ToRustSampler;
 use crate::sampler::tpe::PyTpeSampler;
 use crate::storage::in_memory::PyInMemoryStorage;
 use crate::storage::journal::PyJournalFileStorage;
@@ -31,8 +31,8 @@ use crate::storage::to_rust::ToRustStorage;
 use crate::trial::{PyPersistedTrial, PyTrial, PyTrialState};
 use crate::trial_queue::directory::PyDirectoryTrialQueue;
 use crate::trial_queue::inmemory::PyInMemoryTrialQueue;
-use crate::trial_queue::python::PythonTrialQueueAdapter;
 use crate::trial_queue::sqlite3::PySQLite3TrialQueue;
+use crate::trial_queue::to_rust::ToRustTrialQueue;
 
 type SharedStorage = Arc<RwLock<dyn Storage>>;
 type SharedSampler = Arc<Mutex<dyn Sampler>>;
@@ -139,7 +139,7 @@ fn into_trial_queue_pyobj(
                     trial_queue.clone_ref(py),
                 ))
             } else {
-                let queue: SharedTrialQueue = Arc::new(RwLock::new(PythonTrialQueueAdapter::new(
+                let queue: SharedTrialQueue = Arc::new(RwLock::new(ToRustTrialQueue::new(
                     trial_queue.clone_ref(py),
                 )));
                 Ok((queue, trial_queue.clone_ref(py)))
@@ -204,7 +204,7 @@ fn resolve_sampler_pyobj(
     } else if let Ok(py_random_sampler) = sampler_ref.extract::<PyRandomSampler>() {
         Ok((py_random_sampler.sampler.clone(), sampler_pyobj))
     } else {
-        let sampler: SharedSampler = Arc::new(Mutex::new(PythonSamplerAdapter::new(sampler)));
+        let sampler: SharedSampler = Arc::new(Mutex::new(ToRustSampler::new(sampler)));
         Ok((sampler, sampler_pyobj))
     }
 }

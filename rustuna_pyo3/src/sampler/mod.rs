@@ -13,8 +13,8 @@ use crate::storage::to_rust::PyToRustStorage;
 pub mod cmaes;
 mod context;
 pub mod nsgaii;
-pub mod python;
 pub mod random;
+pub mod to_rust;
 pub mod tpe;
 pub use context::PySamplerContext;
 
