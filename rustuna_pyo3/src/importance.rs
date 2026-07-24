@@ -29,7 +29,7 @@ pub fn py_get_param_importances(
         .unwrap_or(&default_evaluator);
     let importances =
         get_param_importances_with(&study.study, evaluator, options).map_err(|err| {
-            PyRuntimeError::new_err(format!("Failed to evaluate parameter importances: {err}"))
+            PyValueError::new_err(format!("Failed to evaluate parameter importances: {err}"))
         })?;
     Ok(importances)
 }
