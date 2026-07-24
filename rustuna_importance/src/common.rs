@@ -165,7 +165,6 @@ pub(crate) fn get_filtered_trials(
     Ok(completed_trials)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
