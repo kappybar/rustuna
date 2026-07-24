@@ -199,17 +199,7 @@ impl ImportanceEvaluator for PedAnovaImportanceEvaluator {
         let target = common::resolve_target(opts.target);
         let trials = common::get_filtered_trials(study, target)?;
         common::ensure_target_for_multi_objective(&trials, opts.target)?;
-        let dists = common::get_distributions(&trials, &opts.params);
-        let params = match opts.params {
-            Some(params) => params,
-            None => dists
-                .iter()
-                .flat_map(|d| d.keys())
-                .cloned()
-                .collect::<BTreeSet<_>>() // maintain a deterministic order of parameters
-                .into_iter()
-                .collect(),
-        };
+        let params = resolve_params(&trials, opts.params)?;
 
         if trials.len() <= 1 {
             return Ok(params.into_iter().map(|name| (name, 0.0)).collect());
