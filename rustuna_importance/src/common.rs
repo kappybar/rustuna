@@ -304,7 +304,7 @@ mod tests {
         )?;
         for evaluator in evaluators {
             let importance = get_param_importances(&study, &evaluator)?;
-            assert!(importance.values().all(|v| *v == 1.0), "{importance:?}");
+            assert!(importance.is_empty(), "{importance:?}");
         }
         Ok(())
     }
