@@ -65,4 +65,22 @@ impl PyPedAnovaImportanceEvaluator {
         }
         Ok(Self { evaluator })
     }
+
+    #[pyo3(signature = (study, params = None))]
+    fn evaluate(
+        &self,
+        study: &PyStudy,
+        params: Option<Vec<String>>,
+    ) -> PyResult<HashMap<String, f64>> {
+        let options = ImportanceOptions {
+            target: None,
+            normalize: true,
+            params,
+        };
+        let importances =
+            get_param_importances_with(&study.study, &self.evaluator, options).map_err(|err| {
+                PyRuntimeError::new_err(format!("Failed to evaluate parameter importances: {err}"))
+            })?;
+        Ok(importances)
+    }
 }
