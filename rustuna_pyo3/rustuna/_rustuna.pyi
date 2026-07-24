@@ -968,7 +968,7 @@ class SQLite3Storage:
         self,
         file_path: str,
         *,
-        load_discarded_trials: bool = False,
+        create_database: bool = True,
     ) -> None: ...
     def create_new_study(
         self, study_name: str, directions: list[StudyDirection]
