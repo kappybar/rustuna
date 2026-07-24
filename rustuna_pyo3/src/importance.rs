@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 use pyo3::PyResult;
 
 use rustuna_importance::{
-    get_param_importances_with, ImportanceOptions, ImportanceEvaluator, PedAnovaImportanceEvaluator,
+    get_param_importances_with, ImportanceEvaluator, ImportanceOptions, PedAnovaImportanceEvaluator,
 };
 
 use crate::study::PyStudy;
@@ -77,8 +77,10 @@ impl PyPedAnovaImportanceEvaluator {
             normalize: true,
             params,
         };
-        let importances =
-            self.evaluator.evaluate_with(&study.study, options).map_err(|err| {
+        let importances = self
+            .evaluator
+            .evaluate_with(&study.study, options)
+            .map_err(|err| {
                 PyValueError::new_err(format!("Failed to evaluate parameter importances: {err}"))
             })?;
         Ok(importances)
