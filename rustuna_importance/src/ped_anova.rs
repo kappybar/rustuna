@@ -224,6 +224,9 @@ impl ImportanceEvaluator for PedAnovaImportanceEvaluator {
         let quantile = target_trials.len() as f64 / region_trials.len() as f64;
 
         let target_trial_ids = target_trials.iter().map(|t| t.id).collect::<HashSet<_>>();
+
+        // Theorem 4.2 and Algorithm 1 in the original paper:
+        // https://arxiv.org/abs/2601.20800
         let importances = params.into_iter().map(|name| {
             let regime_trials =
                 partition_by_regime(&name, &region_trials, self.min_n_trials_in_regime);
