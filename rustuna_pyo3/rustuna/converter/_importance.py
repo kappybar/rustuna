@@ -25,7 +25,6 @@ class ToOptunaImportanceEvaluator(BaseImportanceEvaluator):
         target: Callable[[FrozenTrial], float] | None = None,
     ) -> dict[str, float]:
         rustuna_study = rustuna.load_study(
-            study.study_name, ToRustunaStorage(study._storage)
+            study_name=study.study_name, storage=ToRustunaStorage(study._storage)
         )
-
         return self._evaluator.evaluate(rustuna_study, params=params)
