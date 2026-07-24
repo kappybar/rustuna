@@ -490,19 +490,57 @@ mod tests {
     #[test]
     fn test_conditional() -> Result<()> {
         let study = test_utils::get_study(42, 20, ObjectiveType::Conditional, Direction::Minimize)?;
+
         let evaluator = PedAnovaImportanceEvaluator::default();
-        let importances = evaluator.evaluate(&study)?;
-        assert!(importances.contains_key("c"));
-        assert!(importances.contains_key("x"));
-        assert!(importances.contains_key("y"));
-        assert_ne!(
-            importances,
-            HashMap::from([
-                ("c".to_string(), 0.0),
-                ("x".to_string(), 0.0),
-                ("y".to_string(), 0.0),
-            ])
-        );
+        let params_cases = [
+            None,
+            Some(vec![]),
+            Some(vec!["c"]),
+            Some(vec!["x"]),
+            Some(vec!["c", "x"]),
+            Some(vec!["x", "y"]),
+            Some(vec!["c", "x", "y"]),
+            Some(vec!["d"]),
+            Some(vec!["c", "d"]),
+        ];
+        for params in params_cases {
+            let importances = match &params {
+                Some(params) => evaluator.evaluate_with(
+                    &study,
+                    ImportanceOptions::new()
+                        .with_params(params.iter().map(|p| (*p).to_string()).collect()),
+                ),
+                None => evaluator.evaluate(&study),
+            };
+            if params.as_ref().is_some_and(|params| params.contains(&"d")) {
+                assert!(
+                    matches!(
+                        importances.unwrap_err().kind,
+                        ErrorKind::ImportanceEvaluatorError
+                    ),
+                    "{params:?}"
+                );
+                continue;
+            }
+
+            let importances = importances?;
+            if params.as_ref().is_some_and(Vec::is_empty) {
+                assert!(importances.is_empty());
+                continue;
+            }
+            let expected = params
+                .unwrap_or_else(|| vec!["c", "x", "y"])
+                .into_iter()
+                .collect::<HashSet<_>>();
+            assert_eq!(
+                importances
+                    .keys()
+                    .map(String::as_str)
+                    .collect::<HashSet<_>>(),
+                expected
+            );
+            assert!(!importances.values().all(|&v| v == 0.0), "{importances:?}");
+        }
         Ok(())
     }
 }
