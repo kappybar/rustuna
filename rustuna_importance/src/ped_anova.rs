@@ -210,7 +210,7 @@ impl ImportanceEvaluator for PedAnovaImportanceEvaluator {
                 .collect(),
         };
 
-        if trials.len() <= self.min_n_top_trials {
+        if trials.len() <= 1 {
             return Ok(params.into_iter().map(|name| (name, 0.0)).collect());
         }
 
