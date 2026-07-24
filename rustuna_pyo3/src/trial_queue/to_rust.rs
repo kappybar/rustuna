@@ -2,11 +2,14 @@ use pyo3::prelude::*;
 use rustuna_core::trial_queue::TrialQueue;
 use rustuna_core::{Error, ErrorKind, Result};
 
-pub struct PythonTrialQueueAdapter {
+// ToRustTrialQueue adapts a Python object implementing rustuna.TrialQueueProtocol to
+// rustuna_core::trial_queue::TrialQueue. Rustuna can therefore use Python trial queues through the
+// same interface as native queues.
+pub struct ToRustTrialQueue {
     obj: Py<PyAny>,
 }
 
-impl PythonTrialQueueAdapter {
+impl ToRustTrialQueue {
     pub fn new(obj: Py<PyAny>) -> Self {
         Self { obj }
     }
@@ -21,7 +24,7 @@ impl PythonTrialQueueAdapter {
     }
 }
 
-impl TrialQueue for PythonTrialQueueAdapter {
+impl TrialQueue for ToRustTrialQueue {
     fn enqueue(&mut self, trial_id: u32) -> Result<()> {
         Python::attach(|py| {
             self.obj

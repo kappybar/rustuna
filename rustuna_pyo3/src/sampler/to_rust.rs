@@ -14,15 +14,18 @@ use crate::sampler::PySamplerContext;
 use crate::storage::to_python::ToPythonStorage;
 use crate::trial::PyTrialState;
 
-pub struct PythonSamplerAdapter {
+// ToRustSampler adapts a Python object implementing rustuna.SamplerProtocol to
+// rustuna_core::sampler::Sampler. Rustuna can therefore use Python samplers through the same
+// interface as native Rust samplers.
+pub struct ToRustSampler {
     obj: Py<PyAny>,
 }
-impl PythonSamplerAdapter {
+impl ToRustSampler {
     pub fn new(obj: Py<PyAny>) -> Self {
-        PythonSamplerAdapter { obj }
+        ToRustSampler { obj }
     }
 }
-impl Sampler for PythonSamplerAdapter {
+impl Sampler for ToRustSampler {
     fn sample_independent(
         &mut self,
         ctx: &SamplerContext,
