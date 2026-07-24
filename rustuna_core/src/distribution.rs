@@ -160,7 +160,10 @@ impl Distribution {
         if !self.is_single() {
             return Err(Error::with_reason(
                 ErrorKind::Unexpected,
-                format!("Cannot get single value from non-single distribution: {:?}", self),
+                format!(
+                    "Cannot get single value from non-single distribution: {:?}",
+                    self
+                ),
             ));
         }
 
