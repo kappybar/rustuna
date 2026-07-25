@@ -147,9 +147,7 @@ def test_rustuna_journal_attrs_are_optuna_replayable() -> None:
 
         study_system_log = next(log for log in logs if log["op_code"] == 3)
         assert study_system_log["system_attr"] == {"rustuna": None}
-        assert study_system_log["system_attr_str"] == {
-            "study_system": "study value"
-        }
+        assert study_system_log["system_attr_str"] == {"study_system": "study value"}
 
         trial_user_log = next(log for log in logs if log["op_code"] == 8)
         assert trial_user_log["user_attr"] == {"rustuna": None}
@@ -157,9 +155,7 @@ def test_rustuna_journal_attrs_are_optuna_replayable() -> None:
 
         trial_system_log = next(log for log in logs if log["op_code"] == 9)
         assert trial_system_log["system_attr"] == {"rustuna": None}
-        assert trial_system_log["system_attr_str"] == {
-            "trial_system": "trial value"
-        }
+        assert trial_system_log["system_attr_str"] == {"trial_system": "trial value"}
 
         optuna_storage = JournalStorage(JournalFileBackend(file_path))
         optuna_study = optuna.load_study(
