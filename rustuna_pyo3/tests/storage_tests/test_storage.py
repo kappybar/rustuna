@@ -22,10 +22,9 @@ if TYPE_CHECKING:
         "inmemory",
         "sqlite3",
         "journal-file",
-        # TODO(c-bata): Fix test_studyw_get_user_attr_method
-        # "optuna-inmemory",
-        # "optuna-rdb-sqlite3",
-        # "optuna-journal-file",
+        "optuna-inmemory",
+        "optuna-rdb-sqlite3",
+        "optuna-journal-file",
     ]
 )
 def storage(request: FixtureRequest) -> Generator[StorageProtocol, None, None]:
