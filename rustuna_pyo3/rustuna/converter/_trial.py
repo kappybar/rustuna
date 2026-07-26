@@ -35,8 +35,7 @@ to_rustuna_state_map = {
     optuna.trial.TrialState.PRUNED: rustuna.trial.TrialState.PRUNED,
     optuna.trial.TrialState.WAITING: rustuna.trial.TrialState.WAITING,
 }
-# TODO(c-bata): Make rustuna.trial.TrialState hashable.
-# to_optuna_state_map = {v: k for k, v in to_optuna_state_map.items()}
+to_optuna_state_map = {v: k for k, v in to_rustuna_state_map.items()}
 
 
 def to_optuna_state(state: rustuna.trial.TrialState) -> optuna.trial.TrialState:

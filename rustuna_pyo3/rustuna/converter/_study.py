@@ -1,29 +1,43 @@
 from __future__ import annotations
 
-from optuna.study._frozen import FrozenStudy
+from collections.abc import Container
+from typing import Any
+
+import optuna
+from optuna import Study as _OptunaStudy
 
 import rustuna
 
-from ._attrs import to_optuna_attrs, to_rustuna_attrs
-from ._direction import to_optuna_directions, to_rustuna_directions
+from ._storage import ToOptunaStorage
+from ._trial import (
+    to_frozen_trial,
+    to_rustuna_state_map,
+)
 
 
-def to_frozen_study(study: rustuna.study.PersistedStudy) -> FrozenStudy:
-    return FrozenStudy(
-        study_name=study.name,
-        study_id=study.id,
-        direction=None,
-        directions=to_optuna_directions(study.directions),
-        user_attrs=to_optuna_attrs(study.user_attrs),
-        system_attrs=to_optuna_attrs(study.system_attrs),
-    )
+class ToOptunaStudy(_OptunaStudy):
+    def __init__(self, study: rustuna.Study):
+        self._rustuna_study = study
+        super().__init__(
+            study.study_name,
+            ToOptunaStorage(study._storage),
+        )
 
+    def get_trials(
+        self,
+        deepcopy: bool = True,
+        states: Container[optuna.trial.TrialState] | None = None,
+    ) -> list[optuna.trial.FrozenTrial]:
+        rustuna_states: list[rustuna.trial.TrialState] | None = None
+        if states is not None:
+            rustuna_states = []
+            for optuna_state, rustuna_state in to_rustuna_state_map.items():
+                if optuna_state not in states:
+                    continue
+                rustuna_states.append(rustuna_state)
+        trials = self._rustuna_study.get_trials(states=rustuna_states)
+        return [to_frozen_trial(t, use_frozen_trial_like=True) for t in trials]
 
-def to_persisted_study(study: FrozenStudy) -> rustuna.study.PersistedStudy:
-    return rustuna.study.PersistedStudy(
-        id=study._study_id,
-        name=study.study_name,
-        directions=to_rustuna_directions(study.directions),
-        user_attrs=to_rustuna_attrs(study.user_attrs),
-        system_attrs=to_rustuna_attrs(study.system_attrs),
-    )
+    @property
+    def user_attrs(self) -> dict[str, Any]:
+        return self._rustuna_study.user_attrs
