@@ -150,6 +150,21 @@ Example output:
 Found x: 1.9991240057627049, (x - 2)^2: 7.673659037742573e-07
 ```
 
+Rustuna studies can be passed to [Optuna's visualization APIs](https://optuna.readthedocs.io/en/stable/reference/visualization/index.html)
+by wrapping them with [ToOptunaStudy](../api/converter.md#rustuna.converter.ToOptunaStudy).
+
+```python
+from optuna.visualization import plot_optimization_history
+
+from rustuna.converter import ToOptunaStudy
+
+optuna_study = ToOptunaStudy(study)
+fig = plot_optimization_history(optuna_study)
+fig.show()
+```
+
+![Optimization history plot](../assets/images/getting-started-plot-optimization-history.jpg)
+
 ## Defining Search Space
 
 For parameter sampling, Rustuna provides the following features:
