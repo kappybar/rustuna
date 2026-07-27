@@ -317,8 +317,9 @@ class ToOptunaStorage(BaseStorage):
             self._storage.set_trial_state_values(trial_id, rustuna_state, values)
         except rustuna.exceptions.UpdateFinishedTrialError as e:
             raise optuna.exceptions.UpdateFinishedTrialError(str(e)) from e
-        # TODO(c-bata): Add support for pop waiting trial
-        return False
+        # TODO(c-bata): Consider adding an atomic state-claim API to prevent
+        # multiple workers from claiming the same WAITING trial.
+        return True
 
     def set_trial_intermediate_value(
         self, trial_id: int, step: int, intermediate_value: float

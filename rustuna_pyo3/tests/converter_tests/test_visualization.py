@@ -4,10 +4,19 @@
 import warnings
 from typing import Callable
 
-import matplotlib.pyplot as plt
 import optuna
-import plotly.graph_objects as go
 import pytest
+
+try:
+    import matplotlib.pyplot as plt
+    import plotly.graph_objects as go  # type: ignore[import-untyped]
+    import scipy  # type: ignore[import-untyped]
+except ModuleNotFoundError:
+    pytest.skip(
+        "Visualization tests require matplotlib, plotly, and scipy.",
+        allow_module_level=True,
+    )
+
 from matplotlib.axes._axes import Axes
 from optuna.visualization import (
     plot_contour,

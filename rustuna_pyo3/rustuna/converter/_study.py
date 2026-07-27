@@ -8,6 +8,7 @@ from optuna import Study as _OptunaStudy
 
 import rustuna
 
+from ._attrs import to_optuna_attrs
 from ._storage import ToOptunaStorage
 from ._trial import (
     to_frozen_trial,
@@ -16,7 +17,25 @@ from ._trial import (
 
 
 class ToOptunaStudy(_OptunaStudy):
+    """Expose a Rustuna study through Optuna's ``Study`` interface.
+
+    This adapter allows Optuna APIs that consume a study, such as visualization
+    functions, to operate on a study created by Rustuna. Trial data is converted
+    to Optuna's ``FrozenTrial`` representation, while study operations are
+    forwarded to the underlying Rustuna storage through :class:`ToOptunaStorage`.
+
+    Args:
+        study: The Rustuna study to expose through the Optuna API.
+
+    Note:
+        Rustuna stores user attributes as strings. Attributes written directly
+        through the Rustuna study are exposed with their stored string values,
+        while attributes written through this adapter use Optuna's JSON-compatible
+        representation.
+    """
+
     def __init__(self, study: rustuna.Study):
+        """Create an Optuna-compatible view of ``study``."""
         self._rustuna_study = study
         super().__init__(
             study.study_name,
@@ -36,8 +55,15 @@ class ToOptunaStudy(_OptunaStudy):
                     continue
                 rustuna_states.append(rustuna_state)
         trials = self._rustuna_study.get_trials(states=rustuna_states)
-        return [to_frozen_trial(t, use_frozen_trial_like=True) for t in trials]
+        return [to_frozen_trial(t, use_frozen_trial_like=not deepcopy) for t in trials]
 
     @property
     def user_attrs(self) -> dict[str, Any]:
-        return self._rustuna_study.user_attrs
+        attrs = self._rustuna_study.user_attrs
+        raw_attrs = {
+            key: value
+            for key, value in attrs.items()
+            if not key.startswith("optuna_attr:")
+        }
+        raw_attrs.update(to_optuna_attrs(attrs))
+        return raw_attrs
