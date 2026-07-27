@@ -41,6 +41,30 @@ logger = optuna.logging.get_logger(__name__)
 
 
 class ToRustunaStorage:
+    """Adapt an Optuna storage to Rustuna's storage protocol.
+
+    Args:
+        storage: The Optuna storage to adapt.
+
+    Example:
+        Use an Optuna SQLite-backed storage with a Rustuna study.
+
+        ```python
+        import optuna
+        import rustuna
+        from rustuna.converter import ToRustunaStorage
+
+        def objective(trial: rustuna.Trial) -> float:
+            # Define your objective function.
+            return trial.suggest_float("x", -1, 1) ** 2
+
+        optuna_storage = optuna.storages.RDBStorage("sqlite:///study.db")
+        storage = ToRustunaStorage(optuna_storage)
+        study = rustuna.create_study(storage=storage)
+        study.optimize(objective, n_trials=10)
+        ```
+    """
+
     def __init__(self, storage: BaseStorage) -> None:
         self._storage = storage
         self._trial_id_to_study_id: dict[int, int] = {}
@@ -207,6 +231,30 @@ class ToRustunaStorage:
 
 
 class ToOptunaStorage(BaseStorage):
+    """Adapt a Rustuna storage to Optuna's ``BaseStorage`` interface.
+
+    Args:
+        storage: The Rustuna storage to adapt.
+
+    Example:
+        Use a Rustuna journal storage with an Optuna study.
+
+        ```python
+        import optuna
+        import rustuna
+        from rustuna.converter import ToOptunaStorage
+
+        def objective(trial: optuna.Trial) -> float:
+            # Define your objective function.
+            return trial.suggest_float("x", -1, 1) ** 2
+
+        rustuna_storage = rustuna.storages.JournalFileStorage("study.log")
+        storage = ToOptunaStorage(rustuna_storage)
+        study = optuna.create_study(storage=storage)
+        study.optimize(objective, n_trials=10)
+        ```
+    """
+
     def __init__(self, storage: rustuna.storages.StorageProtocol) -> None:
         self._storage = storage
         self._trial_cache: dict[int, FrozenTrialLike] = {}

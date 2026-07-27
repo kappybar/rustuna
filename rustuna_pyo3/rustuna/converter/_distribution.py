@@ -9,18 +9,25 @@ from rustuna._rustuna import Distribution
 def to_optuna_distributions(
     src: dict[str, Distribution],
 ) -> dict[str, optuna.distributions.BaseDistribution]:
+    """Convert a mapping of Rustuna distributions to Optuna distributions."""
     return {k: to_optuna_distribution(v) for k, v in src.items()}
 
 
 def to_rustuna_distributions(
     src: dict[str, optuna.distributions.BaseDistribution],
 ) -> dict[str, Distribution]:
+    """Convert a mapping of Optuna distributions to Rustuna distributions."""
     return {k: to_rustuna_distribution(v) for k, v in src.items()}
 
 
 def to_optuna_distribution(
     src: Distribution,
 ) -> optuna.distributions.BaseDistribution:
+    """Convert a Rustuna distribution to its Optuna counterpart.
+
+    Raises:
+        ValueError: If the distribution type is not supported.
+    """
     d = src.to_dict()
     if d["type"] == "FloatDistribution":
         return optuna.distributions.FloatDistribution(
@@ -39,6 +46,11 @@ def to_optuna_distribution(
 def to_rustuna_distribution(
     src: optuna.distributions.BaseDistribution,
 ) -> Distribution:
+    """Convert an Optuna distribution to its Rustuna counterpart.
+
+    Raises:
+        ValueError: If the distribution type is not supported.
+    """
     if isinstance(src, optuna.distributions.FloatDistribution):
         return rustuna.distributions.FloatDistribution(
             low=src.low,

@@ -22,20 +22,31 @@ class ToOptunaStudy(_OptunaStudy):
     This adapter allows Optuna APIs that consume a study, such as visualization
     functions, to operate on a study created by Rustuna. Trial data is converted
     to Optuna's ``FrozenTrial`` representation, while study operations are
-    forwarded to the underlying Rustuna storage through :class:`ToOptunaStorage`.
+    forwarded to the underlying Rustuna storage through `ToOptunaStorage`.
 
     Args:
         study: The Rustuna study to expose through the Optuna API.
 
-    Note:
-        Rustuna stores user attributes as strings. Attributes written directly
-        through the Rustuna study are exposed with their stored string values,
-        while attributes written through this adapter use Optuna's JSON-compatible
-        representation.
+    Example:
+        Use a Rustuna study with an Optuna visualization function.
+
+        ```python
+        import rustuna
+        from optuna.visualization import plot_optimization_history
+        from rustuna.converter import ToOptunaStudy
+
+        def objective(trial: rustuna.Trial) -> float:
+            # Define your objective function.
+            return trial.suggest_float("x", -1, 1) ** 2
+
+        rustuna_study = rustuna.create_study()
+        rustuna_study.optimize(objective, n_trials=10)
+        optuna_study = ToOptunaStudy(rustuna_study)
+        fig = plot_optimization_history(optuna_study)
+        ```
     """
 
     def __init__(self, study: rustuna.Study):
-        """Create an Optuna-compatible view of ``study``."""
         self._rustuna_study = study
         super().__init__(
             study.study_name,

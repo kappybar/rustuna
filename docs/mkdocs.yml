@@ -45,6 +45,7 @@ nav:
       - rustuna.trial_queue: api/trial_queue.md
       - rustuna.distributions: api/distributions.md
       - rustuna.importance: api/importance.md
+      - rustuna.converter: api/converter.md
 
 markdown_extensions:
   - attr_list

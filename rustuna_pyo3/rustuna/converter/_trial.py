@@ -39,6 +39,7 @@ to_optuna_state_map = {v: k for k, v in to_rustuna_state_map.items()}
 
 
 def to_optuna_state(state: rustuna.trial.TrialState) -> optuna.trial.TrialState:
+    """Convert a Rustuna trial state to an Optuna trial state."""
     if state == rustuna.trial.TrialState.RUNNING:
         return optuna.trial.TrialState.RUNNING
     elif state == rustuna.trial.TrialState.COMPLETE:
@@ -54,6 +55,7 @@ def to_optuna_state(state: rustuna.trial.TrialState) -> optuna.trial.TrialState:
 
 
 def to_rustuna_state(state: optuna.trial.TrialState) -> rustuna.trial.TrialState:
+    """Convert an Optuna trial state to a Rustuna trial state."""
     return to_rustuna_state_map[state]
 
 
@@ -61,6 +63,7 @@ def to_persisted_trial(
     trial: optuna.trial.FrozenTrial,
     study_id: int,
 ) -> rustuna.trial.PersistedTrial:
+    """Convert an Optuna frozen trial to a Rustuna persisted trial."""
     rustuna_system_attrs = to_rustuna_attrs(trial.system_attrs)
 
     distributions: dict[str, Distribution] = {}
@@ -85,6 +88,12 @@ def to_persisted_trial(
 
 
 class FrozenTrialLike(FrozenTrial):
+    """Lazily convert a Rustuna trial into an Optuna ``FrozenTrial``.
+
+    Args:
+        persisted_trial: The Rustuna trial to expose through the Optuna API.
+    """
+
     def __init__(self, persisted_trial: rustuna.trial.PersistedTrial) -> None:
         self._persisted_trial = persisted_trial
 
@@ -265,12 +274,6 @@ class FrozenTrialLike(FrozenTrial):
 
     @property
     def last_step(self) -> int | None:
-        """Return the maximum step of `intermediate_values` in the trial.
-
-        Returns:
-            The maximum step of intermediates.
-        """
-
         if len(self.intermediate_values) == 0:
             return None
         else:
@@ -278,19 +281,12 @@ class FrozenTrialLike(FrozenTrial):
 
     @property
     def duration(self) -> datetime.timedelta | None:
-        """Return the elapsed time taken to complete the trial.
-
-        Returns:
-            The duration.
-        """
-
         if self.datetime_start and self.datetime_complete:
             return self.datetime_complete - self.datetime_start
         else:
             return None
 
     def __reduce__(self) -> str | tuple[Any, ...]:
-        """Convert to a real FrozenTrial for pickling."""
         frozen_trial = FrozenTrial(
             number=self.number,
             state=self.state,
@@ -376,6 +372,13 @@ def to_frozen_trial(
     *,
     use_frozen_trial_like: bool = True,
 ) -> FrozenTrial:
+    """Convert a Rustuna persisted trial to an Optuna frozen trial.
+
+    Args:
+        persisted_trial: The Rustuna trial to convert.
+        use_frozen_trial_like: If ``True``, return a lazy ``FrozenTrialLike``
+            instance. Otherwise, return a materialized ``FrozenTrial``.
+    """
     ft_like = FrozenTrialLike(persisted_trial)
     if use_frozen_trial_like:
         return ft_like
