@@ -758,10 +758,10 @@ fn parse_naive_datetime(value: &str) -> PyResult<NaiveDateTime> {
         .map_err(|e| PyValueError::new_err(format!("Failed to parse datetime: {e}")))
 }
 
-pub fn pyobject_to_persisted_trial(
+pub fn pyobject_to_persisted_trial_with_category_labels(
     trial: &Bound<'_, PyAny>,
     study_id: u32,
-) -> PyResult<PersistedTrial> {
+) -> PyResult<(PersistedTrial, Attrs)> {
     let trial_id = match trial.getattr("id") {
         Ok(attr) => attr.extract::<u32>()?,
         Err(_) => trial.getattr("_trial_id")?.extract::<u32>()?,
@@ -821,9 +821,13 @@ pub fn pyobject_to_persisted_trial(
     let src_distributions = src_distributions.cast::<PyDict>()?;
     let mut distributions: HashMap<String, Distribution> =
         HashMap::with_capacity(src_distributions.len());
+    let mut category_attrs = Attrs::new();
     for (key, value) in src_distributions.iter() {
         let key = key.extract::<String>()?;
         let value = value.extract::<PyDistribution>()?;
+        if let Some(labels) = &value.category_labels {
+            category_attrs.extend(category_labels_to_attrs(&key, labels));
+        }
         distributions.insert(key, value.into());
     }
     persisted_trial.distributions = distributions;
@@ -831,5 +835,5 @@ pub fn pyobject_to_persisted_trial(
     let user_attrs = trial.getattr("user_attrs")?;
     let system_attrs = trial.getattr("system_attrs")?;
     persisted_trial.attrs = pyobj_to_attrs(&user_attrs, &system_attrs)?;
-    Ok(persisted_trial)
+    Ok((persisted_trial, category_attrs))
 }

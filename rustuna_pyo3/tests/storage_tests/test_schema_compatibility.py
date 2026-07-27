@@ -107,7 +107,7 @@ class TestSuiteParam:
     def objective(self, trial: optuna.Trial | rustuna.Trial) -> float:
         x = trial.suggest_float("x", 1.0, 10.0, log=True)
         trial.suggest_int("y", 0, 10, step=2)
-        trial.suggest_categorical("z", [0, 1])
+        trial.suggest_categorical("z", ["red", "green"])
         return x
 
     def assert_trials(
@@ -129,8 +129,20 @@ class TestSuiteParam:
             assert isinstance(y, int)
             assert 1.0 <= x <= 10.0
             assert y in {0, 2, 4, 6, 8, 10}
-            assert trial.params["z"] in {0, 1}
+            assert trial.params["z"] in {"red", "green"}
             assert trial.values == [x]
+            if isinstance(trial, optuna.trial.FrozenTrial):
+                distribution = trial.distributions["z"]
+                assert isinstance(
+                    distribution, optuna.distributions.CategoricalDistribution
+                )
+                assert distribution.choices == ("red", "green")
+            else:
+                distribution = typing.cast(typing.Any, trial.distributions["z"])
+                assert distribution.to_dict()["choices"] == [
+                    "red",
+                    "green",
+                ]
 
 
 class TestSuiteMultiObjective:

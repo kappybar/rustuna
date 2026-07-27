@@ -15,7 +15,9 @@ use rustuna_core::{Error, ErrorKind};
 use crate::distribution::PyDistribution;
 use crate::exception::err_to_exceptions;
 use crate::study::{pyobject_to_persisted_study, PyDirection};
-use crate::trial::{pyobject_to_persisted_trial, PyPersistedTrial, PyTrialState};
+use crate::trial::{
+    pyobject_to_persisted_trial_with_category_labels, PyPersistedTrial, PyTrialState,
+};
 
 // ToRustStorage wraps an Optuna storage object and maintains an in-memory cache.
 //
@@ -91,11 +93,11 @@ impl ToRustStorage {
         })
     }
 
-    fn obj_create_new_trial(&mut self, study_id: u32) -> PyResult<PersistedTrial> {
+    fn obj_create_new_trial(&mut self, study_id: u32) -> PyResult<(PersistedTrial, Attrs)> {
         Python::attach(|py| {
             let py_trial = self.obj.call_method1(py, "create_new_trial", (study_id,))?;
             let py_trial = py_trial.bind(py);
-            pyobject_to_persisted_trial(py_trial, study_id)
+            pyobject_to_persisted_trial_with_category_labels(py_trial, study_id)
         })
     }
 
@@ -103,14 +105,14 @@ impl ToRustStorage {
         &mut self,
         study_id: u32,
         template: &PersistedTrial,
-    ) -> PyResult<PersistedTrial> {
+    ) -> PyResult<(PersistedTrial, Attrs)> {
         Python::attach(|py| {
             let py_template = Py::new(py, PyPersistedTrial::new(template.clone(), Attrs::new()))?;
             let py_trial =
                 self.obj
                     .call_method1(py, "create_new_trial", (study_id, py_template))?;
             let py_trial = py_trial.bind(py);
-            pyobject_to_persisted_trial(py_trial, study_id)
+            pyobject_to_persisted_trial_with_category_labels(py_trial, study_id)
         })
     }
 
@@ -121,10 +123,39 @@ impl ToRustStorage {
         distribution: &Distribution,
         value: f64,
     ) -> PyResult<()> {
+        let category_labels = match distribution {
+            Distribution::Categorical { cardinality } => {
+                let study_id = self
+                    .cache
+                    .get_cached_trial(trial_id)
+                    .map_err(|e| {
+                        PyRuntimeError::new_err(format!(
+                            "Failed to find trial while setting categorical parameter: {:?}",
+                            e.kind
+                        ))
+                    })?
+                    .study_id;
+                let labels = self
+                    .cache
+                    .get_category_labels(study_id, name, *cardinality)
+                    .map_err(|e| {
+                        PyRuntimeError::new_err(format!(
+                            "Failed to get categorical labels for parameter '{name}': {:?}",
+                            e.kind
+                        ))
+                    })?
+                    .ok_or_else(|| {
+                        PyRuntimeError::new_err(format!(
+                            "Categorical labels are not available for parameter '{name}'"
+                        ))
+                    })?;
+                Some(labels)
+            }
+            _ => None,
+        };
         Python::attach(|py| {
-            // TODO(c-bata): Consider how to set category_labels.
-            let attrs = Attrs::new();
-            let py_distribution = PyDistribution::new(distribution.clone(), name, &attrs);
+            let py_distribution =
+                PyDistribution::new_with_category_labels(distribution.clone(), category_labels);
             self.obj.call_method1(
                 py,
                 "set_trial_param",
@@ -236,7 +267,7 @@ impl ToRustStorage {
         })
     }
 
-    fn obj_get_trials(&self, study_id: u32) -> PyResult<Vec<PersistedTrial>> {
+    fn obj_get_trials(&self, study_id: u32) -> PyResult<Vec<(PersistedTrial, Attrs)>> {
         Python::attach(|py| {
             let trials = self.obj.call_method1(py, "get_trials", (study_id,))?;
             let trials_ref = trials.bind(py);
@@ -244,9 +275,12 @@ impl ToRustStorage {
                 return Err(PyRuntimeError::new_err("studies must be a list"));
             }
             let trials = trials_ref.cast::<PyList>()?;
-            let mut persisted_trials: Vec<PersistedTrial> = Vec::with_capacity(trials.len());
+            let mut persisted_trials: Vec<(PersistedTrial, Attrs)> =
+                Vec::with_capacity(trials.len());
             for trial in trials.iter() {
-                persisted_trials.push(pyobject_to_persisted_trial(&trial, study_id)?);
+                persisted_trials.push(pyobject_to_persisted_trial_with_category_labels(
+                    &trial, study_id,
+                )?);
             }
             Ok(persisted_trials)
         })
@@ -282,8 +316,13 @@ impl ToRustStorage {
         &mut self,
         cache_study_id: u32,
         src_trial: PersistedTrial,
+        category_attrs: Attrs,
         cache_n_trials: Option<u32>,
     ) -> rustuna_core::Result<()> {
+        if !category_attrs.is_empty() {
+            self.cache
+                .set_study_attrs(cache_study_id, category_attrs, false)?;
+        }
         let cache_n_trials = match cache_n_trials {
             Some(n) => n,
             None => self.cache.get_trials(cache_study_id)?.len() as u32,
@@ -350,11 +389,16 @@ impl ToRustStorage {
         let mut src_trials = self
             .obj_get_trials(*src_study_id)
             .map_err(Self::map_pyerr)?;
-        src_trials.sort_by_key(|trial| trial.number);
+        src_trials.sort_by_key(|(trial, _)| trial.number);
 
         let mut cache_n_trials = self.cache.get_trials(cache_study_id)?.len() as u32;
-        for src_trial in src_trials {
-            self.sync_trial(cache_study_id, src_trial, Some(cache_n_trials))?;
+        for (src_trial, category_attrs) in src_trials {
+            self.sync_trial(
+                cache_study_id,
+                src_trial,
+                category_attrs,
+                Some(cache_n_trials),
+            )?;
             cache_n_trials = self.cache.get_trials(cache_study_id)?.len() as u32;
         }
         Ok(())
@@ -439,7 +483,7 @@ impl Storage for ToRustStorage {
                 .ok_or(rustuna_core::Error::new(
                     rustuna_core::ErrorKind::StudyNotFound,
                 ))?;
-        let src_trial = self
+        let (src_trial, category_attrs) = self
             .obj_create_new_trial(*src_study_id)
             .map_err(Self::map_pyerr)?;
         let src_trial_id = src_trial.id;
@@ -448,7 +492,7 @@ impl Storage for ToRustStorage {
             self.sync_trials(study_id)?;
             return self.cache.get_trial(src_trial_id);
         }
-        self.sync_trial(study_id, src_trial, Some(cached_n_trials))?;
+        self.sync_trial(study_id, src_trial, category_attrs, Some(cached_n_trials))?;
         self.cache.get_trial(src_trial_id)
     }
 
@@ -465,7 +509,7 @@ impl Storage for ToRustStorage {
                 .ok_or(rustuna_core::Error::new(
                     rustuna_core::ErrorKind::StudyNotFound,
                 ))?;
-        let src_trial = self
+        let (src_trial, category_attrs) = self
             .obj_create_new_trial_from_template(src_study_id, template)
             .map_err(Self::map_pyerr)?;
         let src_trial_id = src_trial.id;
@@ -474,7 +518,7 @@ impl Storage for ToRustStorage {
             self.sync_trials(study_id)?;
             return self.cache.get_trial(src_trial_id);
         }
-        self.sync_trial(study_id, src_trial, Some(cached_n_trials))?;
+        self.sync_trial(study_id, src_trial, category_attrs, Some(cached_n_trials))?;
         self.cache.get_trial(src_trial_id)
     }
 
