@@ -17,8 +17,9 @@ from optuna.trial import FrozenTrial, TrialState
 import rustuna
 
 from ._attrs import to_optuna_attrs, to_rustuna_attrs
+from ._direction import to_optuna_directions
 from ._distribution import to_optuna_distribution, to_rustuna_distribution
-from ._study import to_frozen_study, to_optuna_directions, to_persisted_study
+from ._frozen_study import to_frozen_study, to_persisted_study
 from ._trial import (
     FrozenTrialLike,
     to_frozen_trial,
@@ -316,8 +317,9 @@ class ToOptunaStorage(BaseStorage):
             self._storage.set_trial_state_values(trial_id, rustuna_state, values)
         except rustuna.exceptions.UpdateFinishedTrialError as e:
             raise optuna.exceptions.UpdateFinishedTrialError(str(e)) from e
-        # TODO(c-bata): Add support for pop waiting trial
-        return False
+        # TODO(c-bata): Consider adding an atomic state-claim API to prevent
+        # multiple workers from claiming the same WAITING trial.
+        return True
 
     def set_trial_intermediate_value(
         self, trial_id: int, step: int, intermediate_value: float

@@ -35,8 +35,7 @@ to_rustuna_state_map = {
     optuna.trial.TrialState.PRUNED: rustuna.trial.TrialState.PRUNED,
     optuna.trial.TrialState.WAITING: rustuna.trial.TrialState.WAITING,
 }
-# TODO(c-bata): Make rustuna.trial.TrialState hashable.
-# to_optuna_state_map = {v: k for k, v in to_optuna_state_map.items()}
+to_optuna_state_map = {v: k for k, v in to_rustuna_state_map.items()}
 
 
 def to_optuna_state(state: rustuna.trial.TrialState) -> optuna.trial.TrialState:
@@ -149,7 +148,7 @@ class FrozenTrialLike(FrozenTrial):
 
     @property
     def value(self) -> float | None:
-        values = self.__values or self._persisted_trial.values
+        values = self.values
         if values is None:
             return None
         if len(values) > 1:
@@ -174,7 +173,9 @@ class FrozenTrialLike(FrozenTrial):
     # These `_get_values`, `_set_values`, and `values = property(_get_values, _set_values)` are
     # defined to pass the mypy.
     def _get_values(self) -> list[float] | None:
-        return self.__values or self._persisted_trial.values
+        if self.__values is None:
+            self.__values = self._persisted_trial.values
+        return self.__values
 
     def _set_values(self, v: Sequence[float] | None) -> None:
         if v is not None:
@@ -206,7 +207,9 @@ class FrozenTrialLike(FrozenTrial):
 
     @property
     def params(self) -> dict[str, Any]:
-        return self.__params or self._persisted_trial.params
+        if self.__params is None:
+            self.__params = self._persisted_trial.params
+        return self.__params
 
     @params.setter
     def params(self, params: dict[str, Any]) -> None:
@@ -214,9 +217,11 @@ class FrozenTrialLike(FrozenTrial):
 
     @property
     def distributions(self) -> dict[str, BaseDistribution]:
-        return self.__distributions or to_optuna_distributions(
-            self._persisted_trial.distributions
-        )
+        if self.__distributions is None:
+            self.__distributions = to_optuna_distributions(
+                self._persisted_trial.distributions
+            )
+        return self.__distributions
 
     @distributions.setter
     def distributions(self, value: dict[str, BaseDistribution]) -> None:
@@ -250,9 +255,9 @@ class FrozenTrialLike(FrozenTrial):
 
     @property
     def intermediate_values(self) -> dict[int, float]:
-        if self.__intermediate_values is not None:
-            return self.__intermediate_values
-        return self._persisted_trial.intermediate_values
+        if self.__intermediate_values is None:
+            self.__intermediate_values = self._persisted_trial.intermediate_values
+        return self.__intermediate_values
 
     @intermediate_values.setter
     def intermediate_values(self, values: dict[int, float]) -> None:
