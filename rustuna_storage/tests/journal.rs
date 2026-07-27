@@ -233,7 +233,9 @@ study.optimize(objective, n_trials=10)
         .keys()
         .filter(|k| matches!(k, rustuna_core::attr::AttrKey::User(_)))
         .count();
-    assert_eq!(user_attrs_count, 1);
+    // Rustuna intentionally ignores Optuna's JSON-encoded `user_attr` field.
+    // Only Rustuna's string-only `user_attr_str` field is restored.
+    assert_eq!(user_attrs_count, 0);
     assert!(matches!(
         trials[0].as_ref().unwrap().state_values,
         TrialStateValues::Complete(_)

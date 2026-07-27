@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 import tempfile
 
 import optuna
@@ -115,3 +117,53 @@ def test_journal_file_storage_can_apply_discard() -> None:
         ]
         with pytest.raises(rustuna.exceptions.TrialDiscarded, match="Trial discarded"):
             analysis_storage.get_trial(first_persisted._trial_id)
+
+
+def test_rustuna_journal_attrs_are_optuna_replayable() -> None:
+    with tempfile.TemporaryDirectory() as workdir:
+        file_path = os.path.join(workdir, "attrs.journal")
+        rustuna_storage = rustuna.storages.JournalFileStorage(file_path)
+        rustuna_study = rustuna.create_study(
+            storage=rustuna_storage, study_name="journal-attrs"
+        )
+        rustuna_study.set_user_attr("study_user", "study value")
+        rustuna_storage.set_study_system_attrs(
+            rustuna_study._study_id, {"study_system": "study value"}
+        )
+
+        trial = rustuna_study.ask()
+        trial.set_user_attr("trial_user", "trial value")
+        rustuna_storage.set_trial_system_attrs(
+            trial._trial_id, {"trial_system": "trial value"}
+        )
+        rustuna_study.tell(trial.number, 1.0)
+
+        with open(file_path) as f:
+            logs = [json.loads(line) for line in f]
+
+        study_user_log = next(log for log in logs if log["op_code"] == 2)
+        assert study_user_log["user_attr"] == {"rustuna": None}
+        assert study_user_log["user_attr_str"] == {"study_user": "study value"}
+
+        study_system_log = next(log for log in logs if log["op_code"] == 3)
+        assert study_system_log["system_attr"] == {"rustuna": None}
+        assert study_system_log["system_attr_str"] == {"study_system": "study value"}
+
+        trial_user_log = next(log for log in logs if log["op_code"] == 8)
+        assert trial_user_log["user_attr"] == {"rustuna": None}
+        assert trial_user_log["user_attr_str"] == {"trial_user": "trial value"}
+
+        trial_system_log = next(log for log in logs if log["op_code"] == 9)
+        assert trial_system_log["system_attr"] == {"rustuna": None}
+        assert trial_system_log["system_attr_str"] == {"trial_system": "trial value"}
+
+        optuna_storage = JournalStorage(JournalFileBackend(file_path))
+        optuna_study = optuna.load_study(
+            storage=optuna_storage, study_name="journal-attrs"
+        )
+        assert optuna_study.user_attrs == {"rustuna": None}
+        assert optuna_storage.get_study_system_attrs(optuna_study._study_id) == {
+            "rustuna": None
+        }
+        assert optuna_study.trials[0].user_attrs == {"rustuna": None}
+        assert optuna_study.trials[0].system_attrs == {"rustuna": None}
