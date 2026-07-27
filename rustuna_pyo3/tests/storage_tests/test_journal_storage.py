@@ -86,7 +86,7 @@ def test_create_new_trial_from_template_optuna_compatibility() -> None:
         assert trials[0].state == optuna.trial.TrialState.WAITING
 
 
-def test_journal_file_storage_can_load_discarded_trials() -> None:
+def test_journal_file_storage_can_apply_discard() -> None:
     with tempfile.TemporaryDirectory() as workdir:
         file_path = f"{workdir}/discarded.journal"
         storage = rustuna.storages.JournalFileStorage(file_path)
@@ -99,21 +99,19 @@ def test_journal_file_storage_can_load_discarded_trials() -> None:
 
         storage.discard_trials([first_persisted._trial_id])
 
-        default_trials = storage.get_trials(study._study_id)
-        assert [trial._trial_id for trial in default_trials] == [
-            second_persisted._trial_id
+        retained_trials = storage.get_trials(study._study_id)
+        assert [trial._trial_id for trial in retained_trials] == [
+            first_persisted._trial_id,
+            second_persisted._trial_id,
         ]
 
         analysis_storage = rustuna.storages.JournalFileStorage(
             file_path,
-            load_discarded_trials=True,
+            apply_discard=True,
         )
-        analysis_trials = analysis_storage.get_trials(study._study_id)
-        assert [trial._trial_id for trial in analysis_trials] == [
-            first_persisted._trial_id,
+        omitted_trials = analysis_storage.get_trials(study._study_id)
+        assert [trial._trial_id for trial in omitted_trials] == [
             second_persisted._trial_id,
         ]
-        assert (
-            analysis_storage.get_trial(first_persisted._trial_id)._trial_id
-            == first_persisted._trial_id
-        )
+        with pytest.raises(rustuna.exceptions.TrialDiscarded, match="Trial discarded"):
+            analysis_storage.get_trial(first_persisted._trial_id)
