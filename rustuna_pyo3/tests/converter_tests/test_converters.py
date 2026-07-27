@@ -1,7 +1,6 @@
 import optuna
 import pytest
 
-import rustuna
 from rustuna import converter
 
 
