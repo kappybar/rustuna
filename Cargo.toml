@@ -24,5 +24,4 @@ rustuna_sampler = { path = "./rustuna_sampler" }
 rustuna_importance = { path = "./rustuna_importance" }
 rustuna_storage = { path = "./rustuna_storage" }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-fanova = "0.2.0"
 rand = "0.8.5"
