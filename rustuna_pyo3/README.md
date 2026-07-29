@@ -5,13 +5,15 @@
 ```python
 import rustuna as optuna
 
+
 def objective(trial: optuna.Trial) -> float:
-    x = trial.suggest_float('x', -10, 10)
-    y = trial.suggest_float('y', -10, 10)
+    x = trial.suggest_float("x", -10, 10)
+    y = trial.suggest_float("y", -10, 10)
     value = (x - 2) ** 2 + (y + 5) ** 2
 
     print(f"trial={trial.number}, x={x:.05}, y={y:.05}, value={value:.05}")
     return value
+
 
 study = optuna.create_study()
 study.optimize(objective, n_trials=100)
