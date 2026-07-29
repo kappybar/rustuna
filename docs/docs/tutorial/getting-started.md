@@ -178,6 +178,7 @@ With optional arguments of `step` and `log`, we can discretize or take the logar
 ```python
 import rustuna
 
+
 def objective(trial):
     # Categorical parameter
     optimizer = trial.suggest_categorical("optimizer", ["MomentumSGD", "Adam"])
@@ -303,9 +304,9 @@ import rustuna
 
 
 def objective(trial: rustuna.Trial) -> float:
-	x = trial.suggest_float("x", -10, 10)
-	y = trial.suggest_int("y", -5, 5)
-	return (x - 2) ** 2 + y**2
+    x = trial.suggest_float("x", -10, 10)
+    y = trial.suggest_int("y", -5, 5)
+    return (x - 2) ** 2 + y**2
 
 
 storage = rustuna.storages.SQLite3Storage("rustuna_example.db", create_database=True)
@@ -333,10 +334,7 @@ To resume a study, call [load_study](../api/study.md#rustuna.study.load_study) w
 
 ```python
 storage = rustuna.storages.SQLite3Storage("rustuna_example.db", create_database=False)
-study = rustuna.load_study(
-    study_name="sqlite3_example",
-    storage=storage
-)
+study = rustuna.load_study(study_name="sqlite3_example", storage=storage)
 study.optimize(objective, n_trials=50)
 
 print(f"Number of trials: {len(study.trials)}")

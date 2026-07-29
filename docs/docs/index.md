@@ -35,8 +35,8 @@ For example, the following code works as is by simply changing the import statem
 import rustuna as optuna
 
 def objective(trial: optuna.Trial) -> float:
-    x = trial.suggest_float('x', -10, 10)
-    y = trial.suggest_float('y', -10, 10)
+    x = trial.suggest_float("x", -10, 10)
+    y = trial.suggest_float("y", -10, 10)
     value = (x - 2) ** 2 + (y + 5) ** 2
     return value
 
