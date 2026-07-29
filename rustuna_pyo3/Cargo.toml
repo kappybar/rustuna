@@ -20,4 +20,3 @@ rustuna_core = { workspace = true }
 rustuna_sampler = { workspace = true }
 rustuna_storage = { workspace = true }
 rustuna_importance = { workspace = true }
-fanova = { workspace = true }
