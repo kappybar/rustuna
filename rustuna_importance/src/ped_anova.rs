@@ -15,8 +15,9 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 /// user-specified baseline quantile and measures how much each parameter contributes to achieving
 /// values better than that baseline.
 ///
-/// For further information, see the original paper
+/// For further information, see the original papers
 /// [PED-ANOVA: Efficiently Quantifying Hyperparameter Importance in Arbitrary Subspaces](https://arxiv.org/abs/2304.10255) (IJCAI 2023).
+/// [Conditional PED-ANOVA: Hyperparameter Importance in Hierarchical & Dynamic Search Spaces](https://arxiv.org/abs/2601.20800) (KDD 2026).
 ///
 /// The quality of the result depends on how many trials are included above the target quantile.
 /// In practice, it is preferable to have at least several top trials in the selected region.
@@ -64,7 +65,6 @@ pub struct PedAnovaImportanceEvaluator {
     evaluate_on_local: bool,
     n_steps: usize,
     prior_weight: f64,
-    min_n_top_trials: usize,
     min_n_trials_in_regime: usize,
 }
 
@@ -76,7 +76,6 @@ impl Default for PedAnovaImportanceEvaluator {
             evaluate_on_local: true,
             n_steps: 50,
             prior_weight: 1.0,
-            min_n_top_trials: 2,
             min_n_trials_in_regime: 2,
         }
     }
@@ -111,7 +110,6 @@ impl PedAnovaImportanceEvaluator {
             evaluate_on_local,
             n_steps: 50,
             prior_weight: 1.0,
-            min_n_top_trials: 2,
             min_n_trials_in_regime: 2,
         })
     }
@@ -139,15 +137,9 @@ impl PedAnovaImportanceEvaluator {
             })
             .collect::<Vec<_>>();
         let num_top_trials = ((quantile * trials.len() as f64).ceil() as usize).max(1) - 1;
-        let threshold = {
-            let (_, &mut threshold, _) = objective_values
-                .clone()
-                .select_nth_unstable_by(num_top_trials, |a, b| a.total_cmp(b));
-            let (_, &mut threshold_min, _) = objective_values
-                .clone()
-                .select_nth_unstable_by(self.min_n_top_trials - 1, |a, b| a.total_cmp(b));
-            threshold.max(threshold_min)
-        };
+        let (_, &mut threshold, _) = objective_values
+            .clone()
+            .select_nth_unstable_by(num_top_trials, |a, b| a.total_cmp(b));
         let top_trials = trials
             .iter()
             .zip(objective_values.iter())
@@ -207,19 +199,9 @@ impl ImportanceEvaluator for PedAnovaImportanceEvaluator {
         let target = common::resolve_target(opts.target);
         let trials = common::get_filtered_trials(study, target)?;
         common::ensure_target_for_multi_objective(&trials, opts.target)?;
-        let dists = common::get_distributions(&trials, &opts.params);
-        let params = match opts.params {
-            Some(params) => params,
-            None => dists
-                .iter()
-                .flat_map(|d| d.keys())
-                .cloned()
-                .collect::<BTreeSet<_>>() // maintain a deterministic order of parameters
-                .into_iter()
-                .collect(),
-        };
+        let params = resolve_params(&trials, opts.params)?;
 
-        if trials.len() <= self.min_n_top_trials {
+        if trials.len() <= 1 {
             return Ok(params.into_iter().map(|name| (name, 0.0)).collect());
         }
 
@@ -233,6 +215,9 @@ impl ImportanceEvaluator for PedAnovaImportanceEvaluator {
         let quantile = target_trials.len() as f64 / region_trials.len() as f64;
 
         let target_trial_ids = target_trials.iter().map(|t| t.id).collect::<HashSet<_>>();
+
+        // Theorem 4.2 and Algorithm 1 in the original paper:
+        // https://arxiv.org/abs/2601.20800
         let importances = params.into_iter().map(|name| {
             let regime_trials =
                 partition_by_regime(&name, &region_trials, self.min_n_trials_in_regime);
@@ -267,6 +252,32 @@ impl ImportanceEvaluator for PedAnovaImportanceEvaluator {
         Ok(importances
             .map(|(k, v)| (k, quantile.powi(2) * v))
             .collect())
+    }
+}
+
+fn resolve_params(trials: &[PersistedTrial], params: Option<Vec<String>>) -> Result<Vec<String>> {
+    let all_params = trials
+        .iter()
+        .flat_map(|t| t.distributions.keys())
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    match params {
+        Some(params) => {
+            let missing = params
+                .iter()
+                .filter(|p| !all_params.contains(*p))
+                .cloned()
+                .collect::<Vec<_>>();
+            if missing.is_empty() {
+                Ok(params)
+            } else {
+                Err(Error::with_reason(
+                    ErrorKind::ImportanceEvaluatorError,
+                    format!("Study must contain at least one completed trial for each specified parameter. Missing parameters: {missing:?}.")
+                ))
+            }
+        }
+        None => Ok(all_params.into_iter().collect()),
     }
 }
 
@@ -417,19 +428,17 @@ mod tests {
     use rustuna_core::Result;
 
     #[test]
-    fn test_n_trials_equal_to_min_n_top_trials() -> Result<()> {
+    fn test_n_trials_less_than_three() -> Result<()> {
         let evaluator = PedAnovaImportanceEvaluator::default();
-        let study = test_utils::get_study(
-            42,
-            evaluator.min_n_top_trials,
-            ObjectiveType::Single,
-            Direction::Minimize,
-        )?;
-        let importances = evaluator.evaluate(&study)?;
-        assert!(
-            importances.values().all(|v| v.abs() <= 1e-12),
-            "{importances:?}"
-        );
+        for n_trials in 0..=2 {
+            let study =
+                test_utils::get_study(42, n_trials, ObjectiveType::Single, Direction::Minimize)?;
+            let importances = evaluator.evaluate(&study)?;
+            assert!(
+                (n_trials == 2) ^ importances.values().all(|v| v.abs() <= 1e-12),
+                "{importances:?}"
+            );
+        }
         Ok(())
     }
 
@@ -482,19 +491,57 @@ mod tests {
     #[test]
     fn test_conditional() -> Result<()> {
         let study = test_utils::get_study(42, 20, ObjectiveType::Conditional, Direction::Minimize)?;
+
         let evaluator = PedAnovaImportanceEvaluator::default();
-        let importances = evaluator.evaluate(&study)?;
-        assert!(importances.contains_key("c"));
-        assert!(importances.contains_key("x"));
-        assert!(importances.contains_key("y"));
-        assert_ne!(
-            importances,
-            HashMap::from([
-                ("c".to_string(), 0.0),
-                ("x".to_string(), 0.0),
-                ("y".to_string(), 0.0),
-            ])
-        );
+        let params_cases = [
+            None,
+            Some(vec![]),
+            Some(vec!["c"]),
+            Some(vec!["x"]),
+            Some(vec!["c", "x"]),
+            Some(vec!["x", "y"]),
+            Some(vec!["c", "x", "y"]),
+            Some(vec!["d"]),
+            Some(vec!["c", "d"]),
+        ];
+        for params in params_cases {
+            let importances = match &params {
+                Some(params) => evaluator.evaluate_with(
+                    &study,
+                    ImportanceOptions::new()
+                        .with_params(params.iter().map(|p| (*p).to_string()).collect()),
+                ),
+                None => evaluator.evaluate(&study),
+            };
+            if params.as_ref().is_some_and(|params| params.contains(&"d")) {
+                assert!(
+                    matches!(
+                        importances.unwrap_err().kind,
+                        ErrorKind::ImportanceEvaluatorError
+                    ),
+                    "{params:?}"
+                );
+                continue;
+            }
+
+            let importances = importances?;
+            if params.as_ref().is_some_and(Vec::is_empty) {
+                assert!(importances.is_empty());
+                continue;
+            }
+            let expected = params
+                .unwrap_or_else(|| vec!["c", "x", "y"])
+                .into_iter()
+                .collect::<HashSet<_>>();
+            assert_eq!(
+                importances
+                    .keys()
+                    .map(String::as_str)
+                    .collect::<HashSet<_>>(),
+                expected
+            );
+            assert!(!importances.values().all(|&v| v == 0.0), "{importances:?}");
+        }
         Ok(())
     }
 }

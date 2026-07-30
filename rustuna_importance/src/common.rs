@@ -1,8 +1,7 @@
-use rustuna_core::distribution::Distribution;
 use rustuna_core::study::Study;
 use rustuna_core::trial::{PersistedTrial, TrialStateValues};
 use rustuna_core::{Error, ErrorKind, Result};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// Options shared by parameter-importance evaluators.
 pub struct ImportanceOptions<'a> {
@@ -162,31 +161,7 @@ pub(crate) fn get_filtered_trials(
         .filter(|t| target(t).is_finite())
         .cloned()
         .collect::<Vec<_>>();
-    if completed_trials.is_empty() {
-        Err(Error::new(ErrorKind::NoCompletedTrial))
-    } else {
-        Ok(completed_trials)
-    }
-}
-
-pub(crate) fn get_distributions(
-    trials: &[PersistedTrial],
-    params: &Option<Vec<String>>,
-) -> Vec<HashMap<String, Distribution>> {
-    let params_set = params
-        .as_ref()
-        .map(|p| p.iter().cloned().collect::<HashSet<_>>());
-    let dists = trials
-        .iter()
-        .map(|t| {
-            t.distributions
-                .iter()
-                .filter(|(name, _)| params_set.as_ref().is_none_or(|s| s.contains(*name)))
-                .map(|(name, dist)| (name.clone(), dist.clone()))
-                .collect::<HashMap<_, _>>()
-        })
-        .collect::<Vec<_>>();
-    dists
+    Ok(completed_trials)
 }
 
 #[cfg(test)]
@@ -195,6 +170,7 @@ mod tests {
     use crate::ped_anova::PedAnovaImportanceEvaluator;
     use crate::test_utils;
     use crate::test_utils::ObjectiveType;
+    use rustuna_core::distribution::Distribution;
     use rustuna_core::sampler::RandomSampler;
     use rustuna_core::storage::InMemoryStorage;
     use rustuna_core::study::{self, Direction};
@@ -326,8 +302,8 @@ mod tests {
             vec![Direction::Minimize],
         )?;
         for evaluator in evaluators {
-            let err = get_param_importances(&study, &evaluator).unwrap_err();
-            assert!(matches!(err.kind, ErrorKind::NoCompletedTrial));
+            let importance = get_param_importances(&study, &evaluator)?;
+            assert!(importance.is_empty(), "{importance:?}");
         }
         Ok(())
     }
