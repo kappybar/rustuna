@@ -765,19 +765,16 @@ class ToRustStorage:
     This class wraps a Python object implementing StorageProtocol and makes it
     usable as a Rust Storage trait implementation.
 
+    Args:
+        storage: A Python object implementing StorageProtocol.
+
     Note:
         This class is not intended for direct use by end users. It is used internally
         by rustuna converters (e.g., ToOptunaSampler) to bridge Python StorageProtocol
         implementations with Rust components.
     """
 
-    def __init__(self, storage: StorageProtocol) -> None:
-        """Create a ToRustStorage from a StorageProtocol instance.
-
-        Args:
-            storage: A Python object implementing StorageProtocol.
-        """
-
+    def __init__(self, storage: StorageProtocol) -> None: ...
     def create_new_study(
         self, study_name: str, directions: list[StudyDirection]
     ) -> PersistedStudy: ...
@@ -835,8 +832,12 @@ class ToRustStorage:
     def may_omit_trials(self) -> bool: ...
 
 class InMemoryStorage:
-    """Create an in-memory storage."""
-    def __init__(self) -> None: ...
+    """Create an in-memory storage.
+
+    Args:
+        apply_discard: If True, apply discard_trials() and omit discarded trials from subsequent reads.
+    """
+    def __init__(self, *, apply_discard: bool = False) -> None: ...
     def create_new_study(
         self, study_name: str, directions: list[StudyDirection]
     ) -> PersistedStudy: ...
@@ -898,13 +899,13 @@ class JournalFileStorage:
 
     Args:
         file_path: Path to the journal log file.
-        load_discarded_trials: If True, ignore discard logs and load all trials.
+        apply_discard: If True, apply discard operations when reading the storage. Journal logs are written regardless of this option.
     """
     def __init__(
         self,
         file_path: str,
         *,
-        load_discarded_trials: bool = False,
+        apply_discard: bool = False,
     ) -> None: ...
     def create_new_study(
         self, study_name: str, directions: list[StudyDirection]
@@ -1126,14 +1127,17 @@ class TPESampler:
         seed: Seed for random number generator. If `None`, a random seed is used.
         n_startup_trials: The random sampling is used instead of the TPE algorithm until
             the given number of trials finish in the same study. Defaults to `10`.
-        multivariate: If `True`, the multivariate TPE is used when suggesting parameters.
-            The multivariate TPE samples all parameters jointly, which is reported to
-            outperform the independent TPE. Defaults to `True`.
+        multivariate: If `True`, the multivariate TPE samples all parameters jointly, which is
+            reported to outperform the independent TPE. If `False`, parameters are sampled
+            independently. If `None` (the default), the mode is selected automatically to match
+            Optuna: multivariate for single-objective studies and independent for multi-objective
+            studies.
 
     Note:
-        Multivariate mode is enabled by default (`multivariate=True`).
-        In multivariate mode, TPE samples all non-conditional parameters jointly, which is reported to
-        outperform independent sampling. See
+        By default (`multivariate=None`) multivariate TPE is used for single-objective
+        optimization and independent TPE is used for multi-objective optimization, matching
+        Optuna's `TPESampler`. In multivariate mode, TPE samples all non-conditional parameters
+        jointly, which is reported to outperform independent sampling. See
         [BOHB: Robust and Efficient Hyperparameter Optimization at Scale](http://proceedings.mlr.press/v80/falkner18a.html)
         for more details.
     """
@@ -1142,7 +1146,7 @@ class TPESampler:
         *,
         seed: int | None = None,
         n_startup_trials: int = 10,
-        multivariate: bool = True,
+        multivariate: bool | None = None,
     ) -> None: ...
     @property
     def support_joint_sampling(self) -> bool: ...

@@ -232,6 +232,10 @@ impl Sampler for NSGAIISampler {
         _name: &str,
         distribution: &Distribution,
     ) -> Result<f64> {
+        if distribution.is_single() {
+            return distribution.get_single_value();
+        }
+
         match distribution {
             Distribution::Float {
                 low,
@@ -537,5 +541,64 @@ mod tests {
             )
             .unwrap();
         assert!(study.get_trials().unwrap().len() == n_trials);
+    }
+
+    #[test]
+    fn test_single_value_parameters() {
+        let storage = InMemoryStorage::new();
+        let directions = vec![Direction::Minimize, Direction::Minimize];
+        let study = create_study(
+            "single-value-test",
+            storage,
+            NSGAIISampler::new(3, None, 0.9, 0.5),
+            directions,
+        )
+        .unwrap();
+
+        let result = study.optimize(
+            |mut t| {
+                // Normal parameters
+                let x = t.suggest_float("x", 0.0, 10.0)?;
+                let y = t.suggest_float("y", 0.0, 10.0)?;
+
+                // Single-value parameters (should be excluded from genetic algorithm)
+                let z = t.suggest_float("z", 5.0, 5.0)?; // single value: 5.0
+                let w = t.suggest_int("w", 3, 3)?; // single value: 3
+
+                let value0 = (x - 3.0).powi(2) + (y - 5.0).powi(2) + z + w as f64;
+                let value1 = (x - 5.0).powi(2) + (y - 3.0).powi(2) + z - w as f64;
+
+                println!(
+                    "{:2} x: {}, y: {}, z: {}, w: {}, v0: {}, v1: {}",
+                    t.number, x, y, z, w, value0, value1
+                );
+                Ok(vec![value0, value1])
+            },
+            30,
+        );
+
+        assert!(
+            result.is_ok(),
+            "Optimization should complete without panicking"
+        );
+
+        // Verify single-value params were always constant
+        let trials = study.get_trials().unwrap();
+        for trial in trials.iter() {
+            if let Some(z_val) = trial.internal_params.get("z") {
+                assert!(
+                    (z_val - 5.0).abs() < 1e-10,
+                    "z should always be 5.0, got {}",
+                    z_val
+                );
+            }
+            if let Some(w_val) = trial.internal_params.get("w") {
+                assert!(
+                    (w_val - 3.0).abs() < 1e-10,
+                    "w should always be 3.0, got {}",
+                    w_val
+                );
+            }
+        }
     }
 }

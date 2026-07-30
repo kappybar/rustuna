@@ -28,8 +28,8 @@ impl PyJournalFileStorage {
 #[pymethods]
 impl PyJournalFileStorage {
     #[new]
-    #[pyo3(signature = (file_path, *, load_discarded_trials = false))]
-    fn py_new(file_path: &str, load_discarded_trials: bool) -> PyResult<Self> {
+    #[pyo3(signature = (file_path, *, apply_discard = false))]
+    fn py_new(file_path: &str, apply_discard: bool) -> PyResult<Self> {
         // TODO(c-bata): Add lock_obj argument to use JournalFileOpenLock.
         let lock_obj = Box::new(JournalFileSymlinkLock::new(file_path));
         let backend = JournalFileBackend::new(file_path, Some(lock_obj)).map_err(|e| {
@@ -37,9 +37,7 @@ impl PyJournalFileStorage {
         })?;
         let storage = JournalStorage::new_with_options(
             Box::new(backend),
-            JournalStorageOptions {
-                load_discarded_trials,
-            },
+            JournalStorageOptions { apply_discard },
         )
         .map_err(|e| PyRuntimeError::new_err(format!("Failed to create journal storage: {e:?}")))?;
         let binding = StorageBinding::new(Arc::new(RwLock::new(storage)));
@@ -47,7 +45,7 @@ impl PyJournalFileStorage {
     }
 
     fn create_new_study(
-        &mut self,
+        &self,
         py: Python<'_>,
         study_name: String,
         directions: Vec<PyDirection>,
@@ -55,13 +53,13 @@ impl PyJournalFileStorage {
         self.binding.create_new_study(py, study_name, directions)
     }
 
-    fn delete_study(&mut self, py: Python<'_>, study_id: u32) -> PyResult<()> {
+    fn delete_study(&self, py: Python<'_>, study_id: u32) -> PyResult<()> {
         self.binding.delete_study(py, study_id)
     }
 
     #[pyo3(signature = (study_id, template_trial=None))]
     fn create_new_trial(
-        &mut self,
+        &self,
         py: Python<'_>,
         study_id: u32,
         template_trial: Option<&Bound<'_, PyPersistedTrial>>,
@@ -70,7 +68,7 @@ impl PyJournalFileStorage {
     }
 
     fn set_trial_param(
-        &mut self,
+        &self,
         py: Python<'_>,
         trial_id: u32,
         name: String,
@@ -82,7 +80,7 @@ impl PyJournalFileStorage {
     }
 
     fn set_category_labels(
-        &mut self,
+        &self,
         py: Python<'_>,
         study_id: u32,
         param_name: String,
@@ -93,7 +91,7 @@ impl PyJournalFileStorage {
     }
 
     fn get_category_labels(
-        &mut self,
+        &self,
         py: Python<'_>,
         study_id: u32,
         param_name: String,
@@ -105,7 +103,7 @@ impl PyJournalFileStorage {
 
     #[pyo3(signature = (trial_id, state, values=None))]
     fn set_trial_state_values(
-        &mut self,
+        &self,
         py: Python<'_>,
         trial_id: u32,
         state: PyTrialState,
@@ -115,17 +113,17 @@ impl PyJournalFileStorage {
             .set_trial_state_values(py, trial_id, state, values)
     }
 
-    fn get_studies(&mut self, py: Python<'_>) -> PyResult<Vec<PyPersistedStudy>> {
+    fn get_studies(&self, py: Python<'_>) -> PyResult<Vec<PyPersistedStudy>> {
         self.binding.get_studies(py)
     }
 
-    fn get_study(&mut self, py: Python<'_>, study_id: u32) -> PyResult<PyPersistedStudy> {
+    fn get_study(&self, py: Python<'_>, study_id: u32) -> PyResult<PyPersistedStudy> {
         self.binding.get_study(py, study_id)
     }
 
     #[pyo3(signature = (study_id, *, states = None))]
     fn get_trials(
-        &mut self,
+        &self,
         py: Python<'_>,
         study_id: u32,
         states: Option<Vec<PyTrialState>>,
@@ -133,7 +131,7 @@ impl PyJournalFileStorage {
         self.binding.get_trials(py, study_id, states)
     }
 
-    fn get_trial(&mut self, py: Python<'_>, trial_id: u32) -> PyResult<PyPersistedTrial> {
+    fn get_trial(&self, py: Python<'_>, trial_id: u32) -> PyResult<PyPersistedTrial> {
         self.binding.get_trial(py, trial_id)
     }
 
@@ -141,17 +139,12 @@ impl PyJournalFileStorage {
         self.binding.get_cached_trial(py, trial_id)
     }
 
-    fn get_study_user_attr(
-        &mut self,
-        py: Python<'_>,
-        study_id: u32,
-        key: String,
-    ) -> PyResult<String> {
+    fn get_study_user_attr(&self, py: Python<'_>, study_id: u32, key: String) -> PyResult<String> {
         self.binding.get_study_user_attr(py, study_id, key)
     }
 
     fn get_study_system_attr(
-        &mut self,
+        &self,
         py: Python<'_>,
         study_id: u32,
         key: String,
@@ -160,7 +153,7 @@ impl PyJournalFileStorage {
     }
 
     fn get_trial_id_from_study_id_trial_number(
-        &mut self,
+        &self,
         py: Python<'_>,
         study_id: u32,
         trial_number: u32,
@@ -170,7 +163,7 @@ impl PyJournalFileStorage {
     }
 
     fn set_study_system_attrs(
-        &mut self,
+        &self,
         py: Python<'_>,
         study_id: u32,
         attrs: Py<PyAny>,
@@ -179,7 +172,7 @@ impl PyJournalFileStorage {
     }
 
     fn set_study_user_attrs(
-        &mut self,
+        &self,
         py: Python<'_>,
         study_id: u32,
         attrs: Py<PyAny>,
@@ -188,7 +181,7 @@ impl PyJournalFileStorage {
     }
 
     fn set_trial_system_attrs(
-        &mut self,
+        &self,
         py: Python<'_>,
         trial_id: u32,
         attrs: Py<PyAny>,
@@ -197,7 +190,7 @@ impl PyJournalFileStorage {
     }
 
     fn set_trial_user_attrs(
-        &mut self,
+        &self,
         py: Python<'_>,
         trial_id: u32,
         attrs: Py<PyAny>,
@@ -206,7 +199,7 @@ impl PyJournalFileStorage {
     }
 
     fn set_trial_intermediate_value(
-        &mut self,
+        &self,
         py: Python<'_>,
         trial_id: u32,
         step: u32,
@@ -216,7 +209,7 @@ impl PyJournalFileStorage {
             .set_trial_intermediate_value(py, trial_id, step, intermediate_value)
     }
 
-    fn discard_trials(&mut self, py: Python<'_>, trial_ids: Vec<u32>) -> PyResult<()> {
+    fn discard_trials(&self, py: Python<'_>, trial_ids: Vec<u32>) -> PyResult<()> {
         self.binding.discard_trials(py, trial_ids)
     }
 

@@ -181,7 +181,7 @@ fn into_storage_pyobj(
     match storage {
         Some(storage) => resolve_storage_pyobj(py, storage),
         None => {
-            let storage = PyInMemoryStorage::new();
+            let storage = PyInMemoryStorage::default();
             let storage_arc = storage.storage();
             let storage_pyobj = Py::new(py, storage)?.into_any();
             Ok((storage_arc, storage_pyobj))

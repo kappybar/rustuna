@@ -37,19 +37,27 @@ impl PyRandomSampler {
 
     fn sample_independent(
         &self,
+        py: Python<'_>,
         ctx: &PySamplerContext,
         storage: Py<PyAny>,
         name: &str,
         distribution: &PyDistribution,
     ) -> PyResult<f64> {
         let arc_storage = extract_storage(storage)?;
-        self.sampler
-            .lock()
-            .map_err(|e| {
-                PyRuntimeError::new_err(format!("Failed to acquire the sampler guard: {e}"))
-            })?
-            .sample_independent(&ctx.context, arc_storage, name, &distribution.distribution)
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to sample independent: {e:?}")))
+        let context = ctx.context.clone();
+        let name = name.to_owned();
+        let distribution = distribution.distribution.clone();
+        py.detach(|| {
+            self.sampler
+                .lock()
+                .map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to acquire the sampler guard: {e}"))
+                })?
+                .sample_independent(&context, arc_storage, &name, &distribution)
+                .map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to sample independent: {e:?}"))
+                })
+        })
     }
 
     fn sample_joint(

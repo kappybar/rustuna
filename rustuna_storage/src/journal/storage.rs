@@ -21,8 +21,9 @@ use super::{JournalBackend, JournalLog, JournalOperation};
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 /// Options for [`JournalStorage`].
 pub struct JournalStorageOptions {
-    /// If `true`, discard logs are ignored during replay and all trials are loaded.
-    pub load_discarded_trials: bool,
+    /// If `true`, discarded trials are omitted when replaying the journal.
+    /// Discard logs are written regardless of this option.
+    pub apply_discard: bool,
 }
 
 /// Storage implementation backed by an append-only journal log.
@@ -48,7 +49,7 @@ impl JournalStorage {
         let worker_id_prefix = format!("{}-{}-", unique_prefix(), std::process::id());
         let mut storage = JournalStorage {
             backend,
-            replay: JournalReplayState::new(worker_id_prefix, options.load_discarded_trials),
+            replay: JournalReplayState::new(worker_id_prefix, options.apply_discard),
         };
         storage.sync_with_backend()?;
         Ok(storage)
@@ -590,23 +591,41 @@ impl Storage for JournalStorage {
             }
         }
 
+        // Design note: Rustuna intentionally does not share Optuna's user/system attribute value
+        // schema. Rustuna stores string maps in `user_attr_str`/`system_attr_str` without
+        // double JSON encoding, and writes `{"rustuna": null}` to Optuna's fields. Optuna applies
+        // only this dummy field and ignores the Rustuna-specific fields.
+        let mut user_attrs = HashMap::new();
+        let mut system_attrs = HashMap::new();
         for (key, value) in attrs {
-            let mut fields = HashMap::new();
-            fields.insert("study_id".to_string(), to_raw(&study_id)?);
             match key {
                 AttrKey::User(k) => {
-                    let mut map = HashMap::new();
-                    map.insert(k.to_string(), value);
-                    fields.insert("user_attr".to_string(), to_raw(&map)?);
-                    self.write_log(JournalOperation::SetStudyUserAttr, fields)?;
+                    user_attrs.insert(k.to_string(), value);
                 }
                 AttrKey::System(k) => {
-                    let mut map = HashMap::new();
-                    map.insert(k.to_string(), value);
-                    fields.insert("system_attr".to_string(), to_raw(&map)?);
-                    self.write_log(JournalOperation::SetStudySystemAttr, fields)?;
+                    system_attrs.insert(k.to_string(), value);
                 }
             }
+        }
+        if !user_attrs.is_empty() {
+            let mut fields = HashMap::new();
+            fields.insert("study_id".to_string(), to_raw(&study_id)?);
+            fields.insert(
+                "user_attr".to_string(),
+                to_raw(&HashMap::from([("rustuna", Value::Null)]))?,
+            );
+            fields.insert("user_attr_str".to_string(), to_raw(&user_attrs)?);
+            self.write_log(JournalOperation::SetStudyUserAttr, fields)?;
+        }
+        if !system_attrs.is_empty() {
+            let mut fields = HashMap::new();
+            fields.insert("study_id".to_string(), to_raw(&study_id)?);
+            fields.insert(
+                "system_attr".to_string(),
+                to_raw(&HashMap::from([("rustuna", Value::Null)]))?,
+            );
+            fields.insert("system_attr_str".to_string(), to_raw(&system_attrs)?);
+            self.write_log(JournalOperation::SetStudySystemAttr, fields)?;
         }
         self.sync_with_backend()?;
         Ok(())
@@ -643,23 +662,42 @@ impl Storage for JournalStorage {
                 }
             }
         }
+
+        // Design note: Rustuna intentionally does not share Optuna's user/system attribute value
+        // schema. Rustuna stores string maps in `user_attr_str`/`system_attr_str` without
+        // double JSON encoding, and writes `{"rustuna": null}` to Optuna's fields. Optuna applies
+        // only this dummy field and ignores the Rustuna-specific fields.
+        let mut user_attrs = HashMap::new();
+        let mut system_attrs = HashMap::new();
         for (key, value) in attrs {
-            let mut fields = HashMap::new();
-            fields.insert("trial_id".to_string(), to_raw(&trial_id)?);
             match key {
                 AttrKey::User(k) => {
-                    let mut map = HashMap::new();
-                    map.insert(k.to_string(), value);
-                    fields.insert("user_attr".to_string(), to_raw(&map)?);
-                    self.write_log(JournalOperation::SetTrialUserAttr, fields)?;
+                    user_attrs.insert(k.to_string(), value);
                 }
                 AttrKey::System(k) => {
-                    let mut map = HashMap::new();
-                    map.insert(k.to_string(), value);
-                    fields.insert("system_attr".to_string(), to_raw(&map)?);
-                    self.write_log(JournalOperation::SetTrialSystemAttr, fields)?;
+                    system_attrs.insert(k.to_string(), value);
                 }
             }
+        }
+        if !user_attrs.is_empty() {
+            let mut fields = HashMap::new();
+            fields.insert("trial_id".to_string(), to_raw(&trial_id)?);
+            fields.insert(
+                "user_attr".to_string(),
+                to_raw(&HashMap::from([("rustuna", Value::Null)]))?,
+            );
+            fields.insert("user_attr_str".to_string(), to_raw(&user_attrs)?);
+            self.write_log(JournalOperation::SetTrialUserAttr, fields)?;
+        }
+        if !system_attrs.is_empty() {
+            let mut fields = HashMap::new();
+            fields.insert("trial_id".to_string(), to_raw(&trial_id)?);
+            fields.insert(
+                "system_attr".to_string(),
+                to_raw(&HashMap::from([("rustuna", Value::Null)]))?,
+            );
+            fields.insert("system_attr_str".to_string(), to_raw(&system_attrs)?);
+            self.write_log(JournalOperation::SetTrialSystemAttr, fields)?;
         }
         self.sync_with_backend()?;
         Ok(())
@@ -735,11 +773,11 @@ struct JournalReplayState {
     last_created_trial_id_by_this_process: Option<u32>,
     studies_sorted: Vec<PersistedStudy>,
     study_caches: HashMap<u32, StudyCache>,
-    load_discarded_trials: bool,
+    apply_discard: bool,
 }
 
 impl JournalReplayState {
-    fn new(worker_id_prefix: String, load_discarded_trials: bool) -> Self {
+    fn new(worker_id_prefix: String, apply_discard: bool) -> Self {
         JournalReplayState {
             log_number_read: 0,
             worker_id_prefix,
@@ -753,7 +791,7 @@ impl JournalReplayState {
             last_created_trial_id_by_this_process: None,
             studies_sorted: Vec::new(),
             study_caches: HashMap::new(),
-            load_discarded_trials,
+            apply_discard,
         }
     }
 
@@ -785,7 +823,7 @@ impl JournalReplayState {
                     self.apply_set_trial_system_attr(log, worker_id)?
                 }
                 JournalOperation::DiscardTrials => {
-                    if !self.load_discarded_trials {
+                    if self.apply_discard {
                         self.apply_discard_trials(log, worker_id)?
                     }
                 }
@@ -909,7 +947,9 @@ impl JournalReplayState {
 
     fn apply_set_study_user_attr(&mut self, log: &JournalLog, worker_id: &str) -> Result<()> {
         let study_id = get_u32(&log.fields, "study_id")?;
-        let attrs = get_raw_map(&log.fields, "user_attr")?;
+        let Some(attrs) = get_optional_raw_map(&log.fields, "user_attr_str")? else {
+            return Ok(());
+        };
         if !self.study_exists(study_id, log, worker_id)? {
             return Ok(());
         }
@@ -924,7 +964,9 @@ impl JournalReplayState {
 
     fn apply_set_study_system_attr(&mut self, log: &JournalLog, worker_id: &str) -> Result<()> {
         let study_id = get_u32(&log.fields, "study_id")?;
-        let attrs = get_raw_map(&log.fields, "system_attr")?;
+        let Some(attrs) = get_optional_raw_map(&log.fields, "system_attr_str")? else {
+            return Ok(());
+        };
         if !self.study_exists(study_id, log, worker_id)? {
             return Ok(());
         }
@@ -1264,7 +1306,9 @@ impl JournalReplayState {
 
     fn apply_set_trial_user_attr(&mut self, log: &JournalLog, worker_id: &str) -> Result<()> {
         let trial_id = get_u32(&log.fields, "trial_id")?;
-        let attrs = get_raw_map(&log.fields, "user_attr")?;
+        let Some(attrs) = get_optional_raw_map(&log.fields, "user_attr_str")? else {
+            return Ok(());
+        };
         if !self.trial_exists_and_updatable(trial_id, log, worker_id)? {
             return Ok(());
         }
@@ -1307,7 +1351,9 @@ impl JournalReplayState {
 
     fn apply_set_trial_system_attr(&mut self, log: &JournalLog, worker_id: &str) -> Result<()> {
         let trial_id = get_u32(&log.fields, "trial_id")?;
-        let attrs = get_raw_map(&log.fields, "system_attr")?;
+        let Some(attrs) = get_optional_raw_map(&log.fields, "system_attr_str")? else {
+            return Ok(());
+        };
         let (study_id, trial_number) = match self.trial_id_to_study_number.get(&trial_id) {
             Some(v) => *v,
             None => {
@@ -1846,19 +1892,6 @@ fn get_vec_i32(fields: &HashMap<String, Box<RawValue>>, key: &str) -> Result<Vec
     })
 }
 
-fn get_raw_map(
-    fields: &HashMap<String, Box<RawValue>>,
-    key: &str,
-) -> Result<HashMap<String, Box<RawValue>>> {
-    let raw = get_raw(fields, key)?;
-    serde_json::from_str::<HashMap<String, Box<RawValue>>>(raw.get()).map_err(|_| {
-        Error::with_reason(
-            ErrorKind::StorageError,
-            format!("Failed to parse object from field: key={key}"),
-        )
-    })
-}
-
 fn get_optional_raw_map(
     fields: &HashMap<String, Box<RawValue>>,
     key: &str,
@@ -2170,7 +2203,12 @@ mod tests {
         }
 
         let backend = InMemoryJournalBackend { logs: logs.clone() };
-        let mut reloaded = JournalStorage::new(Box::new(backend))?;
+        let mut reloaded = JournalStorage::new_with_options(
+            Box::new(backend),
+            JournalStorageOptions {
+                apply_discard: true,
+            },
+        )?;
         let trials = reloaded.get_trials(study_id)?;
         assert!(trials[0].is_none());
         Ok(())
@@ -2278,7 +2316,7 @@ mod tests {
     }
 
     #[test]
-    fn load_discarded_trials_ignores_discard_logs() -> Result<()> {
+    fn apply_discard_false_keeps_discarded_trials() -> Result<()> {
         let (mut storage, logs) = new_storage()?;
         let study_id = storage.create_new_study("s", vec![Direction::Minimize])?.id;
         let trial_id = storage.create_new_trial(study_id)?.id;
@@ -2288,7 +2326,7 @@ mod tests {
         let mut storage2 = JournalStorage::new_with_options(
             Box::new(backend),
             JournalStorageOptions {
-                load_discarded_trials: true,
+                apply_discard: false,
             },
         )?;
         let trials = storage2.get_trials(study_id)?;
@@ -2418,7 +2456,7 @@ mod tests {
     }
 
     #[test]
-    fn create_new_trial_from_template_preserves_user_attr_strings() -> Result<()> {
+    fn create_new_trial_from_template_preserves_user_attr_str() -> Result<()> {
         let (mut storage, _logs) = new_storage()?;
         let study_id = storage
             .create_new_study("study", vec![Direction::Minimize])?

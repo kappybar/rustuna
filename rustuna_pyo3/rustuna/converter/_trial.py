@@ -35,11 +35,11 @@ to_rustuna_state_map = {
     optuna.trial.TrialState.PRUNED: rustuna.trial.TrialState.PRUNED,
     optuna.trial.TrialState.WAITING: rustuna.trial.TrialState.WAITING,
 }
-# TODO(c-bata): Make rustuna.trial.TrialState hashable.
-# to_optuna_state_map = {v: k for k, v in to_optuna_state_map.items()}
+to_optuna_state_map = {v: k for k, v in to_rustuna_state_map.items()}
 
 
 def to_optuna_state(state: rustuna.trial.TrialState) -> optuna.trial.TrialState:
+    """Convert a Rustuna trial state to an Optuna trial state."""
     if state == rustuna.trial.TrialState.RUNNING:
         return optuna.trial.TrialState.RUNNING
     elif state == rustuna.trial.TrialState.COMPLETE:
@@ -55,6 +55,7 @@ def to_optuna_state(state: rustuna.trial.TrialState) -> optuna.trial.TrialState:
 
 
 def to_rustuna_state(state: optuna.trial.TrialState) -> rustuna.trial.TrialState:
+    """Convert an Optuna trial state to a Rustuna trial state."""
     return to_rustuna_state_map[state]
 
 
@@ -62,6 +63,7 @@ def to_persisted_trial(
     trial: optuna.trial.FrozenTrial,
     study_id: int,
 ) -> rustuna.trial.PersistedTrial:
+    """Convert an Optuna frozen trial to a Rustuna persisted trial."""
     rustuna_system_attrs = to_rustuna_attrs(trial.system_attrs)
 
     distributions: dict[str, Distribution] = {}
@@ -86,6 +88,12 @@ def to_persisted_trial(
 
 
 class FrozenTrialLike(FrozenTrial):
+    """Lazily convert a Rustuna trial into an Optuna ``FrozenTrial``.
+
+    Args:
+        persisted_trial: The Rustuna trial to expose through the Optuna API.
+    """
+
     def __init__(self, persisted_trial: rustuna.trial.PersistedTrial) -> None:
         self._persisted_trial = persisted_trial
 
@@ -149,7 +157,7 @@ class FrozenTrialLike(FrozenTrial):
 
     @property
     def value(self) -> float | None:
-        values = self.__values or self._persisted_trial.values
+        values = self.values
         if values is None:
             return None
         if len(values) > 1:
@@ -174,7 +182,9 @@ class FrozenTrialLike(FrozenTrial):
     # These `_get_values`, `_set_values`, and `values = property(_get_values, _set_values)` are
     # defined to pass the mypy.
     def _get_values(self) -> list[float] | None:
-        return self.__values or self._persisted_trial.values
+        if self.__values is None:
+            self.__values = self._persisted_trial.values
+        return self.__values
 
     def _set_values(self, v: Sequence[float] | None) -> None:
         if v is not None:
@@ -206,7 +216,9 @@ class FrozenTrialLike(FrozenTrial):
 
     @property
     def params(self) -> dict[str, Any]:
-        return self.__params or self._persisted_trial.params
+        if self.__params is None:
+            self.__params = self._persisted_trial.params
+        return self.__params
 
     @params.setter
     def params(self, params: dict[str, Any]) -> None:
@@ -214,9 +226,11 @@ class FrozenTrialLike(FrozenTrial):
 
     @property
     def distributions(self) -> dict[str, BaseDistribution]:
-        return self.__distributions or to_optuna_distributions(
-            self._persisted_trial.distributions
-        )
+        if self.__distributions is None:
+            self.__distributions = to_optuna_distributions(
+                self._persisted_trial.distributions
+            )
+        return self.__distributions
 
     @distributions.setter
     def distributions(self, value: dict[str, BaseDistribution]) -> None:
@@ -250,9 +264,9 @@ class FrozenTrialLike(FrozenTrial):
 
     @property
     def intermediate_values(self) -> dict[int, float]:
-        if self.__intermediate_values is not None:
-            return self.__intermediate_values
-        return self._persisted_trial.intermediate_values
+        if self.__intermediate_values is None:
+            self.__intermediate_values = self._persisted_trial.intermediate_values
+        return self.__intermediate_values
 
     @intermediate_values.setter
     def intermediate_values(self, values: dict[int, float]) -> None:
@@ -260,12 +274,6 @@ class FrozenTrialLike(FrozenTrial):
 
     @property
     def last_step(self) -> int | None:
-        """Return the maximum step of `intermediate_values` in the trial.
-
-        Returns:
-            The maximum step of intermediates.
-        """
-
         if len(self.intermediate_values) == 0:
             return None
         else:
@@ -273,19 +281,12 @@ class FrozenTrialLike(FrozenTrial):
 
     @property
     def duration(self) -> datetime.timedelta | None:
-        """Return the elapsed time taken to complete the trial.
-
-        Returns:
-            The duration.
-        """
-
         if self.datetime_start and self.datetime_complete:
             return self.datetime_complete - self.datetime_start
         else:
             return None
 
     def __reduce__(self) -> str | tuple[Any, ...]:
-        """Convert to a real FrozenTrial for pickling."""
         frozen_trial = FrozenTrial(
             number=self.number,
             state=self.state,
@@ -371,6 +372,13 @@ def to_frozen_trial(
     *,
     use_frozen_trial_like: bool = True,
 ) -> FrozenTrial:
+    """Convert a Rustuna persisted trial to an Optuna frozen trial.
+
+    Args:
+        persisted_trial: The Rustuna trial to convert.
+        use_frozen_trial_like: If ``True``, return a lazy ``FrozenTrialLike``
+            instance. Otherwise, return a materialized ``FrozenTrial``.
+    """
     ft_like = FrozenTrialLike(persisted_trial)
     if use_frozen_trial_like:
         return ft_like

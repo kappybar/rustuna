@@ -45,6 +45,11 @@ class OptunaAttrsView(dict[str, Any]):
     def _raw_key(self, key: str) -> str:
         return _OPTUNA_ATTR_PREFIX + key
 
+    def __setitem__(self, key: str, value: Any) -> None:
+        if key not in self._keys:
+            self._keys += (key,)
+        self._cache[key] = value
+
     def __contains__(self, key: object) -> bool:
         return isinstance(key, str) and key in self._keys
 

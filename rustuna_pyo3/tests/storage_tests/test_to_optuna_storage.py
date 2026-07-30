@@ -37,7 +37,7 @@ def storage(request: FixtureRequest) -> Generator[BaseStorage, None, None]:
         yield ToOptunaStorage(rustuna_storage)
 
 
-class TestSQLite3Storage(StorageTestCase):
+class TestRustunaStorage(StorageTestCase):
     def test_delete_study(self, storage: BaseStorage) -> None:
         study_id = storage.create_new_study(directions=[StudyDirection.MINIMIZE])
         storage.create_new_trial(study_id)
@@ -70,52 +70,6 @@ class TestSQLite3Storage(StorageTestCase):
         trials2 = storage.get_all_trials(study_id)
         assert len(trials2) == 2
         assert {t._trial_id for t in trials2} == {trial_id0, trial_id1}
-
-    def test_set_trial_state_values_for_values(self, storage: BaseStorage) -> None:
-        # Setup test across multiple studies and trials.
-        study_id = storage.create_new_study(directions=[StudyDirection.MINIMIZE])
-        trial_id_1 = storage.create_new_trial(study_id)
-        trial_id_2 = storage.create_new_trial(study_id)
-        trial_id_3 = storage.create_new_trial(
-            storage.create_new_study(directions=[StudyDirection.MINIMIZE])
-        )
-        trial_id_4 = storage.create_new_trial(study_id)
-        trial_id_5 = storage.create_new_trial(study_id)
-
-        # Test setting new value.
-        storage.set_trial_state_values(
-            trial_id_1, state=TrialState.COMPLETE, values=(0.5,)
-        )
-        storage.set_trial_state_values(
-            trial_id_3, state=TrialState.COMPLETE, values=(float("inf"),)
-        )
-        storage.set_trial_state_values(
-            trial_id_4, state=TrialState.WAITING, values=(0.1, 0.2, 0.3)
-        )
-        storage.set_trial_state_values(
-            trial_id_5, state=TrialState.WAITING, values=[0.1, 0.2, 0.3]
-        )
-
-        assert storage.get_trial(trial_id_1).value == 0.5
-        assert storage.get_trial(trial_id_2).value is None
-        assert storage.get_trial(trial_id_3).value == float("inf")
-        # Rustuna cannot store objective values for WAITING state
-        # assert storage.get_trial(trial_id_4).values == [0.1, 0.2, 0.3]
-        # assert storage.get_trial(trial_id_5).values == [0.1, 0.2, 0.3]
-
-        non_existent_trial_id = (
-            max(trial_id_1, trial_id_2, trial_id_3, trial_id_4, trial_id_5) + 1
-        )
-        with pytest.raises(KeyError):
-            storage.set_trial_state_values(
-                non_existent_trial_id, state=TrialState.COMPLETE, values=(1,)
-            )
-
-        # Cannot change values of finished trials.
-        with pytest.raises(UpdateFinishedTrialError):
-            storage.set_trial_state_values(
-                trial_id_1, state=TrialState.COMPLETE, values=(1,)
-            )
 
     @pytest.mark.skip("Rustuna cannot store objective values for failed state")
     def test_get_trial(self, storage: BaseStorage) -> None:

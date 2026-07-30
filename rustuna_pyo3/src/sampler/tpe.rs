@@ -22,8 +22,12 @@ pub struct PyTpeSampler {
 #[pymethods]
 impl PyTpeSampler {
     #[new]
-    #[pyo3(signature = (*, seed = None, n_startup_trials = 10, multivariate = true))]
-    fn py_new(seed: Option<u64>, n_startup_trials: usize, multivariate: bool) -> PyResult<Self> {
+    #[pyo3(signature = (*, seed = None, n_startup_trials = 10, multivariate = None))]
+    fn py_new(
+        seed: Option<u64>,
+        n_startup_trials: usize,
+        multivariate: Option<bool>,
+    ) -> PyResult<Self> {
         let rs_sampler = TpeSampler::from_config(TpeConfig {
             seed,
             n_startup_trials,
@@ -35,62 +39,68 @@ impl PyTpeSampler {
     }
 
     #[getter]
-    fn support_joint_sampling(&self) -> PyResult<bool> {
-        let guard = self
-            .sampler
-            .lock()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to acquire sampler lock: {e}")))?;
-        Ok(guard.support_joint_sampling())
+    fn support_joint_sampling(&self, py: Python<'_>) -> PyResult<bool> {
+        py.detach(|| {
+            let guard = self.sampler.lock().map_err(|e| {
+                PyRuntimeError::new_err(format!("Failed to acquire sampler lock: {e}"))
+            })?;
+            Ok(guard.support_joint_sampling())
+        })
     }
 
     fn sample_independent(
         &self,
+        py: Python<'_>,
         ctx: &PySamplerContext,
         storage: Py<PyAny>,
         name: &str,
         distribution: &PyDistribution,
     ) -> PyResult<f64> {
         let arc_storage = extract_storage(storage)?;
-        self.sampler
-            .lock()
-            .map_err(|e| {
-                PyRuntimeError::new_err(format!("Failed to acquire the sampler guard: {e}"))
-            })?
-            .sample_independent(
-                &ctx.context.clone(),
-                arc_storage,
-                name,
-                &distribution.distribution,
-            )
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to sample independent: {e:?}")))
+        let context = ctx.context.clone();
+        let name = name.to_owned();
+        let distribution = distribution.distribution.clone();
+        py.detach(|| {
+            self.sampler
+                .lock()
+                .map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to acquire the sampler guard: {e}"))
+                })?
+                .sample_independent(&context, arc_storage, &name, &distribution)
+                .map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to sample independent: {e:?}"))
+                })
+        })
     }
 
     fn sample_joint(
         &self,
+        py: Python<'_>,
         ctx: &PySamplerContext,
         storage: Py<PyAny>,
         search_space: HashMap<String, PyDistribution>,
     ) -> PyResult<HashMap<String, f64>> {
         let arc_storage = extract_storage(storage)?;
-        self.sampler
-            .lock()
-            .map_err(|e| {
-                PyRuntimeError::new_err(format!("Failed to acquire the sampler guard: {e}"))
-            })?
-            .sample_joint(
-                &ctx.context.clone(),
-                arc_storage,
-                &search_space
-                    .into_iter()
-                    .map(|(k, v)| (k, v.distribution))
-                    .collect(),
-            )
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to sample joint: {e:?}")))
+        let context = ctx.context.clone();
+        let search_space = search_space
+            .into_iter()
+            .map(|(k, v)| (k, v.distribution))
+            .collect();
+        py.detach(|| {
+            self.sampler
+                .lock()
+                .map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to acquire the sampler guard: {e}"))
+                })?
+                .sample_joint(&context, arc_storage, &search_space)
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to sample joint: {e:?}")))
+        })
     }
 
     #[pyo3(signature = (ctx, storage, state, values = None))]
     fn after_trial(
         &self,
+        py: Python<'_>,
         ctx: &PySamplerContext,
         storage: Py<PyAny>,
         state: PyTrialState,
@@ -106,12 +116,15 @@ impl PyTpeSampler {
             PyTrialState::WAITING => TrialStateValues::Waiting,
             PyTrialState::FAIL => TrialStateValues::Fail,
         };
-        self.sampler
-            .lock()
-            .map_err(|e| {
-                PyRuntimeError::new_err(format!("Failed to acquire the sampler guard: {e}"))
-            })?
-            .after_trial(&ctx.context, arc_storage, &state_values)
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to call after_trial: {e:?}")))
+        let context = ctx.context.clone();
+        py.detach(|| {
+            self.sampler
+                .lock()
+                .map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to acquire the sampler guard: {e}"))
+                })?
+                .after_trial(&context, arc_storage, &state_values)
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to call after_trial: {e:?}")))
+        })
     }
 }

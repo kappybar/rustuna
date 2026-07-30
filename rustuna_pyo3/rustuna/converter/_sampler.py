@@ -26,6 +26,29 @@ if TYPE_CHECKING:
 
 
 class ToOptunaSampler(BaseSampler):
+    """Adapt a Rustuna sampler to Optuna's ``BaseSampler`` interface.
+
+    Args:
+        sampler: The Rustuna sampler to adapt.
+
+    Example:
+        Use a Rustuna sampler in an Optuna study.
+
+        ```python
+        import optuna
+        import rustuna
+        from rustuna.converter import ToOptunaSampler
+
+        def objective(trial: optuna.Trial) -> float:
+            # Define your objective function.
+            return trial.suggest_float("x", -1, 1) ** 2
+
+        sampler = ToOptunaSampler(rustuna.samplers.TPESampler())
+        study = optuna.create_study(sampler=sampler)
+        study.optimize(objective, n_trials=10)
+        ```
+    """
+
     def __init__(self, sampler: SamplerProtocol) -> None:
         self._sampler = sampler
         self._inter_section_search_space = IntersectionSearchSpace()
@@ -42,6 +65,7 @@ class ToOptunaSampler(BaseSampler):
         trial: FrozenTrial,
         search_space: dict[str, BaseDistribution],
     ) -> dict[str, Any]:
+        """Sample jointly distributed parameters using the Rustuna sampler."""
         if search_space == {}:
             return {}
 
@@ -77,6 +101,7 @@ class ToOptunaSampler(BaseSampler):
         param_name: str,
         param_distribution: BaseDistribution,
     ) -> Any:
+        """Sample one parameter using the Rustuna sampler."""
         ctx = rustuna.samplers.SamplerContext(
             study_id=study._study_id,
             trial_number=trial.number,
@@ -95,6 +120,7 @@ class ToOptunaSampler(BaseSampler):
         study: Study,
         trial: FrozenTrial,
     ) -> dict[str, BaseDistribution]:
+        """Infer the relative search space supported by the Rustuna sampler."""
         if not self._sampler.support_joint_sampling:
             return {}
 
@@ -117,6 +143,7 @@ class ToOptunaSampler(BaseSampler):
         state: TrialState,
         values: Sequence[float] | None,
     ) -> None:
+        """Notify the Rustuna sampler that a trial has finished."""
         after_trial = getattr(self._sampler, "after_trial", None)
         if after_trial is None:
             return

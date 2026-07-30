@@ -153,6 +153,12 @@ pub trait Storage: Send + Sync {
     fn may_omit_trials(&self) -> bool;
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+/// Options for [`InMemoryStorage`].
+pub struct InMemoryStorageOptions {
+    pub apply_discard: bool,
+}
+
 /// In-memory storage implementation used by default in Rust code and tests.
 ///
 /// This implementation keeps all studies, trials, and caches in process memory.
@@ -164,6 +170,7 @@ pub struct InMemoryStorage {
     study_caches: HashMap<u32, StudyCache>,
     next_study_id: u32,
     next_trial_id: u32,
+    option: InMemoryStorageOptions,
 }
 impl InMemoryStorage {
     /// Creates an empty in-memory storage.
@@ -175,6 +182,20 @@ impl InMemoryStorage {
             study_caches: HashMap::new(),
             next_study_id: 0,
             next_trial_id: 0,
+            option: InMemoryStorageOptions::default(),
+        }
+    }
+
+    /// Creates an empty in-memory storage.
+    pub fn new_with_option(option: InMemoryStorageOptions) -> InMemoryStorage {
+        InMemoryStorage {
+            studies: vec![],
+            trials: HashMap::new(),
+            trial_id_to_study_number: HashMap::new(),
+            study_caches: HashMap::new(),
+            next_study_id: 0,
+            next_trial_id: 0,
+            option,
         }
     }
 
@@ -532,6 +553,9 @@ impl Storage for InMemoryStorage {
     }
 
     fn discard_trials(&mut self, trial_ids: &[u32]) -> Result<()> {
+        if !self.option.apply_discard {
+            return Ok(());
+        }
         for trial_id in trial_ids {
             let (study_id, trial_number) =
                 get_study_id_trial_number_by_trial_id(&self.trial_id_to_study_number, *trial_id)?;
@@ -546,9 +570,7 @@ impl Storage for InMemoryStorage {
     }
 
     fn may_omit_trials(&self) -> bool {
-        self.trials
-            .values()
-            .any(|trials| trials.iter().any(Option::is_none))
+        self.option.apply_discard
     }
 }
 
@@ -676,7 +698,9 @@ mod tests {
 
     #[test]
     fn discard_trials_omits_trials() -> Result<()> {
-        let mut storage = InMemoryStorage::new();
+        let mut storage = InMemoryStorage::new_with_option(InMemoryStorageOptions {
+            apply_discard: true,
+        });
         let study_id = storage
             .create_new_study("study", vec![Direction::Minimize])?
             .id;
