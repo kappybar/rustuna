@@ -22,8 +22,12 @@ pub struct PyTpeSampler {
 #[pymethods]
 impl PyTpeSampler {
     #[new]
-    #[pyo3(signature = (*, seed = None, n_startup_trials = 10, multivariate = true))]
-    fn py_new(seed: Option<u64>, n_startup_trials: usize, multivariate: bool) -> PyResult<Self> {
+    #[pyo3(signature = (*, seed = None, n_startup_trials = 10, multivariate = None))]
+    fn py_new(
+        seed: Option<u64>,
+        n_startup_trials: usize,
+        multivariate: Option<bool>,
+    ) -> PyResult<Self> {
         let rs_sampler = TpeSampler::from_config(TpeConfig {
             seed,
             n_startup_trials,
