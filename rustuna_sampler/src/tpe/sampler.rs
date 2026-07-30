@@ -21,8 +21,10 @@ const EPS: f64 = 1e-12;
 pub struct TpeConfig {
     /// Whether to use multivariate TPE for joint suggestions over the inferred search space.
     ///
-    /// When this is `false`, parameters are sampled independently.
-    pub multivariate: bool,
+    /// `Some(true)` forces multivariate (joint) sampling and `Some(false)` forces independent
+    /// (univariate) sampling. `None` selects automatically, matching Optuna: multivariate for
+    /// single-objective studies and independent for multi-objective studies.
+    pub multivariate: Option<bool>,
     /// Number of completed trials to collect before switching from random sampling to TPE.
     pub n_startup_trials: usize,
     /// Optional RNG seed.
@@ -31,7 +33,7 @@ pub struct TpeConfig {
 impl Default for TpeConfig {
     fn default() -> Self {
         Self {
-            multivariate: true,
+            multivariate: None,
             n_startup_trials: 10,
             seed: None,
         }
@@ -94,7 +96,7 @@ type SplitValue = (Vec<u32>, Vec<u32>);
 /// ```
 pub struct TpeSampler {
     rng: StdRng,
-    multivariate: bool,
+    multivariate: Option<bool>,
     n_startup_trials: usize,
     random_sampler: RandomSampler,
     // TODO(y0z): Change to LruCache<(Vec<&PersistedTrial>, usize), (Vec<&PersistedTrial>, Vec<&PersistedTrial>)>
@@ -124,8 +126,9 @@ impl TpeSampler {
 
     /// Creates a sampler with the default configuration.
     ///
-    /// The default configuration enables multivariate TPE and uses random sampling for the first
-    /// 10 completed trials.
+    /// The default configuration selects multivariate TPE automatically (multivariate for
+    /// single-objective, independent for multi-objective, matching Optuna) and uses random
+    /// sampling for the first 10 completed trials.
     pub fn new() -> TpeSampler {
         Self::from_config(TpeConfig::default())
     }
@@ -136,7 +139,7 @@ impl TpeSampler {
     /// generator from the provided seed.
     pub fn seed_from_u64(seed: u64) -> TpeSampler {
         Self::from_config(TpeConfig {
-            multivariate: true,
+            multivariate: None,
             seed: Some(seed),
             n_startup_trials: 10,
         })
@@ -584,7 +587,11 @@ impl Sampler for TpeSampler {
     }
 
     fn support_joint_sampling(&self) -> bool {
-        self.multivariate
+        // `Some(false)` disables joint sampling outright. `Some(true)` and `None` both allow it;
+        // the `None` (auto) case is resolved per objective-count inside `sample_joint`, which
+        // returns an empty map for multi-objective studies so every parameter falls back to
+        // independent sampling (matching Optuna's `multivariate=False` default for MO).
+        self.multivariate != Some(false)
     }
 
     fn sample_joint(
@@ -593,6 +600,14 @@ impl Sampler for TpeSampler {
         storage: Arc<RwLock<dyn Storage>>,
         search_space: &HashMap<String, Distribution>,
     ) -> Result<HashMap<String, f64>> {
+        // Resolve the effective multivariate flag. Default (`None`) follows Optuna: multivariate
+        // for single-objective, independent for multi-objective. Returning an empty map routes
+        // all parameters through independent sampling.
+        let multivariate = self.multivariate.unwrap_or(ctx.directions.len() == 1);
+        if !multivariate {
+            return Ok(HashMap::new());
+        }
+
         let mut guard = storage.write().map_err(|e| {
             Error::with_reason(
                 ErrorKind::Unexpected,

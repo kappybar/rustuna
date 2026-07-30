@@ -1122,14 +1122,17 @@ class TPESampler:
         seed: Seed for random number generator. If `None`, a random seed is used.
         n_startup_trials: The random sampling is used instead of the TPE algorithm until
             the given number of trials finish in the same study. Defaults to `10`.
-        multivariate: If `True`, the multivariate TPE is used when suggesting parameters.
-            The multivariate TPE samples all parameters jointly, which is reported to
-            outperform the independent TPE. Defaults to `True`.
+        multivariate: If `True`, the multivariate TPE samples all parameters jointly, which is
+            reported to outperform the independent TPE. If `False`, parameters are sampled
+            independently. If `None` (the default), the mode is selected automatically to match
+            Optuna: multivariate for single-objective studies and independent for multi-objective
+            studies.
 
     Note:
-        Multivariate mode is enabled by default (`multivariate=True`).
-        In multivariate mode, TPE samples all non-conditional parameters jointly, which is reported to
-        outperform independent sampling. See
+        By default (`multivariate=None`) multivariate TPE is used for single-objective
+        optimization and independent TPE is used for multi-objective optimization, matching
+        Optuna's `TPESampler`. In multivariate mode, TPE samples all non-conditional parameters
+        jointly, which is reported to outperform independent sampling. See
         [BOHB: Robust and Efficient Hyperparameter Optimization at Scale](http://proceedings.mlr.press/v80/falkner18a.html)
         for more details.
     """
@@ -1138,7 +1141,7 @@ class TPESampler:
         *,
         seed: int | None = None,
         n_startup_trials: int = 10,
-        multivariate: bool = True,
+        multivariate: bool | None = None,
     ) -> None: ...
     @property
     def support_joint_sampling(self) -> bool: ...
