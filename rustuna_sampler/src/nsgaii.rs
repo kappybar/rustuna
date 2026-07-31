@@ -176,18 +176,6 @@ impl NSGAIISampler {
         }
         Ok((parent_generation, parent_population_numbers))
     }
-    fn select_parents_from_params(
-        &mut self,
-        population_params: &[HashMap<String, f64>],
-    ) -> (HashMap<String, f64>, HashMap<String, f64>) {
-        let [parent0, parent1] = population_params
-            .choose_multiple(&mut self.rng, 2)
-            .cloned()
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
-        (parent0.clone(), parent1.clone())
-    }
     fn crossover(
         &mut self,
         parent0: HashMap<String, f64>,
@@ -314,9 +302,15 @@ impl Sampler for NSGAIISampler {
             return Ok(params);
         }
 
+        let (parent0_number, parent1_number) = {
+            let mut selected = parent_population_numbers
+                .choose_multiple(&mut self.rng, 2)
+                .copied();
+            (selected.next().unwrap(), selected.next().unwrap())
+        };
+
         let trials = guard.get_trials(ctx.study_id)?;
-        let mut population_params = Vec::with_capacity(parent_population_numbers.len());
-        for &number in &parent_population_numbers {
+        let build_parent_params = |number: u32| -> Result<HashMap<String, f64>> {
             let trial = trials
                 .get(number as usize)
                 .and_then(Option::as_ref)
@@ -326,11 +320,11 @@ impl Sampler for NSGAIISampler {
                 let param_value = *trial.internal_params.get(name).unwrap();
                 params.insert(name.clone(), param_value);
             }
-            population_params.push(params);
-        }
+            Ok(params)
+        };
+        let parent0 = build_parent_params(parent0_number)?;
+        let parent1 = build_parent_params(parent1_number)?;
         drop(guard);
-
-        let (parent0, parent1) = self.select_parents_from_params(&population_params);
 
         let child = if self.rng.gen_bool(self.crossover_prob) {
             self.crossover(parent0, parent1, search_space)
