@@ -8,11 +8,6 @@
 
 *Rustuna* is a faster Optuna implementation in Rust, featuring Python and JavaScript bindings.
 
-> [!NOTE]
-> Rustuna is currently experimental. Compared with Optuna, it still lacks some features and APIs, and it has not yet been optimized enough to deliver better performance for every use case. Since the project has not had the same level of maturity as Optuna, bugs and rough edges likely remain. We appreciate your understanding when using it.
-> 
-> If you are excited to try new software, we would love for you to give Rustuna a try and share your feedback with us.
-
 ## Why Rustuna?
 
 The Optuna implementation in Rust is primarily motivated by two factors.
@@ -68,6 +63,11 @@ We also do not currently plan to support I/O-bound features such as storage back
 ## Installation 
 
 ### Python
+
+> [!NOTE]
+> Rustuna is currently experimental. Compared with Optuna, it still lacks some features and APIs, and it has not yet been optimized enough to deliver better performance for every use case. Since the project has not had the same level of maturity as Optuna, bugs and rough edges likely remain. We appreciate your understanding when using it.
+> 
+> If you are excited to try new software, we would love for you to give Rustuna a try and share your feedback with us.
 
 You can install Rustuna via pip. Unlike Optuna, Rustuna doesn't have runtime dependencies, not even on NumPy. This not only eliminates concerns of version conflicts for users but also significantly speeds up imports.
 
