@@ -158,9 +158,10 @@ impl TpeSampler {
             let direction: &Direction = &ctx.directions[0];
             let (good_trials, poor_trials) =
                 Self::split_trials_for_single_objective(complete_trials, direction, gamma);
+            // Single-objective: recency ramp for both l(x) and g(x) (Optuna default_weights).
             (
-                Self::build_parzen_estimator(&good_trials, search_space, is_multi_objective),
-                Self::build_parzen_estimator(&poor_trials, search_space, is_multi_objective),
+                Self::build_parzen_estimator(&good_trials, search_space, true),
+                Self::build_parzen_estimator(&poor_trials, search_space, true),
             )
         } else {
             let directions: &[Direction] = &ctx.directions;
@@ -197,9 +198,11 @@ impl TpeSampler {
                     .insert(split_cache_key, (good_nums, poor_nums));
                 (good_trials, poor_trials)
             };
+            // Multi-objective: uniform weights for l(x) (below), recency ramp for g(x) (above),
+            // matching Optuna's multi-objective TPE.
             (
-                Self::build_parzen_estimator(&good_trials, search_space, is_multi_objective),
-                Self::build_parzen_estimator(&poor_trials, search_space, is_multi_objective),
+                Self::build_parzen_estimator(&good_trials, search_space, false),
+                Self::build_parzen_estimator(&poor_trials, search_space, true),
             )
         };
 
@@ -505,21 +508,25 @@ impl TpeSampler {
         }
     }
 
-    fn weights_for_multi_objective(x: usize) -> Vec<f64> {
-        // TODO(y0z): Implement more sophisticated weight calculation for multi-objective
-        vec![1.0; x]
-    }
-
     fn build_parzen_estimator(
         trials: &[&rustuna_core::trial::PersistedTrial],
         search_space: &HashMap<String, Distribution>,
-        is_multi_objective: bool,
+        recency_ramp: bool,
     ) -> ParzenEstimator {
         let mut sorted_keys: Vec<&String> = search_space.keys().collect();
         sorted_keys.sort();
 
         let n_params = sorted_keys.len();
         let n_trials = trials.len();
+
+        // Process trials in chronological (trial-number ascending) order so that the
+        // recency ramp assigns the highest weights to the most recent trials, matching
+        // Optuna's `default_weights`. (Uniform weights are order-invariant, so sorting is
+        // harmless there; the split routines do not preserve chronological order.)
+        let mut order: Vec<usize> = (0..n_trials).collect();
+        order.sort_by_key(|&i| trials[i].number);
+        let trials: Vec<&rustuna_core::trial::PersistedTrial> =
+            order.iter().map(|&i| trials[i]).collect();
 
         let mut observations_vec: Vec<Vec<f64>> = (0..n_params)
             .map(|_| Vec::with_capacity(n_trials))
@@ -538,10 +545,13 @@ impl TpeSampler {
         let active_indices: Vec<usize> = (0..n_trials)
             .filter(|&idx| active_counts[idx] == n_params_u32)
             .collect();
-        let weights = if !is_multi_objective {
+        // Optuna: single-objective uses the recency ramp (`default_weights`) for both the
+        // below (`l(x)`) and above (`g(x)`) estimators; multi-objective uses uniform weights
+        // for the below estimator and the recency ramp for the above estimator.
+        let weights = if recency_ramp {
             Self::weights_for_single_objective(trials.len())
         } else {
-            Self::weights_for_multi_objective(trials.len())
+            vec![1.0; trials.len()]
         };
         let active_weights: Vec<f64> = active_indices.iter().map(|&i| weights[i]).collect();
         let prior_weight = 1.0;
