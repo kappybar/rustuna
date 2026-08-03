@@ -13,7 +13,7 @@ The Optuna implementation in Rust is primarily motivated by two factors.
 
 ### Making Optuna Faster
 
-![Rustuna vs Optuna: Speed Comparison](./assets/images/why-rustuna-1.jpg){ width="600" }
+![Rustuna vs Optuna: Speed Comparison](./assets/images/why-rustuna-1.jpg){ width="1200" }
 
 Optuna primarily targets hyperparameter optimization in machine learning. In such scenarios, model training and evaluation are typically time-consuming processes, so Optuna’s execution time seldom becomes the bottleneck.
 However, black-box optimization has potential applications far beyond machine learning hyperparameter tuning. Rustuna is designed with such broader use cases in mind, including large-scale optimization workloads that may involve tens of thousands of trials or more.
