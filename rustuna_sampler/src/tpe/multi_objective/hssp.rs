@@ -149,6 +149,34 @@ where
         return r;
     }
 
+    // Fast path: exact O(subset_size * n) greedy for two objectives, ported from Optuna's
+    // `_solve_hssp_2d`. Placed after the cache probe so repeated identical boundary ranks
+    // still short-circuit; the result is stored in the cache below like the general path.
+    // Reaching here guarantees NaN-free rows; also require finiteness so the +/-inf handling
+    // done by the caller / general greedy is not disturbed.
+    if m == 2
+        && rank_i_loss_vals
+            .iter()
+            .all(|r| r.as_ref().iter().all(|v| v.is_finite()))
+    {
+        let selected_indices =
+            solve_hssp_2d(rank_i_loss_vals, rank_i_indices, reference_point, subset_size);
+        HSSP_CACHE.with(|cell| {
+            let mut flat = Vec::with_capacity(n * m);
+            for r in rank_i_loss_vals.iter() {
+                flat.extend_from_slice(r.as_ref());
+            }
+            *cell.borrow_mut() = Some(HssCacheEntry {
+                loss_vals_flat: flat,
+                indices: rank_i_indices.to_vec(),
+                subset_size,
+                ref_point: reference_point.to_vec(),
+                result: selected_indices.clone(),
+            });
+        });
+        return selected_indices;
+    }
+
     // remaining[*] = position in the input arrays for candidates not yet selected.
     let mut remaining: Vec<usize> = (0..n).collect();
     // contribs[*] = a submodular upper bound on H(S ∪ {j}) − H(S) for remaining[j].
@@ -293,9 +321,163 @@ where
     selected_indices
 }
 
+/// Exact greedy hypervolume subset selection specialised for two objectives, ported from
+/// Optuna's `_solve_hssp_2d`. Runs in O(`subset_size` * n): each of the `subset_size` picks
+/// takes an O(n) argmax over the marginal contributions plus an O(n) rectangle update. The
+/// general greedy in [`hypervolume_subset_selection`] recomputes a hypervolume per candidate,
+/// which becomes O(n^3) as the Pareto front grows on convergence; this path avoids that.
+///
+/// Expects finite, NaN-free rows (the caller guarantees this). Points outside the reference
+/// box (a coordinate at/above its reference) contribute zero, as in the general greedy.
+/// Returns the selected original indices in selection order.
+fn solve_hssp_2d<R: AsRef<[f64]>>(
+    rank_i_loss_vals: &[R],
+    rank_i_indices: &[usize],
+    reference_point: &[f64],
+    subset_size: usize,
+) -> Vec<usize> {
+    let n = rank_i_loss_vals.len();
+    // Lex-sort by (f0, f1): the left/right rectangle updates below rely on ascending f0 order.
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by(|&a, &b| {
+        let (ra, rb) = (rank_i_loss_vals[a].as_ref(), rank_i_loss_vals[b].as_ref());
+        ra[0].total_cmp(&rb[0]).then(ra[1].total_cmp(&rb[1]))
+    });
+    let mut orig: Vec<usize> = order.iter().map(|&o| rank_i_indices[o]).collect();
+    let mut f0: Vec<f64> = order
+        .iter()
+        .map(|&o| rank_i_loss_vals[o].as_ref()[0])
+        .collect();
+    let mut f1: Vec<f64> = order
+        .iter()
+        .map(|&o| rank_i_loss_vals[o].as_ref()[1])
+        .collect();
+    // `d0`/`d1`: upper-right corner of each point's current contribution rectangle.
+    let (r0, r1) = (reference_point[0], reference_point[1]);
+    let mut d0: Vec<f64> = vec![r0; n];
+    let mut d1: Vec<f64> = vec![r1; n];
+
+    let mut selected = Vec::with_capacity(subset_size);
+    let mut m = n;
+    for _ in 0..subset_size {
+        let mut best = 0usize;
+        let mut best_contrib = f64::NEG_INFINITY;
+        for j in 0..m {
+            // Clamp each rectangle side at 0 so a point outside the reference box (a
+            // coordinate >= its reference) contributes 0 rather than a spurious positive
+            // area from two negative widths, matching `inclusive_hv` in the general greedy.
+            let contrib = (d0[j] - f0[j]).max(0.0) * (d1[j] - f1[j]).max(0.0);
+            if contrib > best_contrib {
+                best_contrib = contrib;
+                best = j;
+            }
+        }
+        selected.push(orig[best]);
+        let (s0, s1) = (f0[best], f1[best]);
+        // Remove the chosen point, keeping the arrays f0-sorted.
+        orig.remove(best);
+        f0.remove(best);
+        f1.remove(best);
+        d0.remove(best);
+        d1.remove(best);
+        m -= 1;
+        // Points left of the chosen one (smaller f0) get their f0-extent capped at s0;
+        // points to its right (larger f0) get their f1-extent capped at s1.
+        for d in d0.iter_mut().take(best) {
+            if s0 < *d {
+                *d = s0;
+            }
+        }
+        for d in d1.iter_mut().take(m).skip(best) {
+            if s1 < *d {
+                *d = s1;
+            }
+        }
+    }
+    selected
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Reference greedy HSSP: at each step pick the candidate maximising HV(selected ∪ cand),
+    // recomputing the hypervolume from scratch. Slow but unambiguously correct.
+    fn reference_greedy(rows: &[[f64; 2]], reference_point: &[f64], subset_size: usize) -> f64 {
+        let mut chosen: Vec<usize> = Vec::new();
+        let mut avail: Vec<usize> = (0..rows.len()).collect();
+        for _ in 0..subset_size {
+            let mut best = avail[0];
+            let mut best_hv = f64::NEG_INFINITY;
+            for &c in &avail {
+                let mut s: Vec<&[f64]> = chosen.iter().map(|&i| rows[i].as_slice()).collect();
+                s.push(rows[c].as_slice());
+                let hv = compute_hypervolume(&s, reference_point);
+                if hv > best_hv {
+                    best_hv = hv;
+                    best = c;
+                }
+            }
+            chosen.push(best);
+            avail.retain(|&x| x != best);
+        }
+        best_hv_of(rows, &chosen, reference_point)
+    }
+
+    fn best_hv_of(rows: &[[f64; 2]], sel: &[usize], reference_point: &[f64]) -> f64 {
+        let s: Vec<&[f64]> = sel.iter().map(|&i| rows[i].as_slice()).collect();
+        compute_hypervolume(&s, reference_point)
+    }
+
+    #[test]
+    fn solve_hssp_2d_matches_reference_greedy_hv() {
+        // A spread of 2D points below the reference point, incl. a duplicate and same-f0 ties.
+        let rows: Vec<[f64; 2]> = vec![
+            [0.1, 0.9],
+            [0.2, 0.7],
+            [0.2, 0.6],
+            [0.35, 0.55],
+            [0.5, 0.5],
+            [0.55, 0.45],
+            [0.7, 0.3],
+            [0.75, 0.25],
+            [0.9, 0.1],
+            [0.9, 0.1],
+        ];
+        let reference_point = [1.0, 1.0];
+        let indices: Vec<usize> = (0..rows.len()).collect();
+        let row_refs: Vec<&[f64]> = rows.iter().map(|r| r.as_slice()).collect();
+        for subset in 1..rows.len() {
+            let sel = solve_hssp_2d(&row_refs, &indices, &reference_point, subset);
+            assert_eq!(sel.len(), subset);
+            let hv_fast = best_hv_of(&rows, &sel, &reference_point);
+            let hv_ref = reference_greedy(&rows, &reference_point, subset);
+            assert!(
+                (hv_fast - hv_ref).abs() < 1e-9,
+                "subset={subset}: solve_hssp_2d HV={hv_fast} != reference greedy HV={hv_ref}"
+            );
+        }
+    }
+
+    #[test]
+    fn solve_hssp_2d_ignores_points_outside_reference_box() {
+        // A point outside the reference box must contribute zero, not a spurious positive
+        // area from two negative rectangle widths (Codex review counterexample).
+        let rows: Vec<[f64; 2]> = vec![[0.0, 1.0], [1.0, 0.0], [3.0, 3.0]];
+        let reference_point = [2.0, 2.0];
+        let indices: Vec<usize> = (0..rows.len()).collect();
+        let row_refs: Vec<&[f64]> = rows.iter().map(|r| r.as_slice()).collect();
+        for subset in 1..rows.len() {
+            let sel = solve_hssp_2d(&row_refs, &indices, &reference_point, subset);
+            assert!(!sel.contains(&2), "subset={subset}: selected out-of-box point [3,3]");
+            let hv_fast = best_hv_of(&rows, &sel, &reference_point);
+            let hv_ref = reference_greedy(&rows, &reference_point, subset);
+            assert!(
+                (hv_fast - hv_ref).abs() < 1e-9,
+                "subset={subset}: solve_hssp_2d HV={hv_fast} != reference greedy HV={hv_ref}"
+            );
+        }
+    }
 
     #[test]
     fn greedy_hv_approx_minus_1_over_e_no_itertools() {
