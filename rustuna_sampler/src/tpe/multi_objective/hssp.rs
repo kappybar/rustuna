@@ -159,8 +159,12 @@ where
             .iter()
             .all(|r| r.as_ref().iter().all(|v| v.is_finite()))
     {
-        let selected_indices =
-            solve_hssp_2d(rank_i_loss_vals, rank_i_indices, reference_point, subset_size);
+        let selected_indices = solve_hssp_2d(
+            rank_i_loss_vals,
+            rank_i_indices,
+            reference_point,
+            subset_size,
+        );
         HSSP_CACHE.with(|cell| {
             let mut flat = Vec::with_capacity(n * m);
             for r in rank_i_loss_vals.iter() {
@@ -469,7 +473,10 @@ mod tests {
         let row_refs: Vec<&[f64]> = rows.iter().map(|r| r.as_slice()).collect();
         for subset in 1..rows.len() {
             let sel = solve_hssp_2d(&row_refs, &indices, &reference_point, subset);
-            assert!(!sel.contains(&2), "subset={subset}: selected out-of-box point [3,3]");
+            assert!(
+                !sel.contains(&2),
+                "subset={subset}: selected out-of-box point [3,3]"
+            );
             let hv_fast = best_hv_of(&rows, &sel, &reference_point);
             let hv_ref = reference_greedy(&rows, &reference_point, subset);
             assert!(
