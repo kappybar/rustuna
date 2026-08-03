@@ -173,6 +173,22 @@ def test_optimize_multi_objective():
     assert len(trial.values) == 2
 
 
+def test_create_study_with_study_direction():
+    study = rustuna.create_study(direction=rustuna.study.StudyDirection.MAXIMIZE)
+    assert study.directions == [rustuna.study.StudyDirection.MAXIMIZE]
+
+    study = rustuna.create_study(
+        directions=[
+            rustuna.study.StudyDirection.MINIMIZE,
+            rustuna.study.StudyDirection.MAXIMIZE,
+        ]
+    )
+    assert study.directions == [
+        rustuna.study.StudyDirection.MINIMIZE,
+        rustuna.study.StudyDirection.MAXIMIZE,
+    ]
+
+
 def test_study():
     study = rustuna.create_study(study_name="example")
 
