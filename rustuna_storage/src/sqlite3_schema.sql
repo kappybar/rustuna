@@ -109,4 +109,7 @@ CREATE TABLE IF NOT EXISTS "trial_values" (
 	UNIQUE (trial_id, objective)
 );
 CREATE INDEX IF NOT EXISTS trials_study_id_key ON trials (study_id);
+-- This composite index is not included in Optuna's SQLite schema. Rustuna adds it
+-- to efficiently refresh trials by study and trial number.
+CREATE INDEX IF NOT EXISTS trials_study_id_number_key ON trials (study_id, number);
 INSERT OR IGNORE INTO version_info (version_info_id, schema_version, library_version) VALUES (1, 12, '4.6.0.dev')
