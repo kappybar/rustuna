@@ -457,6 +457,18 @@ mod tests {
             LOG_OFFSET_CHECKPOINT_INTERVAL
         );
 
+        let mut worker_ids = Vec::new();
+        backend.read_logs(LOG_OFFSET_CHECKPOINT_INTERVAL + 1, &mut |log| {
+            worker_ids.push(log.worker_id);
+            Ok(())
+        })?;
+        assert_eq!(
+            worker_ids,
+            ((LOG_OFFSET_CHECKPOINT_INTERVAL + 1)..num_logs)
+                .map(|number| format!("worker-{number}"))
+                .collect::<Vec<_>>()
+        );
+
         backend.append_logs(&[test_log(num_logs)])?;
         num_read = 0;
         backend.read_logs(num_logs, &mut |_| {
@@ -505,6 +517,50 @@ mod tests {
     }
 
     #[test]
+    fn does_not_cache_an_incomplete_log_before_requested_number() -> Result<()> {
+        let dir =
+            tempdir().map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        let path = dir.path().join("journal.log");
+        let mut backend = JournalFileBackend::new(&path, None)?;
+        backend.append_logs(&[test_log(0), test_log(1)])?;
+
+        let log2 = encode_logs(&[test_log(2)])?;
+        let split_at = log2.len() / 2;
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        file.write_all(&log2[..split_at])
+            .map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        drop(file);
+
+        let mut worker_ids = Vec::new();
+        backend.read_logs(3, &mut |log| {
+            worker_ids.push(log.worker_id);
+            Ok(())
+        })?;
+        assert!(worker_ids.is_empty());
+        assert_eq!(backend.latest_log_number, 2);
+
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        file.write_all(&log2[split_at..])
+            .map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        file.write_all(&encode_logs(&[test_log(3)])?)
+            .map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        drop(file);
+
+        backend.read_logs(3, &mut |log| {
+            worker_ids.push(log.worker_id);
+            Ok(())
+        })?;
+        assert_eq!(worker_ids, vec!["worker-3"]);
+        Ok(())
+    }
+
+    #[test]
     fn retries_an_incomplete_trailing_log() -> Result<()> {
         let dir =
             tempdir().map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
@@ -545,6 +601,35 @@ mod tests {
         })?;
         assert_eq!(num_read, 1);
         assert_eq!(backend.latest_log_number, 3);
+        Ok(())
+    }
+
+    #[test]
+    fn reports_a_corrupt_log_when_a_later_log_exists() -> Result<()> {
+        let dir =
+            tempdir().map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        let path = dir.path().join("journal.log");
+        let mut backend = JournalFileBackend::new(&path, None)?;
+        backend.append_logs(&[test_log(0)])?;
+
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        file.write_all(b"{\"op_code\":\n")
+            .map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        drop(file);
+        backend.append_logs(&[test_log(1)])?;
+
+        let mut worker_ids = Vec::new();
+        assert!(backend
+            .read_logs(0, &mut |log| {
+                worker_ids.push(log.worker_id);
+                Ok(())
+            })
+            .is_err());
+        assert_eq!(worker_ids, vec!["worker-0"]);
+        assert_eq!(backend.latest_log_number, 1);
         Ok(())
     }
 
