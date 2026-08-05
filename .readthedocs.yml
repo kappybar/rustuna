@@ -4,10 +4,6 @@ build:
   os: ubuntu-lts-latest
   tools:
     python: "latest"
-    rust: "latest"
-  jobs:
-    pre_build:
-      - cd rustuna_pyo3 && VIRTUAL_ENV=$READTHEDOCS_VIRTUALENV_PATH maturin develop
 
 mkdocs:
   configuration: docs/mkdocs.yml

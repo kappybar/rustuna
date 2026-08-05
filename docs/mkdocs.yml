@@ -24,6 +24,8 @@ plugins:
   - mkdocstrings:
       handlers:
         python:
+          paths:
+            - ../rustuna_pyo3
           options:
             docstring_style: google
             show_source: false
