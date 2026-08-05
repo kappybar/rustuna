@@ -1,3 +1,10 @@
+use std::collections::{HashMap, HashSet};
+
+use crate::trial::{PersistedTrial, TrialStateValues};
+use crate::multi_objective::{nds, hssp};
+use crate::study::Direction;
+
+
 pub fn split_trials_for_multi_objective<'a>(
         trials: &[&'a PersistedTrial],
         directions: &[Direction],
