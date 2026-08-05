@@ -1,12 +1,12 @@
 use core::panic;
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use super::multi_objective;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use rustuna_core::distribution::Distribution;
+use rustuna_core::multi_objective;
 use rustuna_core::parzen_estimator::ParzenEstimator;
 use rustuna_core::sampler::{Context, RandomSampler, Sampler};
 use rustuna_core::storage::Storage;
@@ -14,8 +14,6 @@ use rustuna_core::study::Direction;
 use rustuna_core::trial::TrialStateValues;
 use rustuna_core::Result;
 use rustuna_core::{Error, ErrorKind};
-use rustuna_core::multi_objective;
-
 
 /// Configuration for [`TpeSampler`].
 pub struct TpeConfig {
@@ -188,8 +186,11 @@ impl TpeSampler {
                     .collect::<Vec<_>>();
                 (good_trials, poor_trials)
             } else {
-                let (good_trials, poor_trials) =
-                    multi_objective::split_trials_for_multi_objective(complete_trials, directions, gamma);
+                let (good_trials, poor_trials) = multi_objective::split_trials_for_multi_objective(
+                    complete_trials,
+                    directions,
+                    gamma,
+                );
                 let good_nums = good_trials.iter().map(|t| t.number).collect();
                 let poor_nums = poor_trials.iter().map(|t| t.number).collect();
                 // We only cache the most recent split
