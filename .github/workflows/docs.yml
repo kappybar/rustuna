@@ -15,19 +15,12 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           python-version: '3.13'
-      - name: Setup Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Install docs dependencies
         working-directory: docs
         run: uv sync --group docs
       - name: Check uv.lock is up to date
         working-directory: docs
         run: git diff --exit-code uv.lock
-      - name: Build rustuna into docs venv
-        working-directory: rustuna_pyo3
-        run: |
-          source ../docs/.venv/bin/activate
-          maturin develop
       - name: Build documentation
         working-directory: docs
         run: uv run mkdocs build --strict
