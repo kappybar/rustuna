@@ -14,6 +14,7 @@ use rustuna_core::study::Direction;
 use rustuna_core::trial::TrialStateValues;
 use rustuna_core::Result;
 use rustuna_core::{Error, ErrorKind};
+use rustuna_core::multi_objective;
 
 const EPS: f64 = 1e-12;
 
@@ -189,7 +190,7 @@ impl TpeSampler {
                 (good_trials, poor_trials)
             } else {
                 let (good_trials, poor_trials) =
-                    Self::split_trials_for_multi_objective(complete_trials, directions, gamma);
+                    multi_objective::split_trials_for_multi_objective(complete_trials, directions, gamma);
                 let good_nums = good_trials.iter().map(|t| t.number).collect();
                 let poor_nums = poor_trials.iter().map(|t| t.number).collect();
                 // We only cache the most recent split
