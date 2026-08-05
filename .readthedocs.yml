@@ -7,13 +7,11 @@ build:
     rust: "latest"
   jobs:
     pre_build:
-      - cd rustuna_pyo3 && maturin develop
+      - cd docs && source .venv/bin/activate && cd ../rustuna_pyo3 && maturin develop
 
 mkdocs:
   configuration: docs/mkdocs.yml
   fail_on_warning: false
-
-formats: all
 
 python:
   install:
