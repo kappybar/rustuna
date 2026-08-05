@@ -463,6 +463,11 @@ class PedAnovaImportanceEvaluator:
         region_quantile: float = 1.0,
         evaluate_on_local: bool = True,
     ) -> None: ...
+    def evaluate(
+        self,
+        study: Study,
+        params: list[str] | None = None,
+    ) -> dict[str, float]: ...
 
 def get_param_importances(
     study: Study,
