@@ -16,7 +16,6 @@ use rustuna_core::Result;
 use rustuna_core::{Error, ErrorKind};
 use rustuna_core::multi_objective;
 
-const EPS: f64 = 1e-12;
 
 /// Configuration for [`TpeSampler`].
 pub struct TpeConfig {

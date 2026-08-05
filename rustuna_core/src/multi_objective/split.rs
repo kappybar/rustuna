@@ -4,6 +4,8 @@ use crate::multi_objective::{hssp, nds};
 use crate::study::Direction;
 use crate::trial::{PersistedTrial, TrialStateValues};
 
+const EPS: f64 = 1e-12;
+
 pub fn split_trials_for_multi_objective<'a>(
     trials: &[&'a PersistedTrial],
     directions: &[Direction],
