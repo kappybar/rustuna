@@ -330,8 +330,9 @@ def create_study(
     study_name: str | None = None,
     storage: StorageProtocol | None = None,
     sampler: SamplerProtocol | None = None,
-    direction: Literal["minimize"] | Literal["maximize"] | None = None,
-    directions: list[Literal["minimize"] | Literal["maximize"]] | None = None,
+    direction: Literal["minimize"] | Literal["maximize"] | StudyDirection | None = None,
+    directions: Sequence[Literal["minimize"] | Literal["maximize"] | StudyDirection]
+    | None = None,
     load_if_exists: bool = False,
     trial_queue: TrialQueueProtocol | None = None,
 ) -> Study:
@@ -341,9 +342,12 @@ def create_study(
         study_name: Study's name. If omitted, a unique name is generated automatically.
         storage: Storage object to persist study data. If None, InMemoryStorage is used.
         sampler: Sampler object for parameter suggestion. If None, TPESampler is used.
-        direction: Direction of optimization. Either 'minimize' or 'maximize'.
+        direction: Direction of optimization. Either 'minimize', 'maximize', or a
+            ``StudyDirection``.
             Cannot be specified together with ``directions``.
         directions: Directions of optimization for multi-objective optimization.
+            Each direction can be specified as 'minimize', 'maximize', or a
+            ``StudyDirection``.
             Cannot be specified together with ``direction``.
         load_if_exists: If True, return an existing study when ``study_name`` already exists.
         trial_queue: Trial queue object for managing trial execution order. If None,
