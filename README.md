@@ -1,6 +1,7 @@
 # Rustuna
 
 :link: [**Website**](https://optuna.org/)
+| :page_with_curl: [**Docs**](https://rustuna.readthedocs.io/)
 | [**Twitter**](https://twitter.com/OptunaAutoML)
 | [**LinkedIn**](https://www.linkedin.com/showcase/optuna/)
 | [**Medium**](https://medium.com/optuna)

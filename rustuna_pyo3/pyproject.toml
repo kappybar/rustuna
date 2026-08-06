@@ -17,6 +17,7 @@ dynamic = ["version"]
 [project.urls]
 homepage = "https://optuna.org/"
 repository = "https://github.com/optuna/rustuna"
+documentation = "https://rustuna.readthedocs.io"
 bugtracker = "https://github.com/optuna/rustuna/issues"
 
 [tool.maturin]
