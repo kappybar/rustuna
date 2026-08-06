@@ -1,0 +1,18 @@
+version: 2
+
+build:
+  os: ubuntu-lts-latest
+  tools:
+    python: "latest"
+
+mkdocs:
+  configuration: docs/mkdocs.yml
+  fail_on_warning: false
+
+python:
+  install:
+    - method: uv
+      command: sync
+      path: docs
+      groups:
+        - docs

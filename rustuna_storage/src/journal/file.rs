@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
 #[cfg(target_os = "macos")]
@@ -14,6 +13,7 @@ use super::{JournalBackend, JournalLog};
 
 const LOCK_FILE_SUFFIX: &str = ".lock";
 const RENAME_FILE_SUFFIX: &str = ".rename";
+const LOG_OFFSET_CHECKPOINT_INTERVAL: usize = 4096;
 
 fn fsync_file(file: &File) -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
@@ -55,7 +55,9 @@ pub trait JournalFileLock: Send + Sync {
 pub struct JournalFileBackend {
     file_path: PathBuf,
     lock: Box<dyn JournalFileLock>,
-    log_number_offset: HashMap<usize, u64>,
+    latest_log_number: usize,
+    latest_log_offset: u64,
+    log_offset_checkpoints: Vec<u64>,
 }
 
 impl JournalFileBackend {
@@ -70,13 +72,42 @@ impl JournalFileBackend {
                 .map_err(|e| Error::with_reason(ErrorKind::StorageError, e.to_string()))?;
         }
         let lock = lock.unwrap_or_else(|| Box::new(JournalFileSymlinkLock::new(&file_path)));
-        let mut log_number_offset = HashMap::new();
-        log_number_offset.insert(0, 0);
         Ok(JournalFileBackend {
             file_path,
             lock,
-            log_number_offset,
+            latest_log_number: 0,
+            latest_log_offset: 0,
+            log_offset_checkpoints: vec![0],
         })
+    }
+
+    fn read_start(&self, log_number_from: usize) -> (usize, u64) {
+        if log_number_from >= self.latest_log_number {
+            return (self.latest_log_number, self.latest_log_offset);
+        }
+
+        let checkpoint_index = log_number_from / LOG_OFFSET_CHECKPOINT_INTERVAL;
+        match self.log_offset_checkpoints.get(checkpoint_index) {
+            Some(offset) => (checkpoint_index * LOG_OFFSET_CHECKPOINT_INTERVAL, *offset),
+            None => (0, 0),
+        }
+    }
+
+    fn record_log_offset(&mut self, log_number: usize, offset: u64) {
+        if log_number > self.latest_log_number {
+            self.latest_log_number = log_number;
+            self.latest_log_offset = offset;
+        }
+
+        if !log_number.is_multiple_of(LOG_OFFSET_CHECKPOINT_INTERVAL) {
+            return;
+        }
+        let checkpoint_index = log_number / LOG_OFFSET_CHECKPOINT_INTERVAL;
+        if checkpoint_index == self.log_offset_checkpoints.len() {
+            self.log_offset_checkpoints.push(offset);
+        } else if let Some(existing_offset) = self.log_offset_checkpoints.get(checkpoint_index) {
+            debug_assert_eq!(*existing_offset, offset);
+        }
     }
 }
 
@@ -94,19 +125,18 @@ impl JournalBackend for JournalFileBackend {
             .len();
         let mut remaining_log_size = file_size as i64;
 
-        let mut log_number_start = 0usize;
-        if let Some(offset) = self.log_number_offset.get(&log_number_from).copied() {
-            file.seek(SeekFrom::Start(offset))
-                .map_err(|e| Error::with_reason(ErrorKind::StorageError, e.to_string()))?;
-            log_number_start = log_number_from;
-            remaining_log_size -= offset as i64;
-        }
+        let (log_number_start, offset_start) = self.read_start(log_number_from);
+        file.seek(SeekFrom::Start(offset_start))
+            .map_err(|e| Error::with_reason(ErrorKind::StorageError, e.to_string()))?;
+        remaining_log_size -= offset_start as i64;
 
         let mut reader = BufReader::new(file);
         let mut last_decode_error: Option<Error> = None;
         let mut log_number = log_number_start;
+        let mut offset = offset_start;
+        let mut line = Vec::new();
         loop {
-            let mut line = Vec::new();
+            line.clear();
             let bytes = reader.read_until(b'\n', &mut line).map_err(|e| {
                 Error::with_reason(
                     ErrorKind::StorageError,
@@ -126,39 +156,34 @@ impl JournalBackend for JournalFileBackend {
                 return Err(err);
             }
 
-            if !self.log_number_offset.contains_key(&(log_number + 1)) {
-                let next_offset = self
-                    .log_number_offset
-                    .get(&log_number)
-                    .copied()
-                    .unwrap_or(0)
-                    .saturating_add(byte_len);
-                self.log_number_offset.insert(log_number + 1, next_offset);
-            }
-
-            if log_number < log_number_from {
-                log_number += 1;
-                continue;
-            }
-
             if !line.ends_with(b"\n") {
                 last_decode_error = Some(Error::with_reason(
                     ErrorKind::StorageError,
                     "Invalid log format.".to_string(),
                 ));
-                self.log_number_offset.remove(&(log_number + 1));
                 log_number += 1;
                 continue;
             }
 
+            if log_number < log_number_from {
+                offset = offset.saturating_add(byte_len);
+                log_number += 1;
+                self.record_log_offset(log_number, offset);
+                continue;
+            }
+
             match decode_log_line(&line) {
-                Ok(log) => handler(log)?,
+                Ok(log) => {
+                    handler(log)?;
+                    offset = offset.saturating_add(byte_len);
+                    log_number += 1;
+                    self.record_log_offset(log_number, offset);
+                }
                 Err(err) => {
                     last_decode_error = Some(err);
-                    self.log_number_offset.remove(&(log_number + 1));
+                    log_number += 1;
                 }
             }
-            log_number += 1;
         }
 
         Ok(())
@@ -391,4 +416,244 @@ pub fn decode_log_line(line: &[u8]) -> Result<JournalLog> {
     }
     serde_json::from_slice(slice)
         .map_err(|e| Error::with_reason(ErrorKind::StorageError, e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use tempfile::tempdir;
+
+    use super::*;
+
+    fn test_log(number: usize) -> JournalLog {
+        JournalLog {
+            op_code: 0,
+            worker_id: format!("worker-{number}"),
+            fields: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn retains_sparse_offsets_and_reads_incrementally() -> Result<()> {
+        let dir =
+            tempdir().map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        let path = dir.path().join("journal.log");
+        let mut backend = JournalFileBackend::new(&path, None)?;
+        let num_logs = LOG_OFFSET_CHECKPOINT_INTERVAL * 2 + 3;
+        let logs = (0..num_logs).map(test_log).collect::<Vec<_>>();
+        backend.append_logs(&logs)?;
+
+        let mut num_read = 0;
+        backend.read_logs(0, &mut |_| {
+            num_read += 1;
+            Ok(())
+        })?;
+        assert_eq!(num_read, num_logs);
+        assert_eq!(backend.latest_log_number, num_logs);
+        assert_eq!(backend.log_offset_checkpoints.len(), 3);
+        assert_eq!(
+            backend.read_start(LOG_OFFSET_CHECKPOINT_INTERVAL + 1).0,
+            LOG_OFFSET_CHECKPOINT_INTERVAL
+        );
+
+        let mut worker_ids = Vec::new();
+        backend.read_logs(LOG_OFFSET_CHECKPOINT_INTERVAL + 1, &mut |log| {
+            worker_ids.push(log.worker_id);
+            Ok(())
+        })?;
+        assert_eq!(
+            worker_ids,
+            ((LOG_OFFSET_CHECKPOINT_INTERVAL + 1)..num_logs)
+                .map(|number| format!("worker-{number}"))
+                .collect::<Vec<_>>()
+        );
+
+        backend.append_logs(&[test_log(num_logs)])?;
+        num_read = 0;
+        backend.read_logs(num_logs, &mut |_| {
+            num_read += 1;
+            Ok(())
+        })?;
+        assert_eq!(num_read, 1);
+        assert_eq!(backend.latest_log_number, num_logs + 1);
+        assert_eq!(backend.log_offset_checkpoints.len(), 3);
+        Ok(())
+    }
+
+    #[test]
+    fn reads_from_an_arbitrary_log_number() -> Result<()> {
+        let dir =
+            tempdir().map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        let path = dir.path().join("journal.log");
+        let mut backend = JournalFileBackend::new(&path, None)?;
+        let logs = (0..10).map(test_log).collect::<Vec<_>>();
+        backend.append_logs(&logs)?;
+
+        let mut worker_ids = Vec::new();
+        backend.read_logs(4, &mut |log| {
+            worker_ids.push(log.worker_id);
+            Ok(())
+        })?;
+        assert_eq!(
+            worker_ids,
+            (4..10)
+                .map(|number| format!("worker-{number}"))
+                .collect::<Vec<_>>()
+        );
+
+        worker_ids.clear();
+        backend.read_logs(2, &mut |log| {
+            worker_ids.push(log.worker_id);
+            Ok(())
+        })?;
+        assert_eq!(
+            worker_ids,
+            (2..10)
+                .map(|number| format!("worker-{number}"))
+                .collect::<Vec<_>>()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn does_not_cache_an_incomplete_log_before_requested_number() -> Result<()> {
+        let dir =
+            tempdir().map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        let path = dir.path().join("journal.log");
+        let mut backend = JournalFileBackend::new(&path, None)?;
+        backend.append_logs(&[test_log(0), test_log(1)])?;
+
+        let log2 = encode_logs(&[test_log(2)])?;
+        let split_at = log2.len() / 2;
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        file.write_all(&log2[..split_at])
+            .map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        drop(file);
+
+        let mut worker_ids = Vec::new();
+        backend.read_logs(3, &mut |log| {
+            worker_ids.push(log.worker_id);
+            Ok(())
+        })?;
+        assert!(worker_ids.is_empty());
+        assert_eq!(backend.latest_log_number, 2);
+
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        file.write_all(&log2[split_at..])
+            .map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        file.write_all(&encode_logs(&[test_log(3)])?)
+            .map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        drop(file);
+
+        backend.read_logs(3, &mut |log| {
+            worker_ids.push(log.worker_id);
+            Ok(())
+        })?;
+        assert_eq!(worker_ids, vec!["worker-3"]);
+        Ok(())
+    }
+
+    #[test]
+    fn retries_an_incomplete_trailing_log() -> Result<()> {
+        let dir =
+            tempdir().map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        let path = dir.path().join("journal.log");
+        let mut backend = JournalFileBackend::new(&path, None)?;
+        backend.append_logs(&[test_log(0), test_log(1)])?;
+
+        let trailing_log = encode_logs(&[test_log(2)])?;
+        let split_at = trailing_log.len() / 2;
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        file.write_all(&trailing_log[..split_at])
+            .map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        drop(file);
+
+        let mut num_read = 0;
+        backend.read_logs(0, &mut |_| {
+            num_read += 1;
+            Ok(())
+        })?;
+        assert_eq!(num_read, 2);
+        assert_eq!(backend.latest_log_number, 2);
+
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        file.write_all(&trailing_log[split_at..])
+            .map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        drop(file);
+
+        num_read = 0;
+        backend.read_logs(2, &mut |_| {
+            num_read += 1;
+            Ok(())
+        })?;
+        assert_eq!(num_read, 1);
+        assert_eq!(backend.latest_log_number, 3);
+        Ok(())
+    }
+
+    #[test]
+    fn reports_a_corrupt_log_when_a_later_log_exists() -> Result<()> {
+        let dir =
+            tempdir().map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        let path = dir.path().join("journal.log");
+        let mut backend = JournalFileBackend::new(&path, None)?;
+        backend.append_logs(&[test_log(0)])?;
+
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        file.write_all(b"{\"op_code\":\n")
+            .map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        drop(file);
+        backend.append_logs(&[test_log(1)])?;
+
+        let mut worker_ids = Vec::new();
+        assert!(backend
+            .read_logs(0, &mut |log| {
+                worker_ids.push(log.worker_id);
+                Ok(())
+            })
+            .is_err());
+        assert_eq!(worker_ids, vec!["worker-0"]);
+        assert_eq!(backend.latest_log_number, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn retries_a_log_when_the_handler_fails() -> Result<()> {
+        let dir =
+            tempdir().map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+        let path = dir.path().join("journal.log");
+        let mut backend = JournalFileBackend::new(&path, None)?;
+        backend.append_logs(&[test_log(0), test_log(1)])?;
+
+        let result = backend.read_logs(0, &mut |_| {
+            Err(Error::with_reason(ErrorKind::Unexpected, "handler failed"))
+        });
+        assert!(result.is_err());
+        assert_eq!(backend.latest_log_number, 0);
+
+        let mut num_read = 0;
+        backend.read_logs(0, &mut |_| {
+            num_read += 1;
+            Ok(())
+        })?;
+        assert_eq!(num_read, 2);
+        assert_eq!(backend.latest_log_number, 2);
+        Ok(())
+    }
 }

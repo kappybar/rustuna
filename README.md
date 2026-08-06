@@ -1,6 +1,7 @@
 # Rustuna
 
 :link: [**Website**](https://optuna.org/)
+| :page_with_curl: [**Docs**](https://rustuna.readthedocs.io/)
 | [**Twitter**](https://twitter.com/OptunaAutoML)
 | [**LinkedIn**](https://www.linkedin.com/showcase/optuna/)
 | [**Medium**](https://medium.com/optuna)
@@ -76,6 +77,21 @@ $ pip install rustuna
 ```
 
 Ready to try Rustuna in practice? The best place to start is the [Getting Started](docs/docs/tutorial/getting-started.md) guide, which walks through the basic functionality and core APIs.
+
+## Citation
+
+If you use Rustuna for your research, please cite it using the following BibTeX entry:
+
+```
+@misc{rustuna,
+  author = {Optuna Developers},
+  title = {Rustuna: A faster Optuna implementation in Rust},
+  year = {2026},
+  publisher = {GitHub},
+  journal = {GitHub repository},
+  howpublished = {\url{https://github.com/optuna/rustuna}}
+}
+```
 
 ## License
 

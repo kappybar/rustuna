@@ -233,8 +233,8 @@ pub fn py_create_study(
     study_name: Option<String>,
     storage: Option<Py<PyAny>>,
     sampler: Option<Py<PyAny>>,
-    direction: Option<String>,
-    directions: Option<Vec<String>>,
+    direction: Option<Py<PyAny>>,
+    directions: Option<Vec<Py<PyAny>>>,
     load_if_exists: bool,
     trial_queue: Option<Py<PyAny>>,
 ) -> PyResult<PyStudy> {
@@ -243,7 +243,7 @@ pub fn py_create_study(
         None => "default".to_string(), // TODO(c-bata): Generate random name with uuid.
     };
     let (storage_arc, storage_pyobj) = Python::attach(|py| into_storage_pyobj(py, storage))?;
-    let directions = convert_directions(direction, directions)?;
+    let directions = Python::attach(|py| convert_directions(py, direction, directions))?;
     let is_multi_objective = directions.len() > 1;
     let (sampler_arc, sampler_pyobj) =
         Python::attach(|py| into_sampler_pyobj(py, sampler, is_multi_objective))?;
@@ -764,38 +764,47 @@ impl From<PyDirection> for Direction {
 }
 
 fn convert_directions(
-    direction: Option<String>,
-    directions: Option<Vec<String>>,
+    py: Python<'_>,
+    direction: Option<Py<PyAny>>,
+    directions: Option<Vec<Py<PyAny>>>,
 ) -> PyResult<Vec<Direction>> {
     if direction.is_some() && directions.is_some() {
         Err(PyValueError::new_err(
             "Cannot specify both `direction` and `directions`",
         ))?;
     };
-    let direction = match direction {
-        Some(d) => match d.as_str() {
-            "minimize" => Direction::Minimize,
-            "maximize" => Direction::Maximize,
-            _ => Err(PyValueError::new_err(
-                "Invalid direction. Please specify either `minimize` or `maximize`",
-            ))?,
-        },
-        None => Direction::Minimize,
-    };
+    let direction = direction
+        .as_ref()
+        .map(|d| convert_direction(d.bind(py)))
+        .transpose()?
+        .unwrap_or(Direction::Minimize);
     let directions = match directions {
         Some(ds) => ds
             .into_iter()
-            .map(|d| match d.as_str() {
-                "minimize" => Ok(Direction::Minimize),
-                "maximize" => Ok(Direction::Maximize),
-                _ => Err(PyValueError::new_err(
-                    "Invalid direction. Please specify either `minimize` or `maximize`",
-                )),
-            })
+            .map(|d| convert_direction(d.bind(py)))
             .collect(),
         None => Ok(vec![direction]),
     }?;
     Ok(directions)
+}
+
+fn convert_direction(direction: &Bound<'_, PyAny>) -> PyResult<Direction> {
+    if let Ok(direction) = direction.extract::<PyDirection>() {
+        return Ok(direction.into());
+    }
+
+    match direction.extract::<String>() {
+        Ok(direction) => match direction.as_str() {
+            "minimize" => Ok(Direction::Minimize),
+            "maximize" => Ok(Direction::Maximize),
+            _ => Err(PyValueError::new_err(
+                "Invalid direction. Please specify either `minimize` or `maximize`",
+            )),
+        },
+        Err(_) => Err(PyValueError::new_err(
+            "Invalid direction. Please specify either `minimize` or `maximize`",
+        )),
+    }
 }
 
 #[pyfunction]

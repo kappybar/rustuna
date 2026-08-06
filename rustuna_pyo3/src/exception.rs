@@ -33,6 +33,7 @@ pub fn err_to_exceptions(e: rustuna_core::Error) -> PyErr {
         rustuna_core::ErrorKind::IncompatibleDistribution => {
             PyValueError::new_err("Incompatible distribution for the parameter")
         }
+        rustuna_core::ErrorKind::ImportanceEvaluatorError => PyValueError::new_err(e.reason),
         rustuna_core::ErrorKind::UnsupportedMultiObjective => {
             PyRuntimeError::new_err("Multi-objective study is not supported")
         }

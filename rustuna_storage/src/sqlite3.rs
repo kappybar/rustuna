@@ -19,6 +19,8 @@ pub struct SQLite3Storage {
 }
 
 const SCHEMA_SQL: &str = include_str!("sqlite3_schema.sql");
+const TRIALS_STUDY_ID_NUMBER_INDEX_SQL: &str =
+    "CREATE INDEX IF NOT EXISTS trials_study_id_number_key ON trials (study_id, number)";
 type TrialRow = (u32, u32, String, Option<String>, Option<String>);
 
 impl SQLite3Storage {
@@ -49,16 +51,25 @@ impl SQLite3Storage {
         })?;
 
         let result = (|| -> Result<()> {
-            if Self::is_initialized(&conn)? {
-                return Ok(());
+            if !Self::is_initialized(&conn)? {
+                conn.execute_batch(SCHEMA_SQL).map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Failed to create database: {e}"),
+                    )
+                })?;
             }
 
-            conn.execute_batch(SCHEMA_SQL).map_err(|e| {
-                Error::with_reason(
-                    ErrorKind::StorageError,
-                    format!("Failed to create database: {e}"),
-                )
-            })?;
+            // Optuna's SQLite schema does not include this composite index. Keep it available
+            // when opening a database initialized by an older Rustuna version or by Optuna,
+            // because `SCHEMA_SQL` is skipped for initialized databases.
+            conn.execute_batch(TRIALS_STUDY_ID_NUMBER_INDEX_SQL)
+                .map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Failed to create trial lookup index: {e}"),
+                    )
+                })?;
             Ok(())
         })();
 
@@ -1124,32 +1135,52 @@ impl CachedStorageBackend for SQLite3Storage {
             .lock()
             .map_err(|_| Error::new(ErrorKind::StorageError))?;
 
-        // Build SQL query with filters
-        let mut sql = String::from(
-            "SELECT trial_id, number, state, datetime_start, datetime_complete FROM trials WHERE study_id = ?",
-        );
-        let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(study_id)];
-
-        let mut trial_filters = vec!["number > ?".to_string()];
-        params.push(Box::new(trial_number_greater_than));
-
-        // Filter by included_numbers if provided
-        if !included_numbers.is_empty() {
+        let select_columns =
+            "SELECT trial_id, number, state, datetime_start, datetime_complete FROM trials";
+        // Numbers above the threshold are already returned by the range query. Filtering them
+        // out here avoids an unnecessary second scan in the usual case where the current trial
+        // is the only unfinished trial.
+        let included_numbers: Vec<u32> = if trial_number_greater_than < 0 {
+            Vec::new()
+        } else {
+            included_numbers
+                .iter()
+                .copied()
+                .filter(|number| *number <= trial_number_greater_than as u32)
+                .collect()
+        };
+        let (sql, params): (String, Vec<Box<dyn rusqlite::ToSql>>) = if included_numbers.is_empty()
+        {
+            (
+                format!("{select_columns} WHERE study_id = ? AND number > ? ORDER BY trial_id"),
+                vec![Box::new(study_id), Box::new(trial_number_greater_than)],
+            )
+        } else {
             let placeholders = included_numbers
                 .iter()
                 .map(|_| "?")
                 .collect::<Vec<_>>()
                 .join(", ");
-            trial_filters.push(format!("number IN ({placeholders})"));
-            for &num in included_numbers {
-                params.push(Box::new(num));
-            }
-        }
-
-        sql.push_str(" AND (");
-        sql.push_str(&trial_filters.join(" OR "));
-        sql.push(')');
-        sql.push_str(" ORDER BY trial_id");
+            let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![
+                Box::new(study_id),
+                Box::new(trial_number_greater_than),
+                Box::new(study_id),
+            ];
+            params.extend(
+                included_numbers
+                    .iter()
+                    .map(|number| Box::new(*number) as Box<dyn rusqlite::ToSql>),
+            );
+            (
+                format!(
+                    "{select_columns} WHERE study_id = ? AND number > ? \
+                         UNION ALL \
+                         {select_columns} WHERE study_id = ? AND number IN ({placeholders}) \
+                         ORDER BY trial_id"
+                ),
+                params,
+            )
+        };
 
         let mut stmt = guard.prepare(&sql).map_err(|e| {
             Error::with_reason(
@@ -1741,6 +1772,40 @@ mod tests {
         let study = storage.create_new_study("example", vec![Direction::Minimize])?;
         assert_eq!(study.name, "example");
         assert_eq!(storage.get_studies()?.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn create_database_restores_trial_lookup_index() -> Result<()> {
+        let storage = SQLite3Storage::new(":memory:")?;
+        storage.create_database()?;
+
+        {
+            let conn = storage
+                .conn
+                .lock()
+                .map_err(|_| Error::new(ErrorKind::StorageError))?;
+            conn.execute_batch("DROP INDEX trials_study_id_number_key")
+                .map_err(|e| Error::with_reason(ErrorKind::StorageError, e.to_string()))?;
+        }
+
+        // Existing databases skip SCHEMA_SQL, but the performance-critical index must still be
+        // created when the storage is opened again.
+        storage.create_database()?;
+
+        let conn = storage
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
+        let index_name: Option<String> = conn
+            .query_row(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?",
+                params!["trials_study_id_number_key"],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| Error::with_reason(ErrorKind::StorageError, e.to_string()))?;
+        assert_eq!(index_name.as_deref(), Some("trials_study_id_number_key"));
         Ok(())
     }
 
