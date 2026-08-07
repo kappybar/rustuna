@@ -1,6 +1,6 @@
-## Migrating from Optuna
+# Migrating from Optuna
 
-### When to Use Rustuna
+## When to Use Rustuna
 
 We recommend using Rustuna if you fall into the following categories:
 
@@ -14,16 +14,16 @@ Conversely, Rustuna might not be the best fit (at least for now) if:
 * **Proven Maturity**: You require a stable library with a long history of production use and fewer bugs.
 * **Cutting-Edge Optimization Algorithms**: Rustuna is not the best choice if you want to use advanced samplers such as Optuna's `GPSampler` or OptunaHub's `AutoSampler`. While it is technically possible to use them together with Rustuna, the cost of parameter suggestion in these samplers tends to dominate execution time, leaving little practical benefit in choosing Rustuna.
 
-### Differences in concepts between Rustuna and Optuna
+## Differences in concepts between Rustuna and Optuna
 
-#### FrozenTrial vs. PersistedTrial
+### FrozenTrial vs. PersistedTrial
 
 `FrozenTrial` is a container class that holds the values of a trial stored in Optuna's storage.
 My understanding is that the name “Frozen” was originally intended to indicate that this container object was immutable. However, as Optuna evolved and adapted to a wider range of use cases, the implementation changed, and `FrozenTrial` is no longer immutable in practice. Because of this historical background, the name `FrozenTrial` has remained even though renaming it has been discussed multiple times among Optuna developers. Since `FrozenTrial` is one of Optuna's core components and is used throughout the codebase, changing its name would have a very broad impact.
 
 In Rustuna, the corresponding storage-side trial type is called `PersistedTrial`. The name is different, but its role is essentially the same. The same naming idea also applies at the study level: Optuna has `FrozenStudy`, while Rustuna uses `PersistedStudy` for the corresponding storage-side type.
 
-#### `study.enqueue_trial()` and the TrialQueue
+### `study.enqueue_trial()` and the TrialQueue
 
 In Optuna, [`study.enqueue_trial()`](https://optuna.readthedocs.io/en/stable/reference/generated/optuna.study.Study.html#optuna.study.Study.enqueue_trial) allows users to manually specify parameter sets to be evaluated next. This is useful when you have prior knowledge of promising parameters. However, Optuna's implementation faces design challenges:
 
@@ -55,7 +55,7 @@ However, there are two important behavioral differences:
 2. **add_trial() Behavior**: In Optuna, you can technically inject a trial into the queue by calling `study.add_trial()` with a WAITING state. In Rustuna, trials added via `add_trial` are not automatically queued. You must use `enqueue_trial()` or explicitly push the ID via `study.trial_queue.push(trial_id)`.
 
 
-#### User and Study attributes
+### User and Study attributes
 
 Both Optuna and Rustuna allow users to store `user_attrs` and `system_attrs` on `Trial` and `Study` objects, making them usable as a simple key-value store for trial- or study-specific metadata.
 
@@ -66,7 +66,7 @@ Rustuna avoids this by leaving serialization and deserialization to the user and
 
 Separately, Rustuna also provides bulk insert APIs such as `trial.set_user_attrs({"key1": "...", "key2": "..."})`.
 
-#### No Pruner Support (Currently)
+### No Pruner Support (Currently)
 
 Rustuna does not currently support pruners.
 
