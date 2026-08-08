@@ -17,7 +17,7 @@ use rustuna_core::trial::{PersistedTrial, TrialStateValues};
 use rustuna_core::{Error, ErrorKind, Result};
 
 use super::{JournalBackend, JournalLog, JournalOperation};
-use crate::datetime::{journal_datetime_to_naive_local, naive_local_to_aware_utc};
+use crate::datetime::{journal_datetime_to_naive_utc, naive_utc_to_aware_utc, now_aware_utc};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 /// Options for [`JournalStorage`].
@@ -272,14 +272,13 @@ impl Storage for JournalStorage {
                 &template
                     .datetime_start
                     .as_deref()
-                    .map(naive_local_to_aware_utc)
-                    .transpose()?,
+                    .map(naive_utc_to_aware_utc),
             )?,
         );
         if let Some(ref dt) = template.datetime_complete {
             fields.insert(
                 "datetime_complete".to_string(),
-                to_raw(&naive_local_to_aware_utc(dt)?)?,
+                to_raw(&naive_utc_to_aware_utc(dt))?,
             );
         }
         self.write_log(JournalOperation::CreateTrial, fields)?;
@@ -996,12 +995,10 @@ impl JournalReplayState {
         let intermediate_values = get_optional_raw_map(&log.fields, "intermediate_values")?;
         let datetime_start = get_optional_string(&log.fields, "datetime_start")?
             .as_deref()
-            .map(journal_datetime_to_naive_local)
-            .transpose()?;
+            .map(journal_datetime_to_naive_utc);
         let datetime_complete = get_optional_string(&log.fields, "datetime_complete")?
             .as_deref()
-            .map(journal_datetime_to_naive_local)
-            .transpose()?;
+            .map(journal_datetime_to_naive_utc);
         if !self.study_exists(study_id, log, worker_id)? {
             return Ok(());
         }
@@ -1192,12 +1189,10 @@ impl JournalReplayState {
         let values = get_optional_raw_vec(&log.fields, "values")?;
         let datetime_start = get_optional_string(&log.fields, "datetime_start")?
             .as_deref()
-            .map(journal_datetime_to_naive_local)
-            .transpose()?;
+            .map(journal_datetime_to_naive_utc);
         let datetime_complete = get_optional_string(&log.fields, "datetime_complete")?
             .as_deref()
-            .map(journal_datetime_to_naive_local)
-            .transpose()?;
+            .map(journal_datetime_to_naive_utc);
         if !self.trial_exists_and_updatable(trial_id, log, worker_id)? {
             return Ok(());
         }
@@ -1870,13 +1865,6 @@ fn get_string(fields: &HashMap<String, Box<RawValue>>, key: &str) -> Result<Stri
     raw_value_to_plain_string(get_raw(fields, key)?)
 }
 
-/// Current time in the timezone-aware UTC form journal logs are written in.
-///
-/// The output matches Optuna's `datetime.now(tz=timezone.utc).isoformat(timespec="microseconds")`.
-fn now_aware_utc() -> String {
-    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, false)
-}
-
 fn get_optional_string(
     fields: &HashMap<String, Box<RawValue>>,
     key: &str,
@@ -2154,31 +2142,27 @@ mod tests {
         };
         assert_eq!(logged.len(), 2, "expected both datetimes in the log");
 
-        let parse = |value: &str| {
-            chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S%.f")
-                .expect("datetime is parseable")
-        };
-        let now_local = chrono::Local::now().naive_local();
-        let now_utc = chrono::Utc::now().naive_utc();
-
         for value in &logged {
             // Journal logs carry timezone-aware UTC, matching
             // datetime.now(tz=timezone.utc).isoformat(timespec="microseconds") in Optuna.
-            let aware = chrono::DateTime::parse_from_rfc3339(value)
-                .unwrap_or_else(|_| panic!("logged datetime is not aware UTC: {value}"));
-            assert_eq!(aware.offset().local_minus_utc(), 0, "not UTC: {value}");
-            let skew = (now_utc - aware.naive_utc()).num_seconds().abs();
-            assert!(skew < 60, "logged datetime is not now: {value}");
-        }
-
-        // What PersistedTrial carries is local time, as with SQLite3Storage.
-        for value in [&reported_start, &reported_complete] {
-            let skew = (now_local - parse(value)).num_seconds().abs();
-            assert!(
-                skew < 60,
-                "datetime is not local time: {value} vs {now_local}"
+            assert!(value.ends_with("+00:00"), "not aware UTC: {value}");
+            assert_eq!(value.as_bytes()[10], b'T', "not RFC 3339: {value}");
+            assert_eq!(
+                value.len(),
+                "1970-01-01T00:00:00.000000+00:00".len(),
+                "not microsecond precision: {value}"
             );
         }
+
+        // What PersistedTrial carries is the very same instants as naive UTC, so the log entries
+        // are the reported values plus an explicit offset.
+        assert_eq!(
+            logged,
+            vec![
+                naive_utc_to_aware_utc(&reported_start),
+                naive_utc_to_aware_utc(&reported_complete),
+            ]
+        );
         Ok(())
     }
 

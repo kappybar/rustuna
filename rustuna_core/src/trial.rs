@@ -289,12 +289,12 @@ pub struct PersistedTrial {
     /// trial data and may be used by future pruning APIs.
     pub intermediate_values: HashMap<u32, f64>,
     pub attrs: Attrs,
-    /// When the trial started, as timezone-naive **local** time (`%Y-%m-%d %H:%M:%S%.f`).
+    /// When the trial started, as timezone-naive **UTC** (`%Y-%m-%d %H:%M:%S%.f`).
     ///
-    /// As in Optuna, the user-facing value is local time while the storage backends persist UTC:
-    /// SQLite stores timezone-naive UTC and journal logs store timezone-aware UTC. Backends
-    /// convert at their own persistence boundary, so every value held here is local time no
-    /// matter which storage produced it.
+    /// UTC needs a clock but no timezone database, which is why it is the representation shared by
+    /// every backend: see [`crate::datetime`]. Storage backends encode it slightly differently on
+    /// disk (SQLite keeps naive UTC, journal logs carry an explicit `+00:00`), and the conversion
+    /// to the local time that `FrozenTrial` exposes happens in the Python bindings.
     pub datetime_start: Option<String>,
     /// When the trial finished, in the same representation as [`Self::datetime_start`].
     pub datetime_complete: Option<String>,

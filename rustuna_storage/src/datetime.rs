@@ -1,87 +1,69 @@
-//! Conversions between the in-memory and the persisted representation of trial datetimes.
+//! Datetime encoding used by journal logs.
 //!
-//! Rustuna follows the same layering as Optuna (5.0.0rc1 and later):
-//!
-//! - `PersistedTrial::datetime_start` / `datetime_complete` are **timezone-naive local time**, so
-//!   that `FrozenTrial.datetime_start` keeps returning local time to users.
-//! - [`crate::sqlite3::SQLite3Storage`] persists **timezone-naive UTC**. Timezone-aware column
-//!   types would need a schema migration where they are supported at all, so the offset is dropped
-//!   and the value is normalized to UTC instead.
-//! - [`crate::journal::JournalStorage`] persists **timezone-aware UTC**, because a journal log is
-//!   JSON and can carry the offset without any schema concerns.
-//!
-//! Every conversion happens at a persistence boundary, so nothing outside this module needs to
-//! know which encoding a backend uses.
+//! `PersistedTrial` carries timezone-naive UTC (see `rustuna_core::datetime`), which
+//! [`crate::sqlite3::SQLite3Storage`] stores as-is. Journal logs instead carry timezone-aware UTC,
+//! matching Optuna, because a log entry is JSON and can spell out the offset without the schema
+//! concerns a database column has.
 
-use chrono::{DateTime, Local, NaiveDateTime, SecondsFormat, TimeZone, Utc};
-use rustuna_core::{Error, ErrorKind, Result};
+use rustuna_core::datetime::now_naive_utc;
 
-/// Format used for naive datetimes, matching SQLite's `strftime('%Y-%m-%d %H:%M:%f', ...)` and
-/// Python's `str(datetime)`.
-const NAIVE_FORMAT: &str = "%Y-%m-%d %H:%M:%S%.f";
+/// Width of the `YYYY-MM-DDTHH:MM:SS` prefix every journal datetime starts with.
+const DATE_TIME_LEN: usize = 19;
 
-fn invalid(value: &str) -> Error {
-    Error::with_reason(
-        ErrorKind::StorageError,
-        format!("Failed to parse datetime: {value}"),
-    )
-}
-
-fn parse_naive(value: &str) -> Result<NaiveDateTime> {
-    NaiveDateTime::parse_from_str(value, NAIVE_FORMAT)
-        .or_else(|_| NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S"))
-        .or_else(|_| NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S%.f"))
-        .map_err(|_| invalid(value))
-}
-
-fn format_naive(value: NaiveDateTime) -> String {
-    value.format(NAIVE_FORMAT).to_string()
-}
-
-/// Interprets a naive local datetime, resolving the ambiguity of a DST fold towards the earlier
-/// instant the way `datetime.astimezone()` does in Python.
-fn local_to_utc(value: NaiveDateTime) -> Result<DateTime<Utc>> {
-    let local = Local
-        .from_local_datetime(&value)
-        .earliest()
-        // A local time skipped by a DST jump forward has no instant at all; map it through the
-        // offset in effect just before the gap rather than failing the whole read.
-        .or_else(|| Local.from_local_datetime(&value).latest())
-        .ok_or_else(|| invalid(&format_naive(value)))?;
-    Ok(local.with_timezone(&Utc))
-}
-
-/// Converts naive local time (as held by `PersistedTrial`) into the naive UTC stored by SQLite.
-pub fn naive_local_to_naive_utc(value: &str) -> Result<String> {
-    Ok(format_naive(local_to_utc(parse_naive(value)?)?.naive_utc()))
-}
-
-/// Converts the naive UTC stored by SQLite back into the naive local time held by
-/// `PersistedTrial`.
-pub fn naive_utc_to_naive_local(value: &str) -> Result<String> {
-    let utc = Utc.from_utc_datetime(&parse_naive(value)?);
-    Ok(format_naive(utc.with_timezone(&Local).naive_local()))
-}
-
-/// Converts naive local time into the timezone-aware UTC written to a journal log.
+/// Returns the current time in the timezone-aware UTC form journal logs carry.
 ///
-/// The output matches Python's `datetime.isoformat(timespec="microseconds")` on an aware UTC
-/// datetime, so Optuna can read logs written by Rustuna.
-pub fn naive_local_to_aware_utc(value: &str) -> Result<String> {
-    Ok(local_to_utc(parse_naive(value)?)?.to_rfc3339_opts(SecondsFormat::Micros, false))
+/// The output matches Optuna's `datetime.now(tz=timezone.utc).isoformat(timespec="microseconds")`.
+pub fn now_aware_utc() -> String {
+    naive_utc_to_aware_utc(&now_naive_utc())
 }
 
-/// Converts a datetime read from a journal log into the naive local time held by
-/// `PersistedTrial`.
+/// Rewrites a timezone-naive UTC timestamp as the timezone-aware form used by journal logs.
+pub fn naive_utc_to_aware_utc(value: &str) -> String {
+    format!("{}+00:00", value.replacen(' ', "T", 1))
+}
+
+/// Converts a datetime read from a journal log into the timezone-naive UTC that `PersistedTrial`
+/// holds.
 ///
-/// Logs written before Rustuna and Optuna moved to aware UTC carry a naive local datetime with no
-/// offset. Those are read back as local time, which is what they were, so old journals keep
-/// reporting the same wall-clock values.
-pub fn journal_datetime_to_naive_local(value: &str) -> Result<String> {
-    match DateTime::parse_from_rfc3339(value) {
-        Ok(aware) => Ok(format_naive(aware.with_timezone(&Local).naive_local())),
-        Err(_) => Ok(format_naive(parse_naive(value)?)),
+/// **The offset is dropped, not applied.** Optuna and Rustuna both write `+00:00`, so there is
+/// nothing to apply, and skipping it keeps this crate free of date arithmetic. The cost is that a
+/// log written by some other tool with a real offset would be read as though its wall-clock reading
+/// were already UTC. Accepting such a value unchanged is still better than rejecting it, since the
+/// datetimes are informational.
+///
+/// Logs predating Optuna 5.0.0rc1 carry a naive datetime with no offset at all. Those were local
+/// time and are likewise taken as UTC.
+pub fn journal_datetime_to_naive_utc(value: &str) -> String {
+    let bytes = value.as_bytes();
+    // Leave anything that is not shaped like a datetime exactly as it was found.
+    if bytes.len() < DATE_TIME_LEN
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        // RFC 3339 section 5.6 allows any of these to separate the date from the time.
+        || !matches!(bytes[10], b'T' | b't' | b' ')
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+    {
+        return value.to_string();
     }
+
+    // Whatever follows the seconds is the fractional part plus the offset. Keep the digits of the
+    // former, at microsecond precision, and discard the latter.
+    let trailer = &value[DATE_TIME_LEN..];
+    let fraction = trailer
+        .strip_prefix('.')
+        .map(|digits| {
+            let end = digits
+                .find(|c: char| !c.is_ascii_digit())
+                .unwrap_or(digits.len());
+            &digits[..end.min(6)]
+        })
+        .unwrap_or("");
+    format!(
+        "{} {}.{fraction:0<6}",
+        &value[..10],
+        &value[11..DATE_TIME_LEN]
+    )
 }
 
 #[cfg(test)]
@@ -89,80 +71,88 @@ mod tests {
     use super::*;
 
     #[test]
-    fn naive_local_and_naive_utc_round_trip() -> Result<()> {
-        let local = "2024-01-02 03:04:05.678";
-        let utc = naive_local_to_naive_utc(local)?;
-        assert_eq!(naive_utc_to_naive_local(&utc)?, local);
-        Ok(())
-    }
-
-    #[test]
-    fn naive_utc_conversion_applies_the_local_offset() -> Result<()> {
-        let local = "2024-01-02 03:04:05.678";
-        let utc = naive_local_to_naive_utc(local)?;
-        // The stored value differs from the local one by exactly the local offset.
-        let offset = Local
-            .from_local_datetime(&parse_naive(local)?)
-            .earliest()
-            .expect("unambiguous local time")
-            .offset()
-            .local_minus_utc();
+    fn aware_utc_round_trips() {
+        let naive = "2024-01-02 03:04:05.678000";
         assert_eq!(
-            parse_naive(&utc)?,
-            parse_naive(local)? - chrono::Duration::seconds(offset as i64)
+            naive_utc_to_aware_utc(naive),
+            "2024-01-02T03:04:05.678000+00:00"
         );
-        Ok(())
-    }
-
-    #[test]
-    fn aware_utc_round_trips_and_carries_an_offset() -> Result<()> {
-        let local = "2024-06-02 03:04:05.678";
-        let aware = naive_local_to_aware_utc(local)?;
-        assert!(
-            aware.ends_with("+00:00"),
-            "journal datetimes must be aware UTC: {aware}"
-        );
-        assert_eq!(journal_datetime_to_naive_local(&aware)?, local);
-        Ok(())
-    }
-
-    #[test]
-    fn journal_datetimes_written_by_optuna_are_accepted() -> Result<()> {
-        // datetime.now(tz=timezone.utc).isoformat(timespec="microseconds")
-        let value = "2024-01-02T03:04:05.678000+00:00";
-        let local = journal_datetime_to_naive_local(value)?;
         assert_eq!(
-            parse_naive(&local)?,
-            DateTime::parse_from_rfc3339(value)
-                .expect("valid rfc3339")
-                .with_timezone(&Local)
-                .naive_local()
+            journal_datetime_to_naive_utc(&naive_utc_to_aware_utc(naive)),
+            naive
         );
-        Ok(())
     }
 
     #[test]
-    fn journal_datetimes_from_older_logs_are_read_as_local_time() -> Result<()> {
-        // Logs written before the move to aware UTC carry naive local time.
+    fn now_round_trips() {
+        let aware = now_aware_utc();
+        assert!(aware.ends_with("+00:00"), "{aware}");
+        assert_eq!(aware.as_bytes()[10], b'T', "{aware}");
+        let naive = journal_datetime_to_naive_utc(&aware);
+        assert_eq!(naive_utc_to_aware_utc(&naive), aware);
+    }
+
+    #[test]
+    fn accepts_the_shapes_optuna_writes() {
+        for input in [
+            "2024-01-02T03:04:05.678000+00:00",
+            "2024-01-02T03:04:05.678000Z",
+            "2024-01-02t03:04:05.678000z",
+            "2024-01-02 03:04:05.678000+00:00",
+            // Logs predating aware UTC.
+            "2024-01-02 03:04:05.678000",
+        ] {
+            assert_eq!(
+                journal_datetime_to_naive_utc(input),
+                "2024-01-02 03:04:05.678000",
+                "{input}"
+            );
+        }
+    }
+
+    #[test]
+    fn normalizes_fractional_precision() {
+        for (input, expected) in [
+            ("2024-01-02T03:04:05Z", "2024-01-02 03:04:05.000000"),
+            ("2024-01-02T03:04:05.5Z", "2024-01-02 03:04:05.500000"),
+            ("2024-01-02T03:04:05.06Z", "2024-01-02 03:04:05.060000"),
+            ("2024-01-02T03:04:05.007Z", "2024-01-02 03:04:05.007000"),
+            ("2024-01-02T03:04:05.000008Z", "2024-01-02 03:04:05.000008"),
+            // Finer than microseconds is truncated, as Python's datetime does.
+            (
+                "2024-01-02T03:04:05.123456789Z",
+                "2024-01-02 03:04:05.123456",
+            ),
+        ] {
+            assert_eq!(journal_datetime_to_naive_utc(input), expected, "{input}");
+        }
+    }
+
+    #[test]
+    fn an_offset_is_dropped_rather_than_applied() {
+        // Documented limitation: nothing Rustuna or Optuna writes has a non-UTC offset, and
+        // honouring one would mean doing date arithmetic here.
         assert_eq!(
-            journal_datetime_to_naive_local("2024-01-02 03:04:05.678")?,
-            "2024-01-02 03:04:05.678"
+            journal_datetime_to_naive_utc("2024-01-02T03:04:05.678000+09:00"),
+            "2024-01-02 03:04:05.678000"
         );
-        Ok(())
-    }
-
-    #[test]
-    fn seconds_only_datetimes_are_accepted() -> Result<()> {
         assert_eq!(
-            naive_utc_to_naive_local("2024-01-02 03:04:05")?,
-            naive_utc_to_naive_local("2024-01-02 03:04:05.000")?
+            journal_datetime_to_naive_utc("2024-01-02T03:04:05.678000-05:30"),
+            "2024-01-02 03:04:05.678000"
         );
-        Ok(())
     }
 
     #[test]
-    fn invalid_datetimes_are_rejected() {
-        assert!(naive_utc_to_naive_local("not-a-datetime").is_err());
-        assert!(naive_local_to_aware_utc("").is_err());
+    fn values_that_are_not_datetimes_are_left_alone() {
+        for input in [
+            "",
+            "not-a-datetime",
+            "2024-01-02",
+            "2024/01/02T03:04:05Z",
+            "2024-01-02X03:04:05Z",
+            "2024-01-02T03-04:05Z",
+        ] {
+            assert_eq!(journal_datetime_to_naive_utc(input), input, "{input}");
+        }
     }
 }
