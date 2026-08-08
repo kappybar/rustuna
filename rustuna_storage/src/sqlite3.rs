@@ -1,4 +1,5 @@
 use crate::cache::{CachedStorageBackend, DiscardedTrialsDiff};
+use crate::datetime::{naive_local_to_naive_utc, naive_utc_to_naive_local};
 use rusqlite::{params, Connection, Error as RusqliteError, OptionalExtension};
 use rustuna_core::attr::{AttrKey, Attrs, CategoryLabel};
 use rustuna_core::distribution::Distribution;
@@ -37,9 +38,10 @@ const TRIALS_STUDY_ID_NUMBER_INDEX_SQL: &str =
 const TRIALS_DISCARDED_AT_COLUMN_SQL: &str = "ALTER TABLE trials ADD COLUMN discarded_at DATETIME";
 const TRIALS_DISCARDED_AT_INDEX_SQL: &str =
     "CREATE INDEX IF NOT EXISTS trials_study_id_discarded_at_key ON trials (study_id, discarded_at)";
-// Naive UTC, so that the value is comparable as a string across processes and usable as a
-// synchronization cursor.
-const DISCARDED_AT_NOW_SQL: &str = "strftime('%Y-%m-%d %H:%M:%f', 'now')";
+// Naive UTC, matching Optuna's RDBStorage. `PersistedTrial` holds naive local time, so datetimes
+// are converted at this boundary; see `crate::datetime`. Using UTC on disk also makes
+// `discarded_at` comparable as a string across processes, which is what the discard cursor needs.
+const NOW_UTC_SQL: &str = "strftime('%Y-%m-%d %H:%M:%f', 'now')";
 type TrialRow = (u32, u32, String, Option<String>, Option<String>);
 
 impl SQLite3Storage {
@@ -270,7 +272,7 @@ impl CachedStorageBackend for SQLite3Storage {
             let updated = tx
                 .execute(
                     &format!(
-                        "UPDATE trials SET discarded_at = {DISCARDED_AT_NOW_SQL} \
+                        "UPDATE trials SET discarded_at = {NOW_UTC_SQL} \
                          WHERE trial_id = ? AND discarded_at IS NULL"
                     ),
                     params![trial_id],
@@ -439,8 +441,10 @@ impl CachedStorageBackend for SQLite3Storage {
             .map_err(|_| Error::new(ErrorKind::StorageError))?;
         guard
             .execute(
-                "INSERT INTO trials (number, study_id, state, datetime_start, datetime_complete) \
-             VALUES (NULL, ?, ?, strftime('%Y-%m-%d %H:%M:%f','now','localtime'), NULL)",
+                &format!(
+                    "INSERT INTO trials (number, study_id, state, datetime_start, datetime_complete) \
+                     VALUES (NULL, ?, ?, {NOW_UTC_SQL}, NULL)"
+                ),
                 params![study_id, "RUNNING"],
             )
             .map_err(|e| {
@@ -491,7 +495,10 @@ impl CachedStorageBackend for SQLite3Storage {
             })?;
 
         let mut trial = PersistedTrial::new(trial_id, study_id, number);
-        trial.datetime_start = datetime_start;
+        trial.datetime_start = datetime_start
+            .as_deref()
+            .map(naive_utc_to_naive_local)
+            .transpose()?;
         Ok(trial)
     }
 
@@ -554,8 +561,16 @@ impl CachedStorageBackend for SQLite3Storage {
             .execute(
                 "UPDATE trials SET datetime_start = ?, datetime_complete = ? WHERE trial_id = ?",
                 params![
-                    template.datetime_start,
-                    template.datetime_complete,
+                    template
+                        .datetime_start
+                        .as_deref()
+                        .map(naive_local_to_naive_utc)
+                        .transpose()?,
+                    template
+                        .datetime_complete
+                        .as_deref()
+                        .map(naive_local_to_naive_utc)
+                        .transpose()?,
                     trial_id
                 ],
             )
@@ -649,7 +664,7 @@ impl CachedStorageBackend for SQLite3Storage {
             TrialStateValues::Complete(values) => {
                 guard
                     .execute(
-                        "UPDATE trials SET state = ?, datetime_complete = strftime('%Y-%m-%d %H:%M:%f','now','localtime') WHERE trial_id = ?",
+                        &format!("UPDATE trials SET state = ?, datetime_complete = {NOW_UTC_SQL} WHERE trial_id = ?"),
                         params!["COMPLETE", trial_id],
                     )
                     .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {e}")))?;
@@ -678,7 +693,7 @@ impl CachedStorageBackend for SQLite3Storage {
             TrialStateValues::Pruned => {
                 guard
                     .execute(
-                        "UPDATE trials SET state = ?, datetime_complete = strftime('%Y-%m-%d %H:%M:%f','now','localtime') WHERE trial_id = ?",
+                        &format!("UPDATE trials SET state = ?, datetime_complete = {NOW_UTC_SQL} WHERE trial_id = ?"),
                         params!["PRUNED", trial_id],
                     )
                     .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {e}")))?;
@@ -686,7 +701,7 @@ impl CachedStorageBackend for SQLite3Storage {
             TrialStateValues::Fail => {
                 guard
                     .execute(
-                        "UPDATE trials SET state = ?, datetime_complete = strftime('%Y-%m-%d %H:%M:%f','now','localtime') WHERE trial_id = ?",
+                        &format!("UPDATE trials SET state = ?, datetime_complete = {NOW_UTC_SQL} WHERE trial_id = ?"),
                         params!["FAIL", trial_id],
                     )
                     .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {e}")))?;
@@ -1022,8 +1037,14 @@ impl CachedStorageBackend for SQLite3Storage {
         trial.distributions = distributions;
         trial.intermediate_values = intermediate_values;
         trial.attrs = attrs;
-        trial.datetime_start = datetime_start;
-        trial.datetime_complete = datetime_complete;
+        trial.datetime_start = datetime_start
+            .as_deref()
+            .map(naive_utc_to_naive_local)
+            .transpose()?;
+        trial.datetime_complete = datetime_complete
+            .as_deref()
+            .map(naive_utc_to_naive_local)
+            .transpose()?;
         Ok(trial)
     }
 
@@ -1596,8 +1617,14 @@ impl CachedStorageBackend for SQLite3Storage {
             trial.distributions = distributions;
             trial.intermediate_values = intermediate_values;
             trial.attrs = attrs;
-            trial.datetime_start = datetime_start;
-            trial.datetime_complete = datetime_complete;
+            trial.datetime_start = datetime_start
+                .as_deref()
+                .map(naive_utc_to_naive_local)
+                .transpose()?;
+            trial.datetime_complete = datetime_complete
+                .as_deref()
+                .map(naive_utc_to_naive_local)
+                .transpose()?;
             trials.push(trial);
         }
 
@@ -1983,6 +2010,79 @@ mod tests {
 
     fn init_storage() -> Result<SQLite3Storage> {
         init_storage_with_option(SQLite3StorageOptions::default())
+    }
+
+    #[test]
+    fn trial_datetimes_are_stored_as_naive_utc() -> Result<()> {
+        let mut storage = init_storage()?;
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])?
+            .id;
+        let trial = storage.create_new_trial(study_id)?;
+        let trial_id = trial.id;
+        let reported_start = trial.datetime_start.clone().expect("datetime_start is set");
+        storage.set_trial_state_values(trial_id, TrialStateValues::Complete(vec![1.0]))?;
+        let trial = storage.get_trial(trial_id)?;
+        let reported_complete = trial
+            .datetime_complete
+            .clone()
+            .expect("datetime_complete is set");
+        assert_eq!(
+            trial.datetime_start.as_deref(),
+            Some(reported_start.as_str())
+        );
+
+        let (stored_start, stored_complete): (String, String) = {
+            let guard = storage
+                .conn
+                .lock()
+                .map_err(|_| Error::new(ErrorKind::StorageError))?;
+            guard
+                .query_row(
+                    "SELECT datetime_start, datetime_complete FROM trials WHERE trial_id = ?",
+                    params![trial_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .map_err(|e| Error::with_reason(ErrorKind::StorageError, e.to_string()))?
+        };
+
+        // The references below come from chrono rather than from NOW_UTC_SQL, so that flipping
+        // that constant back to local time makes this test fail instead of moving with it.
+        let parse = |value: &str| {
+            chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S%.f")
+                .expect("datetime is parseable")
+        };
+        let seconds_from = |value: &str, reference: chrono::NaiveDateTime| {
+            (reference - parse(value)).num_seconds().abs()
+        };
+
+        // PersistedTrial carries local time, which is what FrozenTrial.datetime_start reports.
+        let now_local = chrono::Local::now().naive_local();
+        assert!(
+            seconds_from(&reported_start, now_local) < 60,
+            "datetime_start is not local time: {reported_start} vs {now_local}"
+        );
+        assert!(
+            seconds_from(&reported_complete, now_local) < 60,
+            "datetime_complete is not local time: {reported_complete} vs {now_local}"
+        );
+
+        // The columns hold the same instants in UTC.
+        let now_utc = chrono::Utc::now().naive_utc();
+        assert!(
+            seconds_from(&stored_start, now_utc) < 60,
+            "stored datetime_start is not UTC: {stored_start} vs {now_utc}"
+        );
+        assert!(
+            seconds_from(&stored_complete, now_utc) < 60,
+            "stored datetime_complete is not UTC: {stored_complete} vs {now_utc}"
+        );
+        assert_eq!(naive_utc_to_naive_local(&stored_start)?, reported_start);
+        assert_eq!(
+            naive_utc_to_naive_local(&stored_complete)?,
+            reported_complete
+        );
+        Ok(())
     }
 
     fn init_storage_with_option(options: SQLite3StorageOptions) -> Result<SQLite3Storage> {

@@ -212,8 +212,8 @@ class PersistedTrial:
         user_attrs: Dictionary that contains the attributes of the Trial set with set_user_attr.
         system_attrs: Dictionary that contains the attributes of the Trial set with set_system_attr.
         internal_params: Dictionary that contains internal representations of the parameters.
-        datetime_start: Datetime where the Trial started.
-        datetime_complete: Datetime where the Trial finished.
+        datetime_start: Datetime where the Trial started, as timezone-naive local time.
+        datetime_complete: Datetime where the Trial finished, as timezone-naive local time.
     """
 
     def __init__(

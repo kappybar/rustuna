@@ -161,6 +161,8 @@ pub fn py_create_trial(
         system_attrs.unwrap_or_default(),
     );
 
+    // Local time, matching optuna.trial.create_trial and PersistedTrial's representation. The
+    // storage backends convert to UTC when they persist the trial.
     let now = Local::now().naive_local().to_string();
     if matches!(state, PyTrialState::WAITING) {
         trial.datetime_start = None;

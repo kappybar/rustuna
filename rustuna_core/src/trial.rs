@@ -289,7 +289,14 @@ pub struct PersistedTrial {
     /// trial data and may be used by future pruning APIs.
     pub intermediate_values: HashMap<u32, f64>,
     pub attrs: Attrs,
+    /// When the trial started, as timezone-naive **local** time (`%Y-%m-%d %H:%M:%S%.f`).
+    ///
+    /// As in Optuna, the user-facing value is local time while the storage backends persist UTC:
+    /// SQLite stores timezone-naive UTC and journal logs store timezone-aware UTC. Backends
+    /// convert at their own persistence boundary, so every value held here is local time no
+    /// matter which storage produced it.
     pub datetime_start: Option<String>,
+    /// When the trial finished, in the same representation as [`Self::datetime_start`].
     pub datetime_complete: Option<String>,
 }
 impl PersistedTrial {
