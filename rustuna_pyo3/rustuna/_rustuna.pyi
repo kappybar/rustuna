@@ -973,7 +973,13 @@ class SQLite3Storage:
     Args:
         file_path: Path to the SQLite3 database file.
         create_database: If True, initialize the database when it is missing.
-        apply_discard: If True, omit discarded trials from subsequent reads when supported by the database schema.
+        apply_discard: If True, omit discarded trials from subsequent reads. ``discard_trials()``
+            marks the trials in the database regardless of this option, so a storage opened with
+            ``apply_discard=False`` still records discards for other readers to apply. Discards
+            need a Rustuna-specific column on the ``trials`` table; it is added by
+            ``create_database``, and enabling this option on a database that lacks it raises an
+            error instead of silently ignoring discards. Discards applied by another process are
+            picked up on the next read, except when that process' clock lags behind.
     """
     def __init__(
         self,

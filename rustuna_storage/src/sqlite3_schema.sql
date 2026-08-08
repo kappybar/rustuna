@@ -28,7 +28,10 @@ CREATE TABLE IF NOT EXISTS trials (
 	datetime_start DATETIME,
 	datetime_complete DATETIME,
 	-- Rustuna-specific column; it is not part of Optuna's SQLite schema.
-	is_discarded BOOLEAN NOT NULL DEFAULT 0,
+	-- NULL means the trial is live. It hides the trial from reads and doubles as the
+	-- synchronization cursor other processes use to pick up newly discarded trials.
+	-- Stored as naive UTC, unlike datetime_start and datetime_complete above.
+	discarded_at DATETIME,
 	PRIMARY KEY (trial_id),
 	FOREIGN KEY(study_id) REFERENCES studies (study_id)
 );
@@ -114,4 +117,8 @@ CREATE INDEX IF NOT EXISTS trials_study_id_key ON trials (study_id);
 -- This composite index is not included in Optuna's SQLite schema. Rustuna adds it
 -- to efficiently refresh trials by study and trial number.
 CREATE INDEX IF NOT EXISTS trials_study_id_number_key ON trials (study_id, number);
+-- This index is not included in Optuna's SQLite schema either. Rustuna adds it so that
+-- picking up trials discarded by other processes costs one range scan over the new entries
+-- instead of a scan over every discarded trial.
+CREATE INDEX IF NOT EXISTS trials_study_id_discarded_at_key ON trials (study_id, discarded_at);
 INSERT OR IGNORE INTO version_info (version_info_id, schema_version, library_version) VALUES (1, 12, '4.6.0.dev')

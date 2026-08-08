@@ -9,6 +9,18 @@ use rustuna_core::study_cache::StudyCache;
 use rustuna_core::trial::{PersistedTrial, TrialStateValues};
 use rustuna_core::{Error, ErrorKind, Result};
 
+/// Trials discarded since a previous synchronization point.
+///
+/// See [`CachedStorageBackend::get_discarded_trials_diff`].
+#[derive(Clone, Debug, Default)]
+pub struct DiscardedTrialsDiff {
+    /// Numbers of the trials the backend reports as discarded.
+    pub numbers: Vec<u32>,
+    /// Opaque token to pass as the cursor of the next call. `None` when the backend has no
+    /// discarded trials to report.
+    pub cursor: Option<String>,
+}
+
 /// Backend interface for [`CachedStorage`].
 ///
 /// Unlike `rustuna_core::storage::Storage`, this trait returns owned values instead of references.
@@ -65,9 +77,34 @@ pub trait CachedStorageBackend: Send + Sync {
         attrs: Attrs,
         error_on_overwrite: bool,
     ) -> Result<()>;
+    /// Whether reads from this backend omit discarded trials.
+    ///
+    /// This mirrors `InMemoryStorageOptions::apply_discard` and
+    /// `JournalStorageOptions::apply_discard`: [`Self::discard_trials`] persists the discard
+    /// regardless of this flag, which only decides whether reads apply it.
+    fn apply_discard(&self) -> bool {
+        false
+    }
+    fn discard_trials(&mut self, trial_ids: &[u32]) -> Result<()>;
+
+    /// Returns the trials discarded at or after `cursor`, along with the cursor to pass next
+    /// time. Passing `None` asks for every discarded trial of the study.
+    ///
+    /// [`Self::get_trials_diff`] only revisits unfinished and newly created trials, so a discard
+    /// applied by another process to a trial the cache already holds as finished would otherwise
+    /// stay invisible forever. Backends without discard support return an empty diff.
+    ///
+    /// The cursor is an opaque token produced by the backend. Implementations may return trials
+    /// that were already reported for the previous cursor; applying a discard twice is a no-op.
+    fn get_discarded_trials_diff(
+        &mut self,
+        study_id: u32,
+        cursor: Option<&str>,
+    ) -> Result<DiscardedTrialsDiff>;
 
     // Return trials that need refreshing: unfinished trials in `included_numbers`
     // and trials with trial_number greater than `trial_number_greater_than`.
+    // Discarded trials are excluded when the backend applies discards.
     fn get_trials_diff(
         &mut self,
         study_id: u32,
@@ -88,15 +125,22 @@ pub struct CachedStorage {
     study_caches: HashMap<u32, StudyCache>,
     unfinished_trials: HashMap<u32, Vec<u32>>,
     last_finished_trial_number: HashMap<u32, i32>,
+    // Cursor handed back to CachedStorageBackend::get_discarded_trials_diff, so that picking up
+    // discards made by other processes stays proportional to the number of new discards.
+    discard_cursor: HashMap<u32, String>,
     // Cache for category labels: (study_id, param_name) -> labels
     // Since category labels cannot be overwritten once set, this cache never needs invalidation.
     category_labels_cache: HashMap<(u32, String), Vec<CategoryLabel>>,
 
+    apply_discard: bool,
     backend: Box<dyn CachedStorageBackend>,
 }
 
 impl CachedStorage {
     /// Creates a caching wrapper around the given backend.
+    ///
+    /// Whether discarded trials are omitted from reads is decided by the backend, through
+    /// [`CachedStorageBackend::apply_discard`].
     pub fn new(backend: Box<dyn CachedStorageBackend>) -> CachedStorage {
         CachedStorage {
             studies: Vec::new(),
@@ -105,7 +149,9 @@ impl CachedStorage {
             study_caches: HashMap::new(),
             unfinished_trials: HashMap::new(),
             last_finished_trial_number: HashMap::new(),
+            discard_cursor: HashMap::new(),
             category_labels_cache: HashMap::new(),
+            apply_discard: backend.apply_discard(),
             backend,
         }
     }
@@ -125,37 +171,87 @@ impl CachedStorage {
             .backend
             .get_trials_diff(study_id, &unfinished, last_finished)?;
 
-        if loaded.is_empty() {
+        // `get_trials_diff` never revisits a trial that was already finished when the cursor
+        // passed it, so discards applied by other processes are synchronized separately.
+        let discarded = if self.apply_discard {
+            let cursor = self.discard_cursor.get(&study_id).cloned();
+            let diff = self
+                .backend
+                .get_discarded_trials_diff(study_id, cursor.as_deref())?;
+            if let Some(cursor) = diff.cursor {
+                self.discard_cursor.insert(study_id, cursor);
+            }
+            diff.numbers
+        } else {
+            Vec::new()
+        };
+
+        if loaded.is_empty() && discarded.is_empty() {
             return Ok(());
         }
 
         let trials = self.trials.entry(study_id).or_default();
+        let max_number = loaded
+            .iter()
+            .map(|trial| trial.number)
+            .chain(discarded.iter().copied())
+            .max();
+        if let Some(max_number) = max_number {
+            if trials.len() <= max_number as usize {
+                trials.resize(max_number as usize + 1, None);
+            }
+        }
         for trial in loaded {
             self.trial_id_to_study_number
                 .insert(trial.id, (study_id, trial.number));
             let trial_number = trial.number as usize;
-            if trials.len() <= trial_number {
-                trials.resize(trial_number + 1, None);
-            }
             trials[trial_number] = Some(trial);
         }
+        // Clearing a slot the backend re-reports is a no-op, so this stays idempotent.
+        for number in discarded {
+            if let Some(slot) = trials.get_mut(number as usize) {
+                *slot = None;
+            }
+        }
 
+        // Note that the joint search space is not recomputed here. StudyCache::update can only
+        // narrow it, so it keeps reflecting the discarded trials.
         let study_cache = self.study_caches.entry(study_id).or_default();
         study_cache.update(trials);
 
+        self.recompute_trial_bookkeeping(study_id);
+        Ok(())
+    }
+
+    /// Recomputes which trials still need refreshing and how far the refresh cursor may advance.
+    fn recompute_trial_bookkeeping(&mut self, study_id: u32) {
+        let apply_discard = self.apply_discard;
+        let Some(trials) = self.trials.get(&study_id) else {
+            return;
+        };
         let mut unfinished_next = vec![];
-        let mut last_finished_next = last_finished;
-        for trial in trials.iter().flatten() {
-            if trial.is_finished() {
-                last_finished_next = last_finished_next.max(trial.number as i32);
-            } else {
-                unfinished_next.push(trial.number);
+        let mut last_finished_next = self
+            .last_finished_trial_number
+            .get(&study_id)
+            .copied()
+            .unwrap_or(-1);
+        for (number, slot) in trials.iter().enumerate() {
+            match slot {
+                // A discarded trial never comes back, so it is as terminal as a finished one.
+                // Letting it advance the cursor is what keeps refreshes incremental after a
+                // whole prefix of the study has been discarded; otherwise the cursor would stay
+                // behind the discarded range and every refresh would rescan it.
+                None if apply_discard => last_finished_next = last_finished_next.max(number as i32),
+                None => {}
+                Some(trial) if trial.is_finished() => {
+                    last_finished_next = last_finished_next.max(trial.number as i32)
+                }
+                Some(trial) => unfinished_next.push(trial.number),
             }
         }
         self.unfinished_trials.insert(study_id, unfinished_next);
         self.last_finished_trial_number
             .insert(study_id, last_finished_next);
-        Ok(())
     }
 
     fn resolve_trial_location(&mut self, trial_id: u32) -> Result<(u32, u32)> {
@@ -163,17 +259,15 @@ impl CachedStorage {
             return Ok((*study_id, *trial_number));
         }
 
+        // Ask the backend where the trial lives, but let refresh_trials fill the cache. Writing
+        // this single trial in would leave every lower number as an unloaded `None`, which
+        // recompute_trial_bookkeeping cannot tell apart from a discarded trial.
         let trial = self.backend.get_trial(trial_id)?;
         let study_id = trial.study_id;
         let trial_number = trial.number;
-        let trials = self.trials.entry(study_id).or_default();
-        let trial_index = trial_number as usize;
-        if trials.len() <= trial_index {
-            trials.resize(trial_index + 1, None);
-        }
-        trials[trial_index] = Some(trial);
         self.trial_id_to_study_number
             .insert(trial_id, (study_id, trial_number));
+        self.refresh_trials(study_id)?;
         Ok((study_id, trial_number))
     }
 
@@ -183,6 +277,18 @@ impl CachedStorage {
             .and_then(|trials| trials.get(trial_number as usize))
             .and_then(|trial| trial.as_ref())
             .is_some_and(|trial| trial.is_finished())
+    }
+
+    /// Returns whether the cache knows the trial to be discarded.
+    ///
+    /// A slot past the end of the vector means "not loaded", not "discarded".
+    fn is_trial_discarded_in_cache(&self, study_id: u32, trial_number: u32) -> bool {
+        self.apply_discard
+            && self
+                .trials
+                .get(&study_id)
+                .and_then(|trials| trials.get(trial_number as usize))
+                .is_some_and(Option::is_none)
     }
 }
 
@@ -310,6 +416,9 @@ impl rustuna_core::storage::Storage for CachedStorage {
             return Err(Error::new(ErrorKind::TrialAlreadyFinished));
         }
         self.refresh_trials(study_id)?;
+        if self.is_trial_discarded_in_cache(study_id, trial_number) {
+            return Err(Error::new(ErrorKind::TrialDiscarded));
+        }
         if let Some(trials) = self.trials.get(&study_id) {
             if let Some(trial) = trials
                 .get(trial_number as usize)
@@ -365,9 +474,14 @@ impl rustuna_core::storage::Storage for CachedStorage {
         trial_id: u32,
         state_values: TrialStateValues,
     ) -> Result<()> {
+        // Resolve and check before writing: rejecting the call after the backend already
+        // recorded the new state would leave the storage holding a value we reported as failed.
+        let (study_id, trial_number) = self.resolve_trial_location(trial_id)?;
+        if self.is_trial_discarded_in_cache(study_id, trial_number) {
+            return Err(Error::new(ErrorKind::TrialDiscarded));
+        }
         self.backend
             .set_trial_state_values(trial_id, state_values.clone())?;
-        let (study_id, trial_number) = self.resolve_trial_location(trial_id)?;
 
         self.unfinished_trials
             .entry(study_id)
@@ -406,6 +520,9 @@ impl rustuna_core::storage::Storage for CachedStorage {
         }
         if self.is_trial_finished_in_cache(study_id, trial_number) {
             return Err(Error::new(ErrorKind::TrialAlreadyFinished));
+        }
+        if self.is_trial_discarded_in_cache(study_id, trial_number) {
+            return Err(Error::new(ErrorKind::TrialDiscarded));
         }
 
         self.backend
@@ -599,12 +716,50 @@ impl rustuna_core::storage::Storage for CachedStorage {
         Ok(cache.get_joint_search_space())
     }
 
-    fn discard_trials(&mut self, _trial_ids: &[u32]) -> Result<()> {
+    fn discard_trials(&mut self, trial_ids: &[u32]) -> Result<()> {
+        // Resolve the locations before writing. Doing it afterwards would ask the backend for
+        // trials it has just been told to hide, and would leave the discard persisted even when
+        // this call reports an error.
+        // TODO(c-bata): Add self.study_number_to_trial_id to simplify this code.
+        let mut locations: Vec<(u32, u32)> = Vec::with_capacity(trial_ids.len());
+        for trial_id in trial_ids {
+            let location = self.resolve_trial_location(*trial_id)?;
+            if !locations.contains(&location) {
+                locations.push(location);
+            }
+        }
+
+        // Like JournalStorage, the discard is always persisted; `apply_discard` only decides
+        // whether reads apply it.
+        self.backend.discard_trials(trial_ids)?;
+        if !self.apply_discard {
+            return Ok(());
+        }
+
+        let mut discarded_studies: Vec<u32> = Vec::new();
+        for (study_id, trial_number) in locations {
+            if let Some(trials) = self.trials.get_mut(&study_id) {
+                if let Some(slot) = trials.get_mut(trial_number as usize) {
+                    *slot = None;
+                }
+            }
+            if let Some(unfinished) = self.unfinished_trials.get_mut(&study_id) {
+                unfinished.retain(|number| *number != trial_number);
+            }
+            if !discarded_studies.contains(&study_id) {
+                discarded_studies.push(study_id);
+            }
+        }
+        for study_id in discarded_studies {
+            // Advance the refresh cursor past the trials we just removed, so that a later
+            // refresh does not keep asking the backend for the whole discarded range.
+            self.recompute_trial_bookkeeping(study_id);
+        }
         Ok(())
     }
 
     fn may_omit_trials(&self) -> bool {
-        false
+        self.apply_discard
     }
 }
 
@@ -617,13 +772,31 @@ mod tests {
 
     struct DummyBackend {
         inner: rustuna_core::storage::InMemoryStorage,
+        apply_discard: bool,
+        // (trial_id, discard sequence), standing in for the `discarded_at` timestamp
+        // SQLite3Storage stamps on each discarded trial.
+        discarded_trial_ids: Vec<(u32, u32)>,
+        next_discard_seq: u32,
     }
 
     impl DummyBackend {
         fn new() -> Self {
+            DummyBackend::new_with_option(false)
+        }
+
+        fn new_with_option(apply_discard: bool) -> Self {
             DummyBackend {
                 inner: rustuna_core::storage::InMemoryStorage::new(),
+                apply_discard,
+                discarded_trial_ids: Vec::new(),
+                next_discard_seq: 1,
             }
+        }
+
+        fn is_discarded(&self, trial_id: u32) -> bool {
+            self.discarded_trial_ids
+                .iter()
+                .any(|(id, _)| *id == trial_id)
         }
     }
 
@@ -704,6 +877,9 @@ mod tests {
             let all = self.inner.get_trials(study_id)?.clone();
             let mut trials = Vec::new();
             for t in all.into_iter().flatten() {
+                if self.apply_discard && self.is_discarded(t.id) {
+                    continue;
+                }
                 if included_numbers.contains(&t.number)
                     || (t.number as i32) > trial_number_greater_than
                 {
@@ -739,6 +915,45 @@ mod tests {
         ) -> Result<()> {
             self.inner
                 .set_trial_attrs(trial_id, attrs, error_on_overwrite)
+        }
+
+        fn apply_discard(&self) -> bool {
+            self.apply_discard
+        }
+
+        fn discard_trials(&mut self, trial_ids: &[u32]) -> Result<()> {
+            let seq = self.next_discard_seq;
+            self.next_discard_seq += 1;
+            for trial_id in trial_ids {
+                if !self.is_discarded(*trial_id) {
+                    self.discarded_trial_ids.push((*trial_id, seq));
+                }
+            }
+            Ok(())
+        }
+
+        fn get_discarded_trials_diff(
+            &mut self,
+            study_id: u32,
+            cursor: Option<&str>,
+        ) -> Result<DiscardedTrialsDiff> {
+            let cursor: u32 = cursor.and_then(|c| c.parse().ok()).unwrap_or(0);
+            let mut diff = DiscardedTrialsDiff::default();
+            let mut max_seq = None;
+            for (trial_id, seq) in self.discarded_trial_ids.clone() {
+                // `>=`, mirroring SQLite3Storage: several trials can share a sequence number.
+                if seq < cursor {
+                    continue;
+                }
+                let trial = self.inner.get_trial(trial_id)?;
+                if trial.study_id != study_id {
+                    continue;
+                }
+                diff.numbers.push(trial.number);
+                max_seq = Some(max_seq.unwrap_or(seq).max(seq));
+            }
+            diff.cursor = max_seq.map(|seq| seq.to_string());
+            Ok(diff)
         }
     }
     #[test]
@@ -1042,6 +1257,79 @@ mod tests {
             .set_trial_param(trial1_id, "x", &int_dist, 1.0)
             .expect_err("Expected IncompatibleDistribution error");
         assert!(matches!(err.kind, ErrorKind::IncompatibleDistribution));
+        Ok(())
+    }
+
+    #[test]
+    fn discard_trials_invalidates_cache_and_backend() -> Result<()> {
+        let mut storage = CachedStorage::new(Box::new(DummyBackend::new_with_option(true)));
+        let study_id = storage
+            .create_new_study("study", vec![Direction::Minimize])?
+            .id;
+        let trial0_id = storage.create_new_trial(study_id)?.id;
+        let trial1_id = storage.create_new_trial(study_id)?.id;
+        storage.get_trials(study_id)?;
+
+        storage.discard_trials(&[trial0_id])?;
+
+        let trials = storage.get_trials(study_id)?;
+        assert!(trials[0].is_none());
+        assert_eq!(trials[1].as_ref().unwrap().id, trial1_id);
+        assert!(storage.may_omit_trials());
+        assert!(matches!(
+            storage.get_trial(trial0_id).unwrap_err().kind,
+            ErrorKind::TrialDiscarded
+        ));
+        let backend_trials = storage.backend.get_trials_diff(study_id, &[], -1)?;
+        assert_eq!(backend_trials.len(), 1);
+        assert_eq!(backend_trials[0].id, trial1_id);
+        Ok(())
+    }
+
+    #[test]
+    fn discarded_trials_advance_the_refresh_cursor() -> Result<()> {
+        // Populate the backend first, so that the cache below starts cold the way a freshly
+        // opened storage does.
+        let mut backend = DummyBackend::new_with_option(true);
+        let study_id = backend
+            .create_new_study("study", vec![Direction::Minimize])?
+            .id;
+        let mut trial_ids = vec![];
+        for _ in 0..5 {
+            let trial_id = backend.create_new_trial(study_id)?.id;
+            backend.set_trial_state_values(trial_id, TrialStateValues::Complete(vec![1.0]))?;
+            trial_ids.push(trial_id);
+        }
+        backend.discard_trials(&trial_ids)?;
+        // A running trial at the tail: no trial is finished any more, so without treating the
+        // discarded ones as terminal the cursor stays at -1 and every refresh rescans the whole
+        // discarded prefix.
+        backend.create_new_trial(study_id)?;
+
+        let mut storage = CachedStorage::new(Box::new(backend));
+        let trials = storage.get_trials(study_id)?;
+        assert_eq!(trials.len(), 6);
+        assert!(trials[..5].iter().all(Option::is_none));
+
+        assert_eq!(storage.last_finished_trial_number.get(&study_id), Some(&4));
+        assert_eq!(storage.unfinished_trials.get(&study_id), Some(&vec![5]));
+        Ok(())
+    }
+
+    #[test]
+    fn discard_trials_keeps_cache_when_apply_discard_is_false() -> Result<()> {
+        let mut storage = CachedStorage::new(Box::new(DummyBackend::new()));
+        let study_id = storage
+            .create_new_study("study", vec![Direction::Minimize])?
+            .id;
+        let trial_id = storage.create_new_trial(study_id)?.id;
+        storage.get_trials(study_id)?;
+
+        storage.discard_trials(&[trial_id])?;
+
+        let trials = storage.get_trials(study_id)?;
+        assert_eq!(trials[0].as_ref().unwrap().id, trial_id);
+        assert!(!storage.may_omit_trials());
         Ok(())
     }
 }
