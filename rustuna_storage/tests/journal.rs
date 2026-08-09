@@ -166,12 +166,13 @@ def objective(trial: optuna.Trial) -> float:
     x = trial.suggest_float("x", 1, 10, log=True)
     y = trial.suggest_int("y", -10, 10)
     trial.suggest_categorical("z", [True, False, "foo", 10])
-    trial.set_user_attr("key", "value")
+    trial.set_user_attr("str_key", "value")
+    trial.set_user_attr("int_key", 1)
     return x ** 2 + y
 
 backend = JournalFileBackend(sys.argv[1])
 storage = JournalStorage(backend)
-study = optuna.create_study(storage=storage, study_name="foo")
+study = optuna.create_study(storage=storage, study_name="foo", load_if_exists=True)
 study.optimize(objective, n_trials=10)
 "#;
     // Evaluate 10 trials
@@ -186,29 +187,7 @@ study.optimize(objective, n_trials=10)
     assert_eq!(trials.len(), 10);
 
     // Evaluate more 10 trials with load_if_exists=True
-    let script_continue = r#"
-import sys
-from optuna.storages import JournalStorage
-from optuna.storages.journal import JournalFileBackend
-import optuna
-
-def objective(trial: optuna.Trial) -> float:
-    x = trial.suggest_float("x", 1, 10, log=True)
-    y = trial.suggest_int("y", -10, 10)
-    trial.suggest_categorical("z", [True, False, "foo", 10])
-    trial.set_user_attr("key", "value")
-    return x ** 2 + y
-
-backend = JournalFileBackend(sys.argv[1])
-storage = JournalStorage(backend)
-study = optuna.create_study(storage=storage, study_name="foo", load_if_exists=True)
-study.optimize(objective, n_trials=10)
-"#;
-    run_optuna_python_script(
-        &python,
-        journal_path.to_string_lossy().as_ref(),
-        script_continue,
-    )?;
+    run_optuna_python_script(&python, journal_path.to_string_lossy().as_ref(), script)?;
     let mut storage = JournalStorage::new(Box::new(JournalFileBackend::new(&journal_path, None)?))?;
     let trials = storage.get_trials(study_id)?;
     assert_eq!(trials.len(), 20);
