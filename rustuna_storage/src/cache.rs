@@ -6,7 +6,7 @@ use rustuna_core::attr::{
 use rustuna_core::distribution::Distribution;
 use rustuna_core::study::{Direction, PersistedStudy};
 use rustuna_core::study_cache::StudyCache;
-use rustuna_core::trial::{PersistedTrial, TrialStateValues};
+use rustuna_core::trial::{PersistedTrial, TrialState, TrialStateValues};
 use rustuna_core::{Error, ErrorKind, Result};
 
 /// Trials discarded since a previous synchronization point.
@@ -111,6 +111,7 @@ pub trait CachedStorageBackend: Send + Sync {
         included_numbers: &[u32],
         trial_number_greater_than: i32,
     ) -> Result<Vec<PersistedTrial>>;
+    fn get_n_trials(&mut self, study_id: u32, states: Option<&[TrialState]>) -> Result<u32>;
 }
 
 /// Caching storage wrapper over a backend that returns owned values.
@@ -716,6 +717,10 @@ impl rustuna_core::storage::Storage for CachedStorage {
         Ok(cache.get_joint_search_space())
     }
 
+    fn get_n_trials(&mut self, study_id: u32, states: Option<&[TrialState]>) -> Result<u32> {
+        self.backend.get_n_trials(study_id, states)
+    }
+
     fn discard_trials(&mut self, trial_ids: &[u32]) -> Result<()> {
         // Resolve the locations before writing. Doing it afterwards would ask the backend for
         // trials it has just been told to hide, and would leave the discard persisted even when
@@ -887,6 +892,10 @@ mod tests {
                 }
             }
             Ok(trials)
+        }
+
+        fn get_n_trials(&mut self, study_id: u32, states: Option<&[TrialState]>) -> Result<u32> {
+            self.inner.get_n_trials(study_id, states)
         }
 
         fn get_trial(&mut self, trial_id: u32) -> Result<PersistedTrial> {
@@ -1330,6 +1339,27 @@ mod tests {
         let trials = storage.get_trials(study_id)?;
         assert_eq!(trials[0].as_ref().unwrap().id, trial_id);
         assert!(!storage.may_omit_trials());
+        Ok(())
+    }
+
+    #[test]
+    fn get_n_trials_delegates_to_backend() -> Result<()> {
+        let mut storage = CachedStorage::new(Box::new(DummyBackend::new()));
+        let study_id = storage
+            .create_new_study("study", vec![Direction::Minimize])?
+            .id;
+        let trial_id = storage.create_new_trial(study_id)?.id;
+        storage.set_trial_state_values(trial_id, TrialStateValues::Complete(vec![1.0]))?;
+
+        assert_eq!(storage.get_n_trials(study_id, None)?, 1);
+        assert_eq!(
+            storage.get_n_trials(study_id, Some(&[TrialState::Complete]))?,
+            1
+        );
+        assert_eq!(
+            storage.get_n_trials(study_id, Some(&[TrialState::Running]))?,
+            0
+        );
         Ok(())
     }
 }

@@ -437,6 +437,34 @@ pub enum TrialStateValues {
     Waiting,
 }
 
+/// State of a trial without its objective values.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum TrialState {
+    /// Trial is running.
+    Running,
+    /// Trial finished successfully.
+    Complete,
+    /// Trial was pruned.
+    Pruned,
+    /// Trial is waiting in a queue.
+    Waiting,
+    /// Trial failed.
+    Fail,
+}
+
+impl TrialStateValues {
+    /// Returns the state without objective values.
+    pub fn state(&self) -> TrialState {
+        match self {
+            TrialStateValues::Running => TrialState::Running,
+            TrialStateValues::Complete(_) => TrialState::Complete,
+            TrialStateValues::Pruned => TrialState::Pruned,
+            TrialStateValues::Waiting => TrialState::Waiting,
+            TrialStateValues::Fail => TrialState::Fail,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

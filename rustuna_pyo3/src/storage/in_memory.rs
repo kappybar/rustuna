@@ -130,6 +130,16 @@ impl PyInMemoryStorage {
         self.binding.get_trials(py, study_id, states)
     }
 
+    #[pyo3(signature = (study_id, *, states = None))]
+    fn get_n_trials(
+        &self,
+        py: Python<'_>,
+        study_id: u32,
+        states: Option<Vec<PyTrialState>>,
+    ) -> PyResult<u32> {
+        self.binding.get_n_trials(py, study_id, states)
+    }
+
     fn get_trial(&self, py: Python<'_>, trial_id: u32) -> PyResult<PyPersistedTrial> {
         self.binding.get_trial(py, trial_id)
     }

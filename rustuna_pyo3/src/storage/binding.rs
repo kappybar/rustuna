@@ -7,7 +7,7 @@ use rustuna_core::attr::{AttrKey, CategoryLabel};
 use rustuna_core::distribution::Distribution;
 use rustuna_core::storage::Storage;
 use rustuna_core::study::{Direction, PersistedStudy};
-use rustuna_core::trial::TrialStateValues;
+use rustuna_core::trial::{TrialState, TrialStateValues};
 
 use crate::attrs::{pyobj_to_attrs_with_kind, AttrKind};
 use crate::distribution::{category_label_to_pyobject, pyobject_to_category_label, PyDistribution};
@@ -240,6 +240,34 @@ impl StorageBinding {
                 .map(|t| PyPersistedTrial::from_storage(self.storage.clone(), t))
                 .collect();
             Ok(py_trials)
+        })
+    }
+
+    pub(crate) fn get_n_trials(
+        &self,
+        py: Python<'_>,
+        study_id: u32,
+        states: Option<Vec<PyTrialState>>,
+    ) -> PyResult<u32> {
+        py.detach(|| -> PyResult<u32> {
+            let states = states.map(|states| {
+                states
+                    .into_iter()
+                    .map(|state| match state {
+                        PyTrialState::RUNNING => TrialState::Running,
+                        PyTrialState::COMPLETE => TrialState::Complete,
+                        PyTrialState::PRUNED => TrialState::Pruned,
+                        PyTrialState::WAITING => TrialState::Waiting,
+                        PyTrialState::FAIL => TrialState::Fail,
+                    })
+                    .collect::<Vec<_>>()
+            });
+            let mut guard = self.storage.write().map_err(|e| {
+                PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
+            })?;
+            guard
+                .get_n_trials(study_id, states.as_deref())
+                .map_err(err_to_exceptions)
         })
     }
 

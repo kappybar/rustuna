@@ -195,6 +195,18 @@ impl From<TrialStateValues> for PyTrialState {
         }
     }
 }
+
+impl From<rustuna_core::trial::TrialState> for PyTrialState {
+    fn from(item: rustuna_core::trial::TrialState) -> Self {
+        match item {
+            rustuna_core::trial::TrialState::Running => PyTrialState::RUNNING,
+            rustuna_core::trial::TrialState::Complete => PyTrialState::COMPLETE,
+            rustuna_core::trial::TrialState::Pruned => PyTrialState::PRUNED,
+            rustuna_core::trial::TrialState::Fail => PyTrialState::FAIL,
+            rustuna_core::trial::TrialState::Waiting => PyTrialState::WAITING,
+        }
+    }
+}
 #[pymethods]
 impl PyTrialState {
     fn __hash__(&self) -> isize {
