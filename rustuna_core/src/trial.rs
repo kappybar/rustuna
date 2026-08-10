@@ -316,7 +316,14 @@ pub struct PersistedTrial {
     /// trial data and may be used by future pruning APIs.
     pub intermediate_values: HashMap<u32, f64>,
     pub attrs: Attrs,
+    /// When the trial started, as timezone-naive **UTC** (`%Y-%m-%d %H:%M:%S%.f`).
+    ///
+    /// UTC needs a clock but no timezone database, which is why it is the representation shared by
+    /// every backend: see [`crate::datetime`]. Storage backends encode it slightly differently on
+    /// disk (SQLite keeps naive UTC, journal logs carry an explicit `+00:00`), and the conversion
+    /// to the local time that `FrozenTrial` exposes happens in the Python bindings.
     pub datetime_start: Option<String>,
+    /// When the trial finished, in the same representation as [`Self::datetime_start`].
     pub datetime_complete: Option<String>,
 }
 impl PersistedTrial {

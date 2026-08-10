@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use chrono::{Local, NaiveDateTime};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString};
@@ -161,7 +160,7 @@ pub fn py_create_trial(
         system_attrs.unwrap_or_default(),
     );
 
-    let now = Local::now().naive_local().to_string();
+    let now = rustuna_core::datetime::now_naive_utc();
     if matches!(state, PyTrialState::WAITING) {
         trial.datetime_start = None;
         trial.datetime_complete = None;
@@ -501,8 +500,8 @@ impl PyPersistedTrial {
         user_attrs: Option<HashMap<String, String>>,
         system_attrs: Option<HashMap<String, String>>,
         intermediate_values: Option<HashMap<u32, f64>>,
-        datetime_start: Option<NaiveDateTime>,
-        datetime_complete: Option<NaiveDateTime>,
+        datetime_start: Option<Bound<'_, PyAny>>,
+        datetime_complete: Option<Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let mut trial = PersistedTrial::new(trial_id, study_id, number);
         trial.state_values = state_values_from_py(&state, value, values)?;
@@ -519,8 +518,14 @@ impl PyPersistedTrial {
             user_attrs.unwrap_or_default(),
             system_attrs.unwrap_or_default(),
         );
-        trial.datetime_start = datetime_start.map(|dt| dt.to_string());
-        trial.datetime_complete = datetime_complete.map(|dt| dt.to_string());
+        trial.datetime_start = datetime_start
+            .as_ref()
+            .map(py_datetime_to_naive_utc)
+            .transpose()?;
+        trial.datetime_complete = datetime_complete
+            .as_ref()
+            .map(py_datetime_to_naive_utc)
+            .transpose()?;
 
         trial.validate().map_err(err_to_exceptions)?;
         Ok(PyPersistedTrial::new(trial, study_attrs))
@@ -597,19 +602,23 @@ impl PyPersistedTrial {
     }
 
     #[getter]
-    fn datetime_start(&self) -> PyResult<Option<NaiveDateTime>> {
-        self.with_trial(|trial| match trial.datetime_start.as_ref() {
-            Some(raw) => Ok(Some(parse_naive_datetime(raw)?)),
-            None => Ok(None),
-        })
+    fn datetime_start<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        // Read the stored value out first: the conversion below calls back into Python and must
+        // not run while the storage guard is held.
+        let stored = self.with_trial(|trial| Ok(trial.datetime_start.clone()))?;
+        stored
+            .as_deref()
+            .map(|raw| naive_utc_to_py_local(py, raw))
+            .transpose()
     }
 
     #[getter]
-    fn datetime_complete(&self) -> PyResult<Option<NaiveDateTime>> {
-        self.with_trial(|trial| match trial.datetime_complete.as_ref() {
-            Some(raw) => Ok(Some(parse_naive_datetime(raw)?)),
-            None => Ok(None),
-        })
+    fn datetime_complete<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        let stored = self.with_trial(|trial| Ok(trial.datetime_complete.clone()))?;
+        stored
+            .as_deref()
+            .map(|raw| naive_utc_to_py_local(py, raw))
+            .transpose()
     }
 
     #[getter]
@@ -752,10 +761,56 @@ fn trial_state_from_ref(state_values: &TrialStateValues) -> PyTrialState {
     }
 }
 
-fn parse_naive_datetime(value: &str) -> PyResult<NaiveDateTime> {
-    NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S%.f")
-        .or_else(|_| NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S"))
-        .map_err(|e| PyValueError::new_err(format!("Failed to parse datetime: {e}")))
+// Design Note:
+// PersistedTrial carries timezone-naive UTC, while FrozenTrial exposes timezone-naive local time.
+// The two conversions below are done through Python's `datetime` module rather than a Rust
+// datetime crate, for two reasons: the timezone database is then guaranteed to be the same one
+// Optuna uses, and the storage layer stays free of timezone handling. Note that the storage calls
+// in `storage::binding` run under `Python::detach`, so this conversion has to live here at the
+// boundary, where the GIL is held, rather than inside the storage layer.
+//
+// These mirror `optuna.storages._rdb.models.TrialModel.datetime_start`, which is
+//     stored.replace(tzinfo=timezone.utc).astimezone().replace(tzinfo=None)
+// on the way out and
+//     value.astimezone(timezone.utc).replace(tzinfo=None)
+// on the way in.
+
+fn naive_replace_tzinfo<'py>(
+    value: &Bound<'py, PyAny>,
+    tzinfo: Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let kwargs = PyDict::new(value.py());
+    kwargs.set_item("tzinfo", tzinfo)?;
+    value.call_method("replace", (), Some(&kwargs))
+}
+
+fn utc_timezone(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
+    py.import("datetime")?.getattr("timezone")?.getattr("utc")
+}
+
+/// Converts a timezone-naive UTC timestamp into the timezone-naive local datetime users see.
+fn naive_utc_to_py_local<'py>(py: Python<'py>, value: &str) -> PyResult<Bound<'py, PyAny>> {
+    let parsed = py
+        .import("datetime")?
+        .getattr("datetime")?
+        .call_method1("fromisoformat", (value,))
+        .map_err(|e| PyValueError::new_err(format!("Failed to parse datetime {value:?}: {e}")))?;
+    let aware = naive_replace_tzinfo(&parsed, utc_timezone(py)?)?;
+    let local = aware.call_method0("astimezone")?;
+    naive_replace_tzinfo(&local, py.None().into_bound(py))
+}
+
+/// Converts a datetime coming from Python into the timezone-naive UTC timestamp storages hold.
+///
+/// A naive input is read as local time, which is what `datetime.astimezone` does and therefore
+/// what Optuna does.
+fn py_datetime_to_naive_utc(value: &Bound<'_, PyAny>) -> PyResult<String> {
+    let py = value.py();
+    let aware = value.call_method1("astimezone", (utc_timezone(py)?,))?;
+    let naive = naive_replace_tzinfo(&aware, py.None().into_bound(py))?;
+    naive
+        .call_method1("isoformat", (" ", "microseconds"))?
+        .extract()
 }
 
 pub fn pyobject_to_persisted_trial_with_category_labels(
@@ -784,15 +839,21 @@ pub fn pyobject_to_persisted_trial_with_category_labels(
         PyTrialState::FAIL => TrialStateValues::Fail,
     };
     let datetime_start = match trial.getattr("datetime_start") {
-        Ok(value) => value.extract::<Option<NaiveDateTime>>()?,
+        Ok(value) => value.extract::<Option<Bound<'_, PyAny>>>()?,
         Err(_) => None,
     };
     let datetime_complete = match trial.getattr("datetime_complete") {
-        Ok(value) => value.extract::<Option<NaiveDateTime>>()?,
+        Ok(value) => value.extract::<Option<Bound<'_, PyAny>>>()?,
         Err(_) => None,
     };
-    persisted_trial.datetime_start = datetime_start.map(|dt| dt.to_string());
-    persisted_trial.datetime_complete = datetime_complete.map(|dt| dt.to_string());
+    persisted_trial.datetime_start = datetime_start
+        .as_ref()
+        .map(py_datetime_to_naive_utc)
+        .transpose()?;
+    persisted_trial.datetime_complete = datetime_complete
+        .as_ref()
+        .map(py_datetime_to_naive_utc)
+        .transpose()?;
 
     let intermediate_values = match trial.getattr("intermediate_values") {
         Ok(value) => value.extract::<HashMap<u32, f64>>()?,

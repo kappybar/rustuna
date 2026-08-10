@@ -7,6 +7,7 @@
 pub use error::{Error, ErrorKind};
 
 pub mod attr;
+pub mod datetime;
 pub mod distribution;
 pub mod parzen_estimator;
 pub mod sampler;

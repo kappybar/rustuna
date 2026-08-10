@@ -1,6 +1,7 @@
 use crate::cache::{CachedStorageBackend, DiscardedTrialsDiff};
 use rusqlite::{params, Connection, Error as RusqliteError, OptionalExtension};
 use rustuna_core::attr::{AttrKey, Attrs, CategoryLabel};
+use rustuna_core::datetime::now_naive_utc;
 use rustuna_core::distribution::Distribution;
 use rustuna_core::study::{Direction, PersistedStudy};
 use rustuna_core::trial::{PersistedTrial, TrialStateValues};
@@ -37,9 +38,7 @@ const TRIALS_STUDY_ID_NUMBER_INDEX_SQL: &str =
 const TRIALS_DISCARDED_AT_COLUMN_SQL: &str = "ALTER TABLE trials ADD COLUMN discarded_at DATETIME";
 const TRIALS_DISCARDED_AT_INDEX_SQL: &str =
     "CREATE INDEX IF NOT EXISTS trials_study_id_discarded_at_key ON trials (study_id, discarded_at)";
-// Naive UTC, so that the value is comparable as a string across processes and usable as a
-// synchronization cursor.
-const DISCARDED_AT_NOW_SQL: &str = "strftime('%Y-%m-%d %H:%M:%f', 'now')";
+
 type TrialRow = (u32, u32, String, Option<String>, Option<String>);
 
 impl SQLite3Storage {
@@ -269,11 +268,8 @@ impl CachedStorageBackend for SQLite3Storage {
             // making them replay a discard they have applied.
             let updated = tx
                 .execute(
-                    &format!(
-                        "UPDATE trials SET discarded_at = {DISCARDED_AT_NOW_SQL} \
-                         WHERE trial_id = ? AND discarded_at IS NULL"
-                    ),
-                    params![trial_id],
+                    "UPDATE trials SET discarded_at = ? WHERE trial_id = ? AND discarded_at IS NULL",
+                    params![now_naive_utc(), trial_id],
                 )
                 .map_err(|e| {
                     Error::with_reason(
@@ -440,8 +436,8 @@ impl CachedStorageBackend for SQLite3Storage {
         guard
             .execute(
                 "INSERT INTO trials (number, study_id, state, datetime_start, datetime_complete) \
-             VALUES (NULL, ?, ?, strftime('%Y-%m-%d %H:%M:%f','now','localtime'), NULL)",
-                params![study_id, "RUNNING"],
+                 VALUES (NULL, ?, ?, ?, NULL)",
+                params![study_id, "RUNNING", now_naive_utc()],
             )
             .map_err(|e| {
                 Error::with_reason(
@@ -649,10 +645,15 @@ impl CachedStorageBackend for SQLite3Storage {
             TrialStateValues::Complete(values) => {
                 guard
                     .execute(
-                        "UPDATE trials SET state = ?, datetime_complete = strftime('%Y-%m-%d %H:%M:%f','now','localtime') WHERE trial_id = ?",
-                        params!["COMPLETE", trial_id],
+                        "UPDATE trials SET state = ?, datetime_complete = ? WHERE trial_id = ?",
+                        params!["COMPLETE", now_naive_utc(), trial_id],
                     )
-                    .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {e}")))?;
+                    .map_err(|e| {
+                        Error::with_reason(
+                            ErrorKind::StorageError,
+                            format!("Database query failed: {e}"),
+                        )
+                    })?;
 
                 if !values.is_empty() {
                     let placeholders = values
@@ -678,18 +679,28 @@ impl CachedStorageBackend for SQLite3Storage {
             TrialStateValues::Pruned => {
                 guard
                     .execute(
-                        "UPDATE trials SET state = ?, datetime_complete = strftime('%Y-%m-%d %H:%M:%f','now','localtime') WHERE trial_id = ?",
-                        params!["PRUNED", trial_id],
+                        "UPDATE trials SET state = ?, datetime_complete = ? WHERE trial_id = ?",
+                        params!["PRUNED", now_naive_utc(), trial_id],
                     )
-                    .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {e}")))?;
+                    .map_err(|e| {
+                        Error::with_reason(
+                            ErrorKind::StorageError,
+                            format!("Database query failed: {e}"),
+                        )
+                    })?;
             }
             TrialStateValues::Fail => {
                 guard
                     .execute(
-                        "UPDATE trials SET state = ?, datetime_complete = strftime('%Y-%m-%d %H:%M:%f','now','localtime') WHERE trial_id = ?",
-                        params!["FAIL", trial_id],
+                        "UPDATE trials SET state = ?, datetime_complete = ? WHERE trial_id = ?",
+                        params!["FAIL", now_naive_utc(), trial_id],
                     )
-                    .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {e}")))?;
+                    .map_err(|e| {
+                        Error::with_reason(
+                            ErrorKind::StorageError,
+                            format!("Database query failed: {e}"),
+                        )
+                    })?;
             }
             TrialStateValues::Running => {
                 guard
@@ -1983,6 +1994,76 @@ mod tests {
 
     fn init_storage() -> Result<SQLite3Storage> {
         init_storage_with_option(SQLite3StorageOptions::default())
+    }
+
+    /// Reads SQLite's own idea of the current UTC time, truncated to whole seconds.
+    ///
+    /// It is an independent reference for the timestamps Rustuna binds from Rust: a column holding
+    /// local time would sit an offset away from it on any machine that is not on UTC. Seconds are
+    /// the finest common precision, since `strftime` stops at milliseconds.
+    fn database_utc_second(storage: &SQLite3Storage) -> Result<String> {
+        let guard = storage
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
+        let now: String = guard
+            .query_row("SELECT strftime('%Y-%m-%d %H:%M:%f', 'now')", [], |row| {
+                row.get(0)
+            })
+            .map_err(|e| Error::with_reason(ErrorKind::StorageError, e.to_string()))?;
+        Ok(now[..19].to_string())
+    }
+
+    #[test]
+    fn trial_datetimes_are_stored_as_naive_utc() -> Result<()> {
+        let mut storage = init_storage()?;
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])?
+            .id;
+        let before = database_utc_second(&storage)?;
+        let trial = storage.create_new_trial(study_id)?;
+        let trial_id = trial.id;
+        let reported_start = trial.datetime_start.clone().expect("datetime_start is set");
+        storage.set_trial_state_values(trial_id, TrialStateValues::Complete(vec![1.0]))?;
+        let trial = storage.get_trial(trial_id)?;
+        let reported_complete = trial
+            .datetime_complete
+            .clone()
+            .expect("datetime_complete is set");
+        assert_eq!(
+            trial.datetime_start.as_deref(),
+            Some(reported_start.as_str())
+        );
+
+        let (stored_start, stored_complete): (String, String) = {
+            let guard = storage
+                .conn
+                .lock()
+                .map_err(|_| Error::new(ErrorKind::StorageError))?;
+            guard
+                .query_row(
+                    "SELECT datetime_start, datetime_complete FROM trials WHERE trial_id = ?",
+                    params![trial_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .map_err(|e| Error::with_reason(ErrorKind::StorageError, e.to_string()))?
+        };
+
+        // PersistedTrial and the columns hold the same naive UTC value, with no conversion.
+        assert_eq!(stored_start, reported_start);
+        assert_eq!(stored_complete, reported_complete);
+
+        // Naive UTC of a fixed width sorts chronologically, so bracketing the stored values
+        // between two readings of the database clock needs no date arithmetic.
+        let after = database_utc_second(&storage)?;
+        for value in [&stored_start, &stored_complete] {
+            let second = &value[..19];
+            assert!(
+                before.as_str() <= second && second <= after.as_str(),
+                "{value} is not UTC (database clock went {before} -> {after})"
+            );
+        }
+        Ok(())
     }
 
     fn init_storage_with_option(options: SQLite3StorageOptions) -> Result<SQLite3Storage> {
