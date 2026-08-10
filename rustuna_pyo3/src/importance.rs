@@ -115,6 +115,8 @@ fn convert_py_target(
                 .collect::<PyResult<HashMap<_, _>>>()
         })
         .transpose()?;
-    let rust_target = target_values.map(|values| move |trial: &PersistedTrial| values[&trial.id]);
+    let rust_target = target_values.map(|values| {
+        move |trial: &PersistedTrial| values.get(&trial.id).copied().unwrap_or(f64::NAN)
+    });
     Ok(rust_target)
 }
