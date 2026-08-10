@@ -12,15 +12,18 @@ use crate::exception::err_to_exceptions;
 use crate::study::PyStudy;
 
 #[pyfunction]
-#[pyo3(name = "get_param_importances", signature = (study, *, evaluator = None, params = None, normalize = true))]
+#[pyo3(name = "get_param_importances", signature = (study, *, evaluator = None, params = None, target = None, normalize = true))]
 pub fn py_get_param_importances(
+    py: Python<'_>,
     study: &PyStudy,
     evaluator: Option<&PyPedAnovaImportanceEvaluator>,
     params: Option<Vec<String>>,
+    target: Option<Py<PyAny>>,
     normalize: bool,
 ) -> PyResult<HashMap<String, f64>> {
+    let rust_target = convert_py_target(py, study, target)?;
     let options = ImportanceOptions {
-        target: None,
+        target: rust_target.as_ref().map(|target| target as &dyn Fn(&PersistedTrial) -> f64),
         normalize,
         params,
     };
