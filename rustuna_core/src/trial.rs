@@ -564,10 +564,6 @@ mod tests {
         let directions = vec![Direction::Minimize];
         let study = create_study_with_arc("dummy", storage.clone(), sampler, directions)?;
 
-        let mut params = HashMap::new();
-        params.insert("x".to_string(), CategoryLabel::Float(5.0));
-        study.enqueue_trial(params, None)?;
-
         let mut trial = study.ask()?;
         let _ = trial.suggest_float("x", -10.0, 10.0)?;
         let constraints = HashMap::from([(String::from("c0"), 10.0)]);
