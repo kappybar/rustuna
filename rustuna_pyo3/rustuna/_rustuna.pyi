@@ -165,6 +165,12 @@ class Trial:
         Args:
             attrs: A dictionary object.
         """
+    def set_constraints(self, constraints: dict[str, float]) -> None:
+        """Set constraints to the trial.
+
+        Args:
+            constraints: A dictionary object.
+        """
 
 class AttrsDictView(Mapping[str, str]):
     def __len__(self) -> int: ...
@@ -253,6 +259,8 @@ class PersistedTrial:
     def user_attrs(self) -> AttrsDictView: ...
     @property
     def system_attrs(self) -> AttrsDictView: ...
+    @property
+    def constraints(self) -> dict[str, float]: ...
     @property
     def internal_params(self) -> dict[str, float]: ...
     @property
