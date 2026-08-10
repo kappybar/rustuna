@@ -4,10 +4,10 @@ use pyo3::exceptions::PyUserWarning;
 use pyo3::prelude::*;
 use pyo3::PyResult;
 
+use rustuna_core::trial::PersistedTrial;
 use rustuna_importance::{
     get_param_importances_with, ImportanceEvaluator, ImportanceOptions, PedAnovaImportanceEvaluator,
 };
-use rustuna_core::trial::PersistedTrial;
 
 use crate::exception::err_to_exceptions;
 use crate::study::PyStudy;
@@ -25,7 +25,9 @@ pub fn py_get_param_importances(
 ) -> PyResult<HashMap<String, f64>> {
     let rust_target = convert_py_target(py, study, target)?;
     let options = ImportanceOptions {
-        target: rust_target.as_ref().map(|target| target as &dyn Fn(&PersistedTrial) -> f64),
+        target: rust_target
+            .as_ref()
+            .map(|target| target as &dyn Fn(&PersistedTrial) -> f64),
         normalize,
         params,
     };
@@ -80,7 +82,9 @@ impl PyPedAnovaImportanceEvaluator {
     ) -> PyResult<HashMap<String, f64>> {
         let rust_target = convert_py_target(py, study, target)?;
         let options = ImportanceOptions {
-            target: rust_target.as_ref().map(|target| target as &dyn Fn(&PersistedTrial) -> f64),
+            target: rust_target
+                .as_ref()
+                .map(|target| target as &dyn Fn(&PersistedTrial) -> f64),
             normalize: true,
             params,
         };
@@ -92,24 +96,25 @@ impl PyPedAnovaImportanceEvaluator {
     }
 }
 
-
 fn convert_py_target(
     py: Python<'_>,
     study: &PyStudy,
     target: Option<Py<PyAny>>,
 ) -> PyResult<Option<impl Fn(&PersistedTrial) -> f64>> {
-    let target_values = target.map(|target| {
-        study.py_get_trials(Some(vec![PyTrialState::COMPLETE]))?
-            .into_iter()
-            .map(|trial| {
-                let trial_id = trial.with_trial(|t| Ok(t.id))?;
-                let py_trial = Py::new(py, trial)?;
-                let value = target.call1(py, (py_trial,))?.extract::<f64>(py)?;
-                Ok((trial_id, value))
-            })
-            .collect::<PyResult<HashMap<_, _>>>()
-    })
-    .transpose()?;
-    let rust_target = target_values.map(|values| { move |trial: &PersistedTrial | values[&trial.id]});
+    let target_values = target
+        .map(|target| {
+            study
+                .py_get_trials(Some(vec![PyTrialState::COMPLETE]))?
+                .into_iter()
+                .map(|trial| {
+                    let trial_id = trial.with_trial(|t| Ok(t.id))?;
+                    let py_trial = Py::new(py, trial)?;
+                    let value = target.call1(py, (py_trial,))?.extract::<f64>(py)?;
+                    Ok((trial_id, value))
+                })
+                .collect::<PyResult<HashMap<_, _>>>()
+        })
+        .transpose()?;
+    let rust_target = target_values.map(|values| move |trial: &PersistedTrial| values[&trial.id]);
     Ok(rust_target)
 }
