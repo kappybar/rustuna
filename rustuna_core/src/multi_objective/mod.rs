@@ -1,4 +1,4 @@
-//! Multi-objective primitives used by the TPE sampler.
+//! Primitives for multi-objective optimization.
 //!
 //! Split into three concerns:
 //!
@@ -10,16 +10,16 @@
 //! * [`hssp`] — greedy hypervolume subset selection problem solver with submodular
 //!   upper-bound skip and an LRU(size 1) cache.
 //!
-//! Only the few items that TPE proper needs are re-exported; everything else stays
-//! crate-private so refactors remain local.
+//! Only a minimal set of items is re-exported from this module; implementation
+//! details stay crate-private so refactors remain local.
 //!
 //! ## NaN policy
 //!
 //! Dominance, hypervolume, and HSSP contributions are all ill-defined when an
 //! objective value is NaN. Across this module **NaN rows are treated as worse than
 //! every clean row** — rank 0 / the Pareto front / "best in subset" must never be
-//! occupied by a failed-evaluation trial, otherwise TPE would feed garbage into the
-//! Parzen estimator. Every public entry point follows the same rule:
+//! occupied by a failed-evaluation trial, otherwise downstream algorithms would
+//! consume invalid objective values. Every public entry point follows the same rule:
 //!
 //! | Function                              | NaN handling                                       |
 //! |---------------------------------------|----------------------------------------------------|
@@ -30,8 +30,8 @@
 //!
 //! A NaN reference point is treated as an unrecoverable input (`compute_hypervolume`
 //! returns 0.0 / HSSP falls back to input order) because there's no meaningful
-//! "clean subset" to recurse on. TPE callers can still filter NaN trials upstream
-//! if a tighter contract is needed.
+//! "clean subset" to recurse on. Callers can still filter NaN trials upstream if a
+//! tighter contract is needed.
 
 mod hssp;
 mod hypervolume;

@@ -30,7 +30,7 @@ pub fn split_trials_for_multi_objective<'a>(
         .map(|t| {
             let vals = match &t.state_values {
                 TrialStateValues::Complete(v) => v.as_slice(),
-                _ => panic!("Unexpected non-complete trial found during TPE sampling"),
+                _ => panic!("Unexpected non-complete trial found during multi-objective split"),
             };
             vals.iter()
                 .zip(directions.iter())
