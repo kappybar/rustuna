@@ -8,6 +8,8 @@ use crate::storage::Storage;
 use crate::study::Direction;
 use crate::{Error, ErrorKind, Result};
 
+const CONSTRAINTS_KEY: &str = "constraints";
+
 /// A trial object used while evaluating an objective function.
 ///
 /// This is the Rustuna counterpart of `optuna.trial.Trial`. It provides parameter suggestion
@@ -269,6 +271,31 @@ impl Trial {
         }
         Ok(())
     }
+
+    /// Sets multiple constraints on the trial.
+    pub fn set_constraints(&mut self, constraints: HashMap<String, f64>) -> Result<()> {
+        let mut attrs = Attrs::with_capacity(constraints.len());
+        for (key, value) in constraints {
+            let key_with_constraint_prefix = format!("{}:{}", CONSTRAINTS_KEY, key);
+            attrs.insert(
+                AttrKey::System(key_with_constraint_prefix.as_str().into()),
+                value.to_string(),
+            );
+            self.cached_trial.attrs.insert(
+                AttrKey::System(key_with_constraint_prefix.into()),
+                value.to_string(),
+            );
+        }
+        let mut guard = self.storage.write().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Failed to acquire storage guard: {e}"),
+            )
+        })?;
+        guard.set_trial_attrs(self.id, attrs, false)?;
+        drop(guard);
+        Ok(())
+    }
 }
 
 /// Storage-side representation of a trial.
@@ -355,6 +382,26 @@ impl PersistedTrial {
             }
         }
         Ok(())
+    }
+
+    /// Gets constraints on the trial.
+    pub fn constraints(&self) -> Result<HashMap<String, f64>, Error> {
+        let mut constraints_dict: HashMap<String, f64> = HashMap::new();
+        for (key, value) in &self.attrs {
+            if let AttrKey::System(key_system) = key {
+                if key_system.as_str().starts_with(CONSTRAINTS_KEY) {
+                    let key: String = key_system.as_str()[CONSTRAINTS_KEY.len() + 1..].into();
+                    let value: f64 = value.parse::<f64>().map_err(|e| {
+                        Error::with_reason(
+                            ErrorKind::Unexpected,
+                            format!("Failed to parse constraint as f64 : {e}"),
+                        )
+                    })?;
+                    constraints_dict.insert(key, value);
+                }
+            }
+        }
+        Ok(constraints_dict)
     }
 }
 
@@ -507,6 +554,26 @@ mod tests {
             trial.attrs.get(&AttrKey::System("key".into())),
             Some(&"system".to_string())
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_set_constraints() -> Result<()> {
+        let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
+        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
+        let directions = vec![Direction::Minimize];
+        let study = create_study_with_arc("dummy", storage.clone(), sampler, directions)?;
+
+        let mut trial = study.ask()?;
+        let _ = trial.suggest_float("x", -10.0, 10.0)?;
+        let constraints = HashMap::from([(String::from("c0"), 10.0)]);
+        trial.set_constraints(constraints)?;
+
+        let _ = study.tell(trial.number, TrialStateValues::Complete(vec![0.0]));
+        let trials = study.get_trials()?;
+
+        let constraints = trials[0].constraints()?;
+        assert_eq!(constraints, HashMap::from([(String::from("c0"), 10.0)]));
         Ok(())
     }
 }
