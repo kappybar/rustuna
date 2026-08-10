@@ -72,7 +72,7 @@ impl PyPedAnovaImportanceEvaluator {
         Ok(Self { evaluator })
     }
 
-    #[pyo3(signature = (study, params = None, * , target = None))]
+    #[pyo3(signature = (study, params = None, *, target = None))]
     fn evaluate(
         &self,
         py: Python<'_>,
