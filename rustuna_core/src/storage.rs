@@ -167,7 +167,7 @@ pub struct InMemoryStorageOptions {
 pub struct InMemoryStorage {
     studies: Vec<PersistedStudy>,
     trials: HashMap<u32, Vec<Option<PersistedTrial>>>,
-    trial_id_to_study_number: HashMap<u32, (u32, u32)>,
+    trial_id_number_map: TrialIdNumberHashMap,
     study_caches: HashMap<u32, StudyCache>,
     next_study_id: u32,
     next_trial_id: u32,
@@ -179,7 +179,7 @@ impl InMemoryStorage {
         InMemoryStorage {
             studies: vec![],
             trials: HashMap::new(),
-            trial_id_to_study_number: HashMap::new(),
+            trial_id_number_map: TrialIdNumberHashMap::new(),
             study_caches: HashMap::new(),
             next_study_id: 0,
             next_trial_id: 0,
@@ -192,7 +192,7 @@ impl InMemoryStorage {
         InMemoryStorage {
             studies: vec![],
             trials: HashMap::new(),
-            trial_id_to_study_number: HashMap::new(),
+            trial_id_number_map: TrialIdNumberHashMap::new(),
             study_caches: HashMap::new(),
             next_study_id: 0,
             next_trial_id: 0,
@@ -247,13 +247,12 @@ impl InMemoryStorage {
             }
             return Ok(trial);
         }
-        if self.trial_id_to_study_number.contains_key(&trial_id) {
+        if self.trial_id_number_map.contains_trial_id(trial_id) {
             return Err(Error::new(ErrorKind::StorageError));
         }
         let trial = PersistedTrial::new(trial_id, study_id, number);
         trials.push(Some(trial));
-        self.trial_id_to_study_number
-            .insert(trial_id, (study_id, number));
+        self.trial_id_number_map.insert(study_id, trial_id, number);
         if trial_id >= self.next_trial_id {
             self.next_trial_id = trial_id + 1;
         }
@@ -279,12 +278,11 @@ fn get_mut_trials_by_study_id(
     Ok(trials)
 }
 fn get_study_id_trial_number_by_trial_id(
-    trial_id_to_study_number: &HashMap<u32, (u32, u32)>,
+    trial_id_number_map: &TrialIdNumberHashMap,
     trial_id: u32,
 ) -> Result<(u32, u32)> {
-    trial_id_to_study_number
-        .get(&trial_id)
-        .copied()
+    trial_id_number_map
+        .get_study_id_trial_number(trial_id)
         .ok_or(Error::new(ErrorKind::TrialNotFound))
 }
 
@@ -320,11 +318,8 @@ impl Storage for InMemoryStorage {
         }
 
         self.studies.retain(|s| s.id != study_id);
-        if let Some(trials) = self.trials.remove(&study_id) {
-            for trial in trials.into_iter().flatten() {
-                self.trial_id_to_study_number.remove(&trial.id);
-            }
-        }
+        self.trials.remove(&study_id);
+        self.trial_id_number_map.remove_study(study_id);
         self.study_caches.remove(&study_id);
 
         Ok(())
@@ -338,8 +333,7 @@ impl Storage for InMemoryStorage {
         let mut trial = PersistedTrial::new(trial_id, study_id, number);
         trial.datetime_start = Some(now_naive_utc());
         trials.push(Some(trial));
-        self.trial_id_to_study_number
-            .insert(trial_id, (study_id, number));
+        self.trial_id_number_map.insert(study_id, trial_id, number);
         discarded_if_none(trials[number as usize].as_ref())
     }
 
@@ -358,8 +352,7 @@ impl Storage for InMemoryStorage {
         trial.study_id = study_id;
         trial.number = number;
         trials.push(Some(trial));
-        self.trial_id_to_study_number
-            .insert(trial_id, (study_id, number));
+        self.trial_id_number_map.insert(study_id, trial_id, number);
         discarded_if_none(trials[number as usize].as_ref())
     }
 
@@ -371,7 +364,7 @@ impl Storage for InMemoryStorage {
         value: f64,
     ) -> Result<()> {
         let (study_id, trial_number) =
-            get_study_id_trial_number_by_trial_id(&self.trial_id_to_study_number, trial_id)?;
+            get_study_id_trial_number_by_trial_id(&self.trial_id_number_map, trial_id)?;
         let trial = discarded_if_none(
             get_mut_trials_by_study_id(&mut self.trials, study_id)?
                 .get_mut(trial_number as usize)
@@ -403,7 +396,7 @@ impl Storage for InMemoryStorage {
         state_values: TrialStateValues,
     ) -> Result<()> {
         let (study_id, trial_number) =
-            get_study_id_trial_number_by_trial_id(&self.trial_id_to_study_number, trial_id)?;
+            get_study_id_trial_number_by_trial_id(&self.trial_id_number_map, trial_id)?;
         let trial = discarded_if_none(
             get_mut_trials_by_study_id(&mut self.trials, study_id)?
                 .get_mut(trial_number as usize)
@@ -428,7 +421,7 @@ impl Storage for InMemoryStorage {
         intermediate_values: HashMap<u32, f64>,
     ) -> Result<()> {
         let (study_id, trial_number) =
-            get_study_id_trial_number_by_trial_id(&self.trial_id_to_study_number, trial_id)?;
+            get_study_id_trial_number_by_trial_id(&self.trial_id_number_map, trial_id)?;
         let trial = discarded_if_none(
             get_mut_trials_by_study_id(&mut self.trials, study_id)?
                 .get_mut(trial_number as usize)
@@ -471,7 +464,7 @@ impl Storage for InMemoryStorage {
 
     fn get_cached_trial(&self, trial_id: u32) -> Result<&PersistedTrial> {
         let (study_id, trial_number) =
-            get_study_id_trial_number_by_trial_id(&self.trial_id_to_study_number, trial_id)?;
+            get_study_id_trial_number_by_trial_id(&self.trial_id_number_map, trial_id)?;
         let trial = discarded_if_none(
             get_trials_by_study_id(&self.trials, study_id)?
                 .get(trial_number as usize)
@@ -505,10 +498,8 @@ impl Storage for InMemoryStorage {
         study_id: u32,
         trial_number: u32,
     ) -> Result<u32> {
-        self.trial_id_to_study_number
-            .iter()
-            .find(|(_, &(s_id, t_num))| s_id == study_id && t_num == trial_number)
-            .map(|(&trial_id, _)| trial_id)
+        self.trial_id_number_map
+            .get_trial_id(study_id, trial_number)
             .ok_or(Error::new(ErrorKind::TrialNotFound))
     }
 
@@ -539,7 +530,7 @@ impl Storage for InMemoryStorage {
         error_on_overwrite: bool,
     ) -> Result<()> {
         let (study_id, trial_number) =
-            get_study_id_trial_number_by_trial_id(&self.trial_id_to_study_number, trial_id)?;
+            get_study_id_trial_number_by_trial_id(&self.trial_id_number_map, trial_id)?;
         let trial = discarded_if_none(
             get_mut_trials_by_study_id(&mut self.trials, study_id)?
                 .get_mut(trial_number as usize)
@@ -568,7 +559,7 @@ impl Storage for InMemoryStorage {
         }
         for trial_id in trial_ids {
             let (study_id, trial_number) =
-                get_study_id_trial_number_by_trial_id(&self.trial_id_to_study_number, *trial_id)?;
+                get_study_id_trial_number_by_trial_id(&self.trial_id_number_map, *trial_id)?;
 
             let trials = get_mut_trials_by_study_id(&mut self.trials, study_id)?;
             let slot = trials
@@ -581,6 +572,43 @@ impl Storage for InMemoryStorage {
 
     fn may_omit_trials(&self) -> bool {
         self.option.apply_discard
+    }
+}
+
+#[derive(Default)]
+struct TrialIdNumberHashMap {
+    trial_id_to_study_number: HashMap<u32, (u32, u32)>,
+    study_number_to_trial_id: HashMap<(u32, u32), u32>,
+}
+impl TrialIdNumberHashMap {
+    fn new() -> Self {
+        Self {
+            trial_id_to_study_number: HashMap::new(),
+            study_number_to_trial_id: HashMap::new(),
+        }
+    }
+    fn insert(&mut self, study_id: u32, trial_id: u32, trial_number: u32) {
+        self.trial_id_to_study_number
+            .insert(trial_id, (study_id, trial_number));
+        self.study_number_to_trial_id
+            .insert((study_id, trial_number), trial_id);
+    }
+    fn contains_trial_id(&self, trial_id: u32) -> bool {
+        self.trial_id_to_study_number.contains_key(&trial_id)
+    }
+    fn get_study_id_trial_number(&self, trial_id: u32) -> Option<(u32, u32)> {
+        self.trial_id_to_study_number.get(&trial_id).copied()
+    }
+    fn get_trial_id(&self, study_id: u32, trial_number: u32) -> Option<u32> {
+        self.study_number_to_trial_id
+            .get(&(study_id, trial_number))
+            .copied()
+    }
+    fn remove_study(&mut self, study_id: u32) {
+        self.trial_id_to_study_number
+            .retain(|_, value| value.0 != study_id);
+        self.study_number_to_trial_id
+            .retain(|key, _| key.0 != study_id);
     }
 }
 
@@ -650,8 +678,73 @@ mod tests {
 
         let trial = storage.insert_trial_with_id(study_id, 10, 0)?;
         assert_eq!(trial.id, 10);
+        assert_eq!(
+            storage.get_trial_id_from_study_id_trial_number(study_id, 0)?,
+            10
+        );
         let trial = storage.create_new_trial(study_id)?;
         assert_eq!(trial.id, 11);
+        Ok(())
+    }
+
+    #[test]
+    fn get_trial_id_from_study_id_trial_number_uses_both_keys() -> Result<()> {
+        let mut storage = InMemoryStorage::new();
+        let study0_id = storage
+            .create_new_study("study0", vec![Direction::Minimize])?
+            .id;
+        let study1_id = storage
+            .create_new_study("study1", vec![Direction::Minimize])?
+            .id;
+        let study0_trial0_id = storage.create_new_trial(study0_id)?.id;
+        let study0_trial1_id = storage.create_new_trial(study0_id)?.id;
+        let study1_trial0_id = storage.create_new_trial(study1_id)?.id;
+
+        assert_eq!(
+            storage.get_trial_id_from_study_id_trial_number(study0_id, 0)?,
+            study0_trial0_id
+        );
+        assert_eq!(
+            storage.get_trial_id_from_study_id_trial_number(study0_id, 1)?,
+            study0_trial1_id
+        );
+        assert_eq!(
+            storage.get_trial_id_from_study_id_trial_number(study1_id, 0)?,
+            study1_trial0_id
+        );
+
+        storage.delete_study(study0_id)?;
+        let error = storage
+            .get_trial_id_from_study_id_trial_number(study0_id, 0)
+            .unwrap_err();
+        assert!(matches!(error.kind, ErrorKind::TrialNotFound));
+        assert_eq!(
+            storage.get_trial_id_from_study_id_trial_number(study1_id, 0)?,
+            study1_trial0_id
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn delete_study_removes_discarded_trial_mappings() -> Result<()> {
+        let mut storage = InMemoryStorage::new_with_option(InMemoryStorageOptions {
+            apply_discard: true,
+        });
+        let study_id = storage
+            .create_new_study("study", vec![Direction::Minimize])?
+            .id;
+        let trial_id = storage.create_new_trial(study_id)?.id;
+        storage.discard_trials(&[trial_id])?;
+
+        storage.delete_study(study_id)?;
+
+        let error = storage
+            .get_trial_id_from_study_id_trial_number(study_id, 0)
+            .unwrap_err();
+        assert!(matches!(error.kind, ErrorKind::TrialNotFound));
+        assert!(
+            matches!(storage.get_trial(trial_id), Err(error) if matches!(error.kind, ErrorKind::TrialNotFound))
+        );
         Ok(())
     }
 
