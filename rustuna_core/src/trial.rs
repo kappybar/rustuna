@@ -8,7 +8,7 @@ use crate::storage::Storage;
 use crate::study::Direction;
 use crate::{Error, ErrorKind, Result};
 
-const _CONSTRAINTS_KEY: &str = "constraints";
+const CONSTRAINTS_KEY: &str = "constraints";
 
 /// A trial object used while evaluating an objective function.
 ///
@@ -275,9 +275,13 @@ impl Trial {
     /// Sets multiple constraints on the trial.
     pub fn set_constraints(&mut self, constraints: HashMap<String, f64>) -> Result<()> {
         let mut attrs = Attrs::with_capacity(constraints.len());
-        for (key, value) in &constraints {
-            let key_with_constraint_prefix = format!("{}:{}", _CONSTRAINTS_KEY, key);
+        for (key, value) in constraints {
+            let key_with_constraint_prefix = format!("{}:{}", CONSTRAINTS_KEY, key);
             attrs.insert(
+                AttrKey::System(key_with_constraint_prefix.as_str().into()),
+                value.to_string(),
+            );
+            self.cached_trial.attrs.insert(
                 AttrKey::System(key_with_constraint_prefix.into()),
                 value.to_string(),
             );
@@ -290,14 +294,6 @@ impl Trial {
         })?;
         guard.set_trial_attrs(self.id, attrs, false)?;
         drop(guard);
-
-        for (key, value) in constraints {
-            let key_with_constraint_prefix = format!("{}:{}", _CONSTRAINTS_KEY, key);
-            self.cached_trial.attrs.insert(
-                AttrKey::System(key_with_constraint_prefix.into()),
-                value.to_string(),
-            );
-        }
         Ok(())
     }
 }
@@ -393,8 +389,8 @@ impl PersistedTrial {
         let mut constraints_dict: HashMap<String, f64> = HashMap::new();
         for (key, value) in &self.attrs {
             if let AttrKey::System(key_system) = key {
-                if key_system.as_str().starts_with(_CONSTRAINTS_KEY) {
-                    let key: String = key_system.as_str()[_CONSTRAINTS_KEY.len() + 1..].into();
+                if key_system.as_str().starts_with(CONSTRAINTS_KEY) {
+                    let key: String = key_system.as_str()[CONSTRAINTS_KEY.len() + 1..].into();
                     let value: f64 = value.parse::<f64>().map_err(|e| {
                         Error::with_reason(
                             ErrorKind::Unexpected,
@@ -573,15 +569,15 @@ mod tests {
         study.enqueue_trial(params, None)?;
 
         let mut trial = study.ask()?;
-        let x = trial.suggest_float("x", -10.0, 10.0)?;
-        let constraints = HashMap::from([(String::from("c0"), x.powi(2) - 10.0)]);
-        let _ = trial.set_constraints(constraints);
+        let _ = trial.suggest_float("x", -10.0, 10.0)?;
+        let constraints = HashMap::from([(String::from("c0"), 10.0)]);
+        trial.set_constraints(constraints)?;
 
         let _ = study.tell(trial.number, TrialStateValues::Complete(vec![0.0]));
         let trials = study.get_trials()?;
 
         let constraints = trials[0].constraints()?;
-        assert_eq!(constraints, HashMap::from([(String::from("c0"), 15.0)]));
+        assert_eq!(constraints, HashMap::from([(String::from("c0"), 10.0)]));
         Ok(())
     }
 }
