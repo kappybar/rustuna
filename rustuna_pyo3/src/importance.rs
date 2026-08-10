@@ -83,3 +83,25 @@ impl PyPedAnovaImportanceEvaluator {
         Ok(importances)
     }
 }
+
+
+fn convert_py_target(
+    py: Python<'_>,
+    study: &PyStudy,
+    target: Option<Py<PyAny>>,
+) -> PyResult<Option<impl Fn(&PersistedTrial) -> f64>> {
+    let target_values = target.map(|target| {
+        study.py_get_trials(Some(vec![PyTrialState::COMPLETE]))?
+            .into_iter()
+            .map(|trial| {
+                let trial_id = trial.with_trial(|t| Ok(t.id))?;
+                let py_trial = Py::new(py, trial)?;
+                let value = target.call1(py, (py_trial,))?.extract::<f64>(py)?;
+                Ok((trial_id, value))
+            })
+            .collect::<PyResult<HashMap<_, _>>>()
+    })
+    .transpose()?;
+    let rust_target = target_values.map(|values| { move |trial: &PersistedTrial | values[&trial.id]});
+    Ok(rust_target)
+}
