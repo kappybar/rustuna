@@ -7,9 +7,11 @@ use pyo3::PyResult;
 use rustuna_importance::{
     get_param_importances_with, ImportanceEvaluator, ImportanceOptions, PedAnovaImportanceEvaluator,
 };
+use rustuna_core::trial::PersistedTrial;
 
 use crate::exception::err_to_exceptions;
 use crate::study::PyStudy;
+use crate::trial::PyTrialState;
 
 #[pyfunction]
 #[pyo3(name = "get_param_importances", signature = (study, *, evaluator = None, params = None, target = None, normalize = true))]
