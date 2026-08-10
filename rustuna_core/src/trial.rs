@@ -231,6 +231,16 @@ impl Trial {
         let key = AttrKey::User(key.into());
         self.cached_trial.attrs.get(&key)
     }
+    /// Returns user attributes stored on the trial.
+    pub fn get_user_attrs(&self) -> HashMap<String, String> {
+        let mut user_attrs = HashMap::with_capacity(self.cached_trial.attrs.len());
+        for (key, value) in &self.cached_trial.attrs {
+            if let AttrKey::User(key) = key {
+                user_attrs.insert(key.to_string(), value.clone());
+            }
+        }
+        user_attrs
+    }
 
     /// Sets a single user attribute on the trial.
     pub fn set_user_attr(&mut self, key: &str, value: String) -> Result<()> {
@@ -552,6 +562,10 @@ mod tests {
         guard.set_trial_attrs(trial.id, attrs, false)?;
 
         // Check the attributes
+        assert_eq!(
+            trial.get_user_attrs(),
+            HashMap::from([(String::from("key"), String::from("user"))])
+        );
         let trial = guard.get_trial(trial.id)?;
         assert_eq!(
             trial.attrs.get(&AttrKey::User("key".into())),

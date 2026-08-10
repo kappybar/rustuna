@@ -231,14 +231,12 @@ impl PyTrialState {
 pub struct PyTrial {
     trial: Trial,
     storage_pyobj: Py<PyAny>,
-    cached_user_attrs: RwLock<HashMap<String, String>>,
 }
 impl PyTrial {
     pub fn new(trial: Trial, storage_pyobj: Py<PyAny>) -> Self {
         PyTrial {
             trial,
             storage_pyobj,
-            cached_user_attrs: RwLock::new(HashMap::new()),
         }
     }
 }
@@ -326,30 +324,18 @@ impl PyTrial {
     }
     #[pyo3(signature = (key, value))]
     pub fn set_user_attr(&mut self, key: &str, value: String) -> PyResult<()> {
-        self.trial.set_user_attr(key, value.clone()).map_err(|e| {
+        self.trial.set_user_attr(key, value).map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to set user attr: {:?}", e.kind))
         })?;
-
-        let mut cache = self.cached_user_attrs.write().map_err(|_| {
-            PyRuntimeError::new_err("Failed to acquire write lock for cached_user_attrs")
-        })?;
-        cache.insert(key.to_string(), value);
         Ok(())
     }
 
     fn set_user_attrs(&mut self, attrs: Py<PyAny>) -> PyResult<()> {
         let user_attrs: HashMap<String, String> = Python::attach(|py| attrs.bind(py).extract())?;
 
-        self.trial.set_user_attrs(user_attrs.clone()).map_err(|e| {
+        self.trial.set_user_attrs(user_attrs).map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to set user attrs: {:?}", e.kind))
         })?;
-
-        let mut cache = self.cached_user_attrs.write().map_err(|e| {
-            PyRuntimeError::new_err(format!(
-                "Failed to acquire write lock for cached_user_attrs: {e:?}"
-            ))
-        })?;
-        cache.extend(user_attrs);
         Ok(())
     }
     #[pyo3(signature = (constraints))]
@@ -366,10 +352,7 @@ impl PyTrial {
 
     #[getter]
     pub fn user_attrs(&self) -> PyResult<HashMap<String, String>> {
-        let cache = self.cached_user_attrs.read().map_err(|_| {
-            PyRuntimeError::new_err("Failed to acquire read lock for cached_user_attrs")
-        })?;
-        Ok(cache.clone())
+        Ok(self.trial.get_user_attrs())
     }
 }
 
