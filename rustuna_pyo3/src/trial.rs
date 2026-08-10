@@ -352,6 +352,17 @@ impl PyTrial {
         cache.extend(user_attrs);
         Ok(())
     }
+    #[pyo3(signature = (constraints))]
+    pub fn set_constraints(&mut self, constraints: Py<PyAny>) -> PyResult<()> {
+        let constraints: HashMap<String, f64> =
+            Python::attach(|py| constraints.bind(py).extract())?;
+
+        self.trial.set_constraints(constraints).map_err(|e| {
+            PyRuntimeError::new_err(format!("Fialed to set constraints: {:?}", e.kind))
+        })?;
+
+        Ok(())
+    }
 
     #[getter]
     pub fn user_attrs(&self) -> PyResult<HashMap<String, String>> {
@@ -678,6 +689,24 @@ impl PyPersistedTrial {
                 *trial_id,
                 AttrKind::System,
             )),
+        }
+    }
+
+    #[getter]
+    fn constraints(&self) -> PyResult<HashMap<String, f64>> {
+        match &self.source {
+            PyPersistedTrialSource::Owned(trial) => trial.constraints().map_err(err_to_exceptions),
+            PyPersistedTrialSource::StorageBacked {
+                storage, trial_id, ..
+            } => {
+                let guard = storage.read().map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
+                })?;
+                guard
+                    .get_cached_trial(*trial_id)
+                    .and_then(|trial| trial.constraints())
+                    .map_err(err_to_exceptions)
+            }
         }
     }
 
