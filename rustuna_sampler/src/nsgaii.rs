@@ -58,6 +58,9 @@ pub struct NSGAIISampler {
     mutation_prob: Option<f64>,
     crossover_prob: f64,
     swapping_prob: f64,
+    /// Cache mapping generation number to completed trial numbers in that generation.
+    /// Updated incrementally in `after_trial` so `sample_joint` does not scan all trials every time.
+    generation_to_numbers: HashMap<u32, Vec<u32>>,
 }
 impl Default for NSGAIISampler {
     fn default() -> Self {
@@ -85,6 +88,7 @@ impl NSGAIISampler {
             mutation_prob,
             crossover_prob,
             swapping_prob,
+            generation_to_numbers: HashMap::new(),
         }
     }
     /// Creates a reproducibly seeded NSGA-II sampler.
@@ -104,15 +108,33 @@ impl NSGAIISampler {
             mutation_prob,
             crossover_prob,
             swapping_prob,
+            generation_to_numbers: HashMap::new(),
+        }
+    }
+    fn rebuild_generation_cache(&mut self, trials: &[Option<PersistedTrial>]) {
+        self.generation_to_numbers.clear();
+        let generation_key = AttrKey::System("generation".into());
+        for trial in trials.iter().flatten() {
+            if !matches!(trial.state_values, TrialStateValues::Complete(_)) {
+                continue;
+            }
+            if let Some(gen_str) = trial.attrs.get(&generation_key) {
+                if let Ok(generation) = gen_str.parse::<u32>() {
+                    self.generation_to_numbers
+                        .entry(generation)
+                        .or_default()
+                        .push(trial.number);
+                }
+            }
         }
     }
     fn select_elite_population_numbers(
         &mut self,
         ctx: &Context,
-        trials: &[PersistedTrial],
-        population_numbers: &Vec<u32>,
-    ) -> Vec<u32> {
-        let population_numbers_per_rank = fast_non_dominated_sort(ctx, trials, population_numbers);
+        trials: &[Option<PersistedTrial>],
+        population_numbers: &[u32],
+    ) -> Result<Vec<u32>> {
+        let population_numbers_per_rank = fast_non_dominated_sort(ctx, trials, population_numbers)?;
 
         let mut elite_population_numbers = vec![];
         for population_numbers in population_numbers_per_rank {
@@ -121,88 +143,38 @@ impl NSGAIISampler {
             } else {
                 let n = self.population_size - elite_population_numbers.len();
                 let crowding_sorted_population_numbers =
-                    crowding_distance_sort(ctx, trials, population_numbers);
+                    crowding_distance_sort(ctx, trials, population_numbers)?;
                 elite_population_numbers.extend(&crowding_sorted_population_numbers[..n]);
                 break;
             }
         }
-        elite_population_numbers
+        Ok(elite_population_numbers)
     }
     fn get_parent_population_numbers(
         &mut self,
         ctx: &Context,
-        trials: &[PersistedTrial],
+        trials: &[Option<PersistedTrial>],
     ) -> Result<(i32, Vec<u32>)> {
-        let mut generation_to_population_numbers =
-            HashMap::<usize, Vec<u32>>::with_capacity(trials.len());
-        for trial in trials {
-            let generation_or_none = trial.attrs.get(&AttrKey::System("generation".into()));
-            if generation_or_none.is_none() {
-                continue;
-            }
-            let generation = generation_or_none.unwrap().parse::<usize>().unwrap();
-            if let TrialStateValues::Complete(ref _values) = trial.state_values {
-                generation_to_population_numbers
-                    .entry(generation)
-                    .or_default()
-                    .push(trial.number);
-            }
+        if self.generation_to_numbers.is_empty() {
+            self.rebuild_generation_cache(trials);
         }
 
         let mut parent_generation = -1;
         let mut parent_population_numbers = Vec::with_capacity(10);
-        for _ in 0..10 {
-            let generation = parent_generation + 1;
-            let population_numbers_or_none =
-                generation_to_population_numbers.get(&(generation as usize));
+        for generation in 0..10 {
+            let population_numbers = match self.generation_to_numbers.get(&generation) {
+                Some(numbers) if numbers.len() >= self.population_size => numbers.clone(),
+                _ => break,
+            };
 
-            if population_numbers_or_none.is_none() {
-                break;
-            }
-            let mut population_numbers = population_numbers_or_none.unwrap().clone();
-            if population_numbers.len() < self.population_size {
-                break;
-            }
-
+            let mut population_numbers = population_numbers;
             population_numbers.append(&mut parent_population_numbers);
             let selected_population_numbers =
-                self.select_elite_population_numbers(ctx, trials, &population_numbers);
-            parent_generation = generation;
+                self.select_elite_population_numbers(ctx, trials, &population_numbers)?;
+            parent_generation = generation as i32;
             parent_population_numbers = selected_population_numbers;
         }
         Ok((parent_generation, parent_population_numbers))
-    }
-    fn select_parents(
-        &mut self,
-        ctx: &Context,
-        storage: Arc<RwLock<dyn Storage>>,
-        population_numbers: Vec<u32>,
-        search_space: &HashMap<String, Distribution>,
-    ) -> Result<(HashMap<String, f64>, HashMap<String, f64>)> {
-        let mut guard = storage
-            .write()
-            .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
-        let trials = guard.get_trials(ctx.study_id)?.clone();
-        let population_params = trials
-            .iter()
-            .flatten()
-            .filter(|trial| population_numbers.contains(&trial.number))
-            .map(|trial| {
-                let mut params = HashMap::new();
-                for name in search_space.keys() {
-                    let param_value = *trial.internal_params.get(name).unwrap();
-                    params.insert(name.clone(), param_value);
-                }
-                params
-            })
-            .collect::<Vec<_>>();
-        let [parent0, parent1] = population_params
-            .choose_multiple(&mut self.rng, 2)
-            .cloned()
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
-        Ok((parent0.clone(), parent1.clone()))
     }
     fn crossover(
         &mut self,
@@ -312,14 +284,10 @@ impl Sampler for NSGAIISampler {
         let mut guard = storage
             .write()
             .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
-        let trials = guard
-            .get_trials(ctx.study_id)?
-            .iter()
-            .flatten()
-            .cloned()
-            .collect::<Vec<_>>();
-        let (parent_generation, parent_population_numbers) =
-            self.get_parent_population_numbers(ctx, &trials)?;
+        let (parent_generation, parent_population_numbers) = {
+            let trials = guard.get_trials(ctx.study_id)?;
+            self.get_parent_population_numbers(ctx, trials)?
+        };
         let child_generation = u32::try_from(parent_generation + 1).unwrap();
         let mut attrs = Attrs::with_capacity(1);
         attrs.insert(
@@ -327,15 +295,36 @@ impl Sampler for NSGAIISampler {
             (child_generation as f64).to_string(),
         );
         guard.set_trial_attrs(ctx.trial_id, attrs, false)?;
-        drop(guard);
 
         if parent_generation < 0 {
+            drop(guard);
             let params = HashMap::new();
             return Ok(params);
         }
 
-        let (parent0, parent1) =
-            self.select_parents(ctx, storage, parent_population_numbers, search_space)?;
+        let (parent0_number, parent1_number) = {
+            let mut selected = parent_population_numbers
+                .choose_multiple(&mut self.rng, 2)
+                .copied();
+            (selected.next().unwrap(), selected.next().unwrap())
+        };
+
+        let trials = guard.get_trials(ctx.study_id)?;
+        let build_parent_params = |number: u32| -> Result<HashMap<String, f64>> {
+            let trial = trials
+                .get(number as usize)
+                .and_then(Option::as_ref)
+                .ok_or_else(|| Error::new(ErrorKind::TrialDiscarded))?;
+            let mut params = HashMap::with_capacity(search_space.len());
+            for name in search_space.keys() {
+                let param_value = *trial.internal_params.get(name).unwrap();
+                params.insert(name.clone(), param_value);
+            }
+            Ok(params)
+        };
+        let parent0 = build_parent_params(parent0_number)?;
+        let parent1 = build_parent_params(parent1_number)?;
+        drop(guard);
 
         let child = if self.rng.gen_bool(self.crossover_prob) {
             self.crossover(parent0, parent1, search_space)
@@ -358,37 +347,55 @@ impl Sampler for NSGAIISampler {
 
     fn after_trial(
         &mut self,
-        _ctx: &Context,
-        _storage: Arc<RwLock<dyn Storage>>,
-        _state_values: &TrialStateValues,
+        ctx: &Context,
+        storage: Arc<RwLock<dyn Storage>>,
+        state_values: &TrialStateValues,
     ) -> Result<()> {
+        if let TrialStateValues::Complete(_) = state_values {
+            let mut guard = storage
+                .write()
+                .map_err(|_e| Error::new(ErrorKind::Unexpected))?;
+            let trial = guard.get_trial(ctx.trial_id)?;
+            let generation_key = AttrKey::System("generation".into());
+            if let Some(gen_str) = trial.attrs.get(&generation_key) {
+                if let Ok(generation) = gen_str.parse::<u32>() {
+                    self.generation_to_numbers
+                        .entry(generation)
+                        .or_default()
+                        .push(trial.number);
+                }
+            }
+        }
         Ok(())
     }
 }
 
 fn fast_non_dominated_sort(
     ctx: &Context,
-    trials: &[PersistedTrial],
-    population_numbers: &Vec<u32>,
-) -> Vec<Vec<u32>> {
+    trials: &[Option<PersistedTrial>],
+    population_numbers: &[u32],
+) -> Result<Vec<Vec<u32>>> {
+    let n = population_numbers.len();
     let population_values = population_numbers
         .iter()
-        .map(|n| match &trials[*n as usize].state_values {
-            TrialStateValues::Complete(values) => values.clone(),
-            _ => vec![f64::NAN; ctx.directions.len()],
+        .map(|n| {
+            let trial = trials
+                .get(*n as usize)
+                .and_then(|trial| trial.as_ref())
+                .ok_or_else(|| Error::new(ErrorKind::TrialDiscarded))?;
+            match &trial.state_values {
+                TrialStateValues::Complete(values) => Ok(values.clone()),
+                _ => Ok(vec![f64::NAN; ctx.directions.len()]),
+            }
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>>>()?;
 
-    let mut dominated_count = HashMap::<u32, u32>::with_capacity(population_numbers.len());
-    let mut dominates_list = HashMap::<u32, Vec<u32>>::with_capacity(population_numbers.len());
-    for p in population_numbers {
-        dominated_count.insert(*p, 0);
-        dominates_list.insert(*p, vec![]);
-    }
+    let mut dominated_count = vec![0u32; n];
+    let mut dominates_list: Vec<Vec<usize>> = vec![vec![]; n];
 
-    for (i, p) in population_numbers.iter().enumerate() {
-        for (j, q) in population_numbers.iter().enumerate() {
-            if p >= q {
+    for (i, _) in population_numbers.iter().enumerate() {
+        for (j, _) in population_numbers.iter().enumerate() {
+            if i >= j {
                 continue;
             }
             if dominates(
@@ -396,81 +403,86 @@ fn fast_non_dominated_sort(
                 &population_values[j],
                 &ctx.directions,
             ) {
-                dominates_list.entry(*p).or_default().push(*q);
-                *dominated_count.entry(*q).or_insert(0) += 1;
+                dominates_list[i].push(j);
+                dominated_count[j] += 1;
             } else if dominates(
                 &population_values[j],
                 &population_values[i],
                 &ctx.directions,
             ) {
-                dominates_list.entry(*q).or_default().push(*p);
-                *dominated_count.entry(*p).or_insert(0) += 1;
+                dominates_list[j].push(i);
+                dominated_count[i] += 1;
             }
         }
     }
 
     let mut population_numbers_per_rank = vec![];
-    let mut mutable_population_numbers = population_numbers.clone();
-    while !mutable_population_numbers.is_empty() {
-        let mut non_dominated_population_numbers = vec![];
+    let mut mutable_population_indices: Vec<usize> = (0..n).collect();
+    while !mutable_population_indices.is_empty() {
+        let mut non_dominated_indices = vec![];
         let mut i = 0;
-        while i < mutable_population_numbers.len() {
-            if dominated_count[&mutable_population_numbers[i]] == 0 {
-                let individual = mutable_population_numbers[i];
-                if i == mutable_population_numbers.len() - 1 {
-                    mutable_population_numbers.pop();
+        while i < mutable_population_indices.len() {
+            let idx = mutable_population_indices[i];
+            if dominated_count[idx] == 0 {
+                if i == mutable_population_indices.len() - 1 {
+                    mutable_population_indices.pop();
                 } else {
-                    mutable_population_numbers[i] = mutable_population_numbers.pop().unwrap();
+                    mutable_population_indices[i] = mutable_population_indices.pop().unwrap();
                 }
-                non_dominated_population_numbers.push(individual);
+                non_dominated_indices.push(idx);
             } else {
                 i += 1;
             }
         }
-        for x in &non_dominated_population_numbers {
-            for y in &dominates_list[x] {
-                *dominated_count.get_mut(y).unwrap() -= 1;
+        for &x in &non_dominated_indices {
+            for &y in &dominates_list[x] {
+                dominated_count[y] -= 1;
             }
         }
-        population_numbers_per_rank.push(non_dominated_population_numbers);
+        population_numbers_per_rank.push(
+            non_dominated_indices
+                .into_iter()
+                .map(|idx| population_numbers[idx])
+                .collect(),
+        );
     }
-    population_numbers_per_rank
+    Ok(population_numbers_per_rank)
 }
 
 fn calc_crowding_distance(
     ctx: &Context,
-    trials: &[PersistedTrial],
-    population_numbers: &Vec<u32>,
-) -> HashMap<u32, f64> {
+    trials: &[Option<PersistedTrial>],
+    population_numbers: &[u32],
+) -> Result<Vec<(u32, f64)>> {
     let population_values = population_numbers
         .iter()
-        .map(|n| match &trials[*n as usize].state_values {
-            TrialStateValues::Complete(values) => values.clone(),
-            _ => vec![f64::NAN; ctx.directions.len()],
+        .map(|n| {
+            let trial = trials
+                .get(*n as usize)
+                .and_then(|trial| trial.as_ref())
+                .ok_or_else(|| Error::new(ErrorKind::TrialDiscarded))?;
+            match &trial.state_values {
+                TrialStateValues::Complete(values) => Ok(values.clone()),
+                _ => Ok(vec![f64::NAN; ctx.directions.len()]),
+            }
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>>>()?;
 
-    let mut crowding_distance = HashMap::<u32, f64>::with_capacity(population_numbers.len());
-    for p in population_numbers {
-        crowding_distance.insert(*p, 0.0);
-    }
+    let mut crowding_distance = vec![0.0; population_numbers.len()];
 
     for i in 0..ctx.directions.len() {
-        let mut population_numbers_and_values = population_numbers
-            .iter()
+        let mut indices_and_values = (0..population_numbers.len())
             .zip(population_values.iter().map(|v| v[i]))
             .collect::<Vec<_>>();
-        population_numbers_and_values.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        indices_and_values.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 
-        if population_numbers_and_values[0].1
-            == population_numbers_and_values[population_numbers.len() - 1].1
-        {
+        if indices_and_values[0].1 == indices_and_values[population_numbers.len() - 1].1 {
             continue;
         }
 
         let values = [-f64::INFINITY]
             .into_iter()
-            .chain(population_numbers_and_values.iter().map(|t| t.1))
+            .chain(indices_and_values.iter().map(|t| t.1))
             .chain([f64::INFINITY])
             .collect::<Vec<_>>();
 
@@ -482,33 +494,33 @@ fn calc_crowding_distance(
             width = 1.0;
         }
 
-        for j in 0..population_numbers_and_values.len() {
+        for j in 0..indices_and_values.len() {
             let gap = if values[j] == values[j + 2] {
                 0.0
             } else {
                 values[j + 2] - values[j]
             };
-            crowding_distance
-                .entry(*population_numbers_and_values[j].0)
-                .and_modify(|e| *e += gap / width);
+            crowding_distance[indices_and_values[j].0] += gap / width;
         }
     }
-    crowding_distance
+    Ok(population_numbers
+        .iter()
+        .copied()
+        .zip(crowding_distance)
+        .collect())
 }
 
 fn crowding_distance_sort(
     ctx: &Context,
-    trials: &[PersistedTrial],
+    trials: &[Option<PersistedTrial>],
     population_numbers: Vec<u32>,
-) -> Vec<u32> {
-    let manhattan_distance = calc_crowding_distance(ctx, trials, &population_numbers);
-    let mut mutable_population_numbers = population_numbers.clone();
-    mutable_population_numbers.sort_by(|a, b| {
-        manhattan_distance[b]
-            .partial_cmp(&manhattan_distance[a])
-            .unwrap()
-    });
-    mutable_population_numbers
+) -> Result<Vec<u32>> {
+    let mut population_and_distance = calc_crowding_distance(ctx, trials, &population_numbers)?;
+    population_and_distance.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    Ok(population_and_distance
+        .into_iter()
+        .map(|(number, _)| number)
+        .collect())
 }
 
 #[cfg(test)]

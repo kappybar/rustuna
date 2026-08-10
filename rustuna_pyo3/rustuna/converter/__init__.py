@@ -14,6 +14,7 @@ from ._frozen_study import (
     to_frozen_study,
     to_persisted_study,
 )
+from ._importance import ToOptunaImportanceEvaluator
 from ._sampler import (
     ToOptunaSampler,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "ToOptunaSampler",
     "ToOptunaStorage",
     "ToRustunaStorage",
+    "ToOptunaImportanceEvaluator",
     "to_frozen_study",
     "to_persisted_study",
     "FrozenTrialLike",

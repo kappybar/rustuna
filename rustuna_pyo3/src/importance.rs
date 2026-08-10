@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 
-use pyo3::exceptions::{PyRuntimeError, PyUserWarning, PyValueError};
+use pyo3::exceptions::PyUserWarning;
 use pyo3::prelude::*;
 use pyo3::PyResult;
 
 use rustuna_importance::{
-    get_param_importances_with, ImportanceOptions, PedAnovaImportanceEvaluator,
+    get_param_importances_with, ImportanceEvaluator, ImportanceOptions, PedAnovaImportanceEvaluator,
 };
 
+use crate::exception::err_to_exceptions;
 use crate::study::PyStudy;
 
 #[pyfunction]
@@ -28,9 +29,7 @@ pub fn py_get_param_importances(
         .map(|wrapper| &wrapper.evaluator)
         .unwrap_or(&default_evaluator);
     let importances =
-        get_param_importances_with(&study.study, evaluator, options).map_err(|err| {
-            PyRuntimeError::new_err(format!("Failed to evaluate parameter importances: {err}"))
-        })?;
+        get_param_importances_with(&study.study, evaluator, options).map_err(err_to_exceptions)?;
     Ok(importances)
 }
 
@@ -52,7 +51,7 @@ impl PyPedAnovaImportanceEvaluator {
     ) -> PyResult<Self> {
         let evaluator =
             PedAnovaImportanceEvaluator::new(target_quantile, region_quantile, evaluate_on_local)
-                .map_err(|err| PyValueError::new_err(err.reason))?;
+                .map_err(err_to_exceptions)?;
         if region_quantile != 1.0 && !evaluate_on_local {
             PyErr::warn(
                 py,
@@ -64,5 +63,23 @@ impl PyPedAnovaImportanceEvaluator {
             )?;
         }
         Ok(Self { evaluator })
+    }
+
+    #[pyo3(signature = (study, params = None))]
+    fn evaluate(
+        &self,
+        study: &PyStudy,
+        params: Option<Vec<String>>,
+    ) -> PyResult<HashMap<String, f64>> {
+        let options = ImportanceOptions {
+            target: None,
+            normalize: true,
+            params,
+        };
+        let importances = self
+            .evaluator
+            .evaluate_with(&study.study, options)
+            .map_err(err_to_exceptions)?;
+        Ok(importances)
     }
 }

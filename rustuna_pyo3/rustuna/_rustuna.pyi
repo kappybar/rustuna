@@ -165,6 +165,12 @@ class Trial:
         Args:
             attrs: A dictionary object.
         """
+    def set_constraints(self, constraints: dict[str, float]) -> None:
+        """Set constraints to the trial.
+
+        Args:
+            constraints: A dictionary object.
+        """
 
 class AttrsDictView(Mapping[str, str]):
     def __len__(self) -> int: ...
@@ -212,8 +218,8 @@ class PersistedTrial:
         user_attrs: Dictionary that contains the attributes of the Trial set with set_user_attr.
         system_attrs: Dictionary that contains the attributes of the Trial set with set_system_attr.
         internal_params: Dictionary that contains internal representations of the parameters.
-        datetime_start: Datetime where the Trial started.
-        datetime_complete: Datetime where the Trial finished.
+        datetime_start: Datetime where the Trial started, as timezone-naive local time.
+        datetime_complete: Datetime where the Trial finished, as timezone-naive local time.
     """
 
     def __init__(
@@ -253,6 +259,8 @@ class PersistedTrial:
     def user_attrs(self) -> AttrsDictView: ...
     @property
     def system_attrs(self) -> AttrsDictView: ...
+    @property
+    def constraints(self) -> dict[str, float]: ...
     @property
     def internal_params(self) -> dict[str, float]: ...
     @property
@@ -463,6 +471,11 @@ class PedAnovaImportanceEvaluator:
         region_quantile: float = 1.0,
         evaluate_on_local: bool = True,
     ) -> None: ...
+    def evaluate(
+        self,
+        study: Study,
+        params: list[str] | None = None,
+    ) -> dict[str, float]: ...
 
 def get_param_importances(
     study: Study,
@@ -968,12 +981,20 @@ class SQLite3Storage:
     Args:
         file_path: Path to the SQLite3 database file.
         create_database: If True, initialize the database when it is missing.
+        apply_discard: If True, omit discarded trials from subsequent reads. ``discard_trials()``
+            marks the trials in the database regardless of this option, so a storage opened with
+            ``apply_discard=False`` still records discards for other readers to apply. Discards
+            need a Rustuna-specific column on the ``trials`` table; it is added by
+            ``create_database``, and enabling this option on a database that lacks it raises an
+            error instead of silently ignoring discards. Discards applied by another process are
+            picked up on the next read, except when that process' clock lags behind.
     """
     def __init__(
         self,
         file_path: str,
         *,
         create_database: bool = True,
+        apply_discard: bool = False,
     ) -> None: ...
     def create_new_study(
         self, study_name: str, directions: list[StudyDirection]
