@@ -68,14 +68,17 @@ impl PyPedAnovaImportanceEvaluator {
         Ok(Self { evaluator })
     }
 
-    #[pyo3(signature = (study, params = None))]
+    #[pyo3(signature = (study, params = None, * , target = None))]
     fn evaluate(
         &self,
+        py: Python<'_>,
         study: &PyStudy,
         params: Option<Vec<String>>,
+        target: Option<Py<PyAny>>,
     ) -> PyResult<HashMap<String, f64>> {
+        let rust_target = convert_py_target(py, study, target)?;
         let options = ImportanceOptions {
-            target: None,
+            target: rust_target.as_ref().map(|target| target as &dyn Fn(&PersistedTrial) -> f64),
             normalize: true,
             params,
         };
