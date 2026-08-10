@@ -11,3 +11,6 @@ pub mod directory_queue;
 pub mod journal;
 pub mod sqlite3;
 pub mod sqlite3_queue;
+
+#[cfg(test)]
+mod test_utils;

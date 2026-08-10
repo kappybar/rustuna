@@ -177,12 +177,13 @@ impl TrialQueue for SQLite3TrialQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
+    use crate::test_utils::TempDir;
 
     #[test]
     fn test_enqueue_and_dequeue() {
-        let temp_file = NamedTempFile::new().unwrap();
-        let mut queue = SQLite3TrialQueue::new(temp_file.path(), "study-1").unwrap();
+        let temp_dir = TempDir::new().unwrap();
+        let mut queue =
+            SQLite3TrialQueue::new(temp_dir.path().join("queue.sqlite3"), "study-1").unwrap();
 
         queue.enqueue(10).unwrap();
         queue.enqueue(20).unwrap();
@@ -195,16 +196,18 @@ mod tests {
 
     #[test]
     fn test_dequeue_empty_queue() {
-        let temp_file = NamedTempFile::new().unwrap();
-        let mut queue = SQLite3TrialQueue::new(temp_file.path(), "study-1").unwrap();
+        let temp_dir = TempDir::new().unwrap();
+        let mut queue =
+            SQLite3TrialQueue::new(temp_dir.path().join("queue.sqlite3"), "study-1").unwrap();
 
         assert!(queue.dequeue().is_err());
     }
 
     #[test]
     fn test_fifo_ordering() {
-        let temp_file = NamedTempFile::new().unwrap();
-        let mut queue = SQLite3TrialQueue::new(temp_file.path(), "study-1").unwrap();
+        let temp_dir = TempDir::new().unwrap();
+        let mut queue =
+            SQLite3TrialQueue::new(temp_dir.path().join("queue.sqlite3"), "study-1").unwrap();
 
         for i in 1..=100 {
             queue.enqueue(i).unwrap();
@@ -217,9 +220,10 @@ mod tests {
 
     #[test]
     fn test_namespace_isolation() {
-        let temp_file = NamedTempFile::new().unwrap();
-        let mut queue1 = SQLite3TrialQueue::new(temp_file.path(), "study-1").unwrap();
-        let mut queue2 = SQLite3TrialQueue::new(temp_file.path(), "study-2").unwrap();
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("queue.sqlite3");
+        let mut queue1 = SQLite3TrialQueue::new(&db_path, "study-1").unwrap();
+        let mut queue2 = SQLite3TrialQueue::new(&db_path, "study-2").unwrap();
 
         queue1.enqueue(10).unwrap();
         queue1.enqueue(20).unwrap();
@@ -237,8 +241,9 @@ mod tests {
 
     #[test]
     fn test_push_pop_interleaved() {
-        let temp_file = NamedTempFile::new().unwrap();
-        let mut queue = SQLite3TrialQueue::new(temp_file.path(), "study-1").unwrap();
+        let temp_dir = TempDir::new().unwrap();
+        let mut queue =
+            SQLite3TrialQueue::new(temp_dir.path().join("queue.sqlite3"), "study-1").unwrap();
 
         queue.enqueue(1).unwrap();
         queue.enqueue(2).unwrap();
@@ -253,8 +258,8 @@ mod tests {
 
     #[test]
     fn test_reopen_queue() {
-        let temp_file = NamedTempFile::new().unwrap();
-        let db_path = temp_file.path().to_path_buf();
+        let temp_dir = TempDir::new().unwrap();
+        let db_path = temp_dir.path().join("queue.sqlite3");
 
         {
             let mut queue = SQLite3TrialQueue::new(&db_path, "study-1").unwrap();
