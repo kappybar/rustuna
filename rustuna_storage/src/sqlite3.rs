@@ -1987,10 +1987,10 @@ fn decode_intermediate_value(stored_value: Option<f64>, value_type: &str) -> Res
 mod tests {
     use super::*;
     use crate::cache::CachedStorage;
+    use crate::test_utils::TempDir;
     use rustuna_core::sampler::RandomSampler;
     use rustuna_core::storage::Storage;
     use rustuna_core::study::{create_study, Direction};
-    use tempfile::tempdir;
 
     fn init_storage() -> Result<SQLite3Storage> {
         init_storage_with_option(SQLite3StorageOptions::default())
@@ -2091,7 +2091,7 @@ mod tests {
 
     #[test]
     fn create_database_is_idempotent() -> Result<()> {
-        let dir = tempdir().map_err(|_| Error::new(ErrorKind::Unexpected))?;
+        let dir = TempDir::new().map_err(|_| Error::new(ErrorKind::Unexpected))?;
         let path = dir.path().join("storage.sqlite3");
         let storage = SQLite3Storage::new(path.to_string_lossy().as_ref())?;
 
@@ -2174,7 +2174,7 @@ mod tests {
 
     #[test]
     fn discarded_trials_stay_discarded_after_reopening() -> Result<()> {
-        let dir = tempdir().map_err(|_| Error::new(ErrorKind::Unexpected))?;
+        let dir = TempDir::new().map_err(|_| Error::new(ErrorKind::Unexpected))?;
         let path = dir.path().join("storage.sqlite3");
         let path = path.to_string_lossy().to_string();
 
@@ -2214,7 +2214,7 @@ mod tests {
 
     #[test]
     fn discards_are_persisted_when_apply_discard_is_disabled() -> Result<()> {
-        let dir = tempdir().map_err(|_| Error::new(ErrorKind::Unexpected))?;
+        let dir = TempDir::new().map_err(|_| Error::new(ErrorKind::Unexpected))?;
         let path = dir.path().join("storage.sqlite3");
         let path = path.to_string_lossy().to_string();
 
@@ -2245,7 +2245,7 @@ mod tests {
 
     #[test]
     fn discards_by_another_process_are_synchronized() -> Result<()> {
-        let dir = tempdir().map_err(|_| Error::new(ErrorKind::Unexpected))?;
+        let dir = TempDir::new().map_err(|_| Error::new(ErrorKind::Unexpected))?;
         let path = dir.path().join("storage.sqlite3");
         let path = path.to_string_lossy().to_string();
 
@@ -2272,7 +2272,7 @@ mod tests {
 
     #[test]
     fn rejected_writes_on_discarded_trials_do_not_reach_the_database() -> Result<()> {
-        let dir = tempdir().map_err(|_| Error::new(ErrorKind::Unexpected))?;
+        let dir = TempDir::new().map_err(|_| Error::new(ErrorKind::Unexpected))?;
         let path = dir.path().join("storage.sqlite3");
         let path = path.to_string_lossy().to_string();
 

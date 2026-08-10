@@ -77,26 +77,24 @@ impl DirectoryTrialQueue {
 
 impl TrialQueue for DirectoryTrialQueue {
     fn enqueue(&mut self, trial_id: u32) -> Result<()> {
-        let filename = Self::trial_id_to_filename(trial_id);
-        let target_path = self.pending_dir.join(&filename);
-
-        // Create a temporary file first, then atomically rename it to the target path.
-        // This ensures that incomplete writes are never visible.
-        let temp_file = tempfile::NamedTempFile::new_in(&self.pending_dir).map_err(|e| {
-            Error::with_reason(
-                ErrorKind::StorageError,
-                format!("Failed to create temporary file: {e}"),
-            )
-        })?;
-
-        temp_file.persist(&target_path).map_err(|e| {
-            Error::with_reason(
-                ErrorKind::StorageError,
-                format!("Failed to persist trial file: {e}"),
-            )
-        })?;
-
-        Ok(())
+        loop {
+            let filename = Self::trial_id_to_filename(trial_id);
+            let target_path = self.pending_dir.join(filename);
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(target_path)
+            {
+                Ok(_) => return Ok(()),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(error) => {
+                    return Err(Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Failed to create trial file: {error}"),
+                    ));
+                }
+            }
+        }
     }
 
     fn dequeue(&mut self) -> Result<u32> {
@@ -160,11 +158,12 @@ impl TrialQueue for DirectoryTrialQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::TempDir;
     use rustuna_core::trial_queue::TrialQueue;
 
     #[test]
     fn test_enqueue_and_dequeue() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = TempDir::new().unwrap();
         let mut queue = DirectoryTrialQueue::new(temp_dir.path()).unwrap();
 
         queue.enqueue(1).unwrap();
@@ -178,7 +177,7 @@ mod tests {
 
     #[test]
     fn test_dequeue_empty_queue() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = TempDir::new().unwrap();
         let mut queue = DirectoryTrialQueue::new(temp_dir.path()).unwrap();
 
         assert!(queue.dequeue().is_err());
@@ -186,7 +185,7 @@ mod tests {
 
     #[test]
     fn test_fifo_order() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = TempDir::new().unwrap();
         let mut queue = DirectoryTrialQueue::new(temp_dir.path()).unwrap();
 
         // Push in non-sequential order
@@ -203,7 +202,7 @@ mod tests {
 
     #[test]
     fn test_multiple_queues_same_directory() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = TempDir::new().unwrap();
         let mut queue1 = DirectoryTrialQueue::new(temp_dir.path()).unwrap();
         let mut queue2 = DirectoryTrialQueue::new(temp_dir.path()).unwrap();
 
