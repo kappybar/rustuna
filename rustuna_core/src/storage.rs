@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::attr::{category_labels_to_attrs, get_category_labels, AttrKey, Attrs, CategoryLabel};
+use crate::datetime::now_naive_utc;
 use crate::distribution::Distribution;
 use crate::study::{Direction, PersistedStudy};
 use crate::study_cache::StudyCache;
@@ -334,7 +335,8 @@ impl Storage for InMemoryStorage {
         let trial_id = self.next_trial_id;
         self.next_trial_id += 1;
         let number = trials.len() as u32;
-        let trial = PersistedTrial::new(trial_id, study_id, number);
+        let mut trial = PersistedTrial::new(trial_id, study_id, number);
+        trial.datetime_start = Some(now_naive_utc());
         trials.push(Some(trial));
         self.trial_id_to_study_number
             .insert(trial_id, (study_id, number));
@@ -408,6 +410,14 @@ impl Storage for InMemoryStorage {
                 .and_then(Option::as_mut),
         )?;
         check_trial_is_updatable(trial)?;
+        trial.datetime_complete = if matches!(
+            state_values,
+            TrialStateValues::Complete(_) | TrialStateValues::Pruned | TrialStateValues::Fail
+        ) {
+            Some(now_naive_utc())
+        } else {
+            None
+        };
         trial.state_values = state_values;
         Ok(())
     }
@@ -642,6 +652,39 @@ mod tests {
         assert_eq!(trial.id, 10);
         let trial = storage.create_new_trial(study_id)?;
         assert_eq!(trial.id, 11);
+        Ok(())
+    }
+
+    #[test]
+    fn trials_are_stamped_with_naive_utc_datetimes() -> Result<()> {
+        let before = now_naive_utc();
+        let mut storage = InMemoryStorage::new();
+        let study_id = storage.create_new_study("s", vec![Direction::Minimize])?.id;
+        let trial_id = storage.create_new_trial(study_id)?.id;
+
+        let trial = storage.get_trial(trial_id)?;
+        let started = trial
+            .datetime_start
+            .clone()
+            .expect("a new trial records when it started");
+        assert!(trial.datetime_complete.is_none());
+
+        storage.set_trial_state_values(trial_id, TrialStateValues::Complete(vec![1.0]))?;
+        let trial = storage.get_trial(trial_id)?;
+        let completed = trial
+            .datetime_complete
+            .clone()
+            .expect("a finished trial records when it finished");
+        assert_eq!(trial.datetime_start.as_deref(), Some(started.as_str()));
+
+        // Naive UTC of a fixed width is lexicographically ordered, so the strings can be bracketed
+        // by readings taken around the calls without any date arithmetic.
+        let after = now_naive_utc();
+        assert_eq!(started.len(), after.len());
+        assert!(
+            before <= started && started <= completed && completed <= after,
+            "expected {before} <= {started} <= {completed} <= {after}"
+        );
         Ok(())
     }
 

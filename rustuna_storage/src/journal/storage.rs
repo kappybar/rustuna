@@ -17,6 +17,7 @@ use rustuna_core::trial::{PersistedTrial, TrialStateValues};
 use rustuna_core::{Error, ErrorKind, Result};
 
 use super::{JournalBackend, JournalLog, JournalOperation};
+use crate::datetime::{journal_datetime_to_naive_utc, naive_utc_to_aware_utc, now_aware_utc};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 /// Options for [`JournalStorage`].
@@ -146,10 +147,7 @@ impl Storage for JournalStorage {
     fn create_new_trial(&mut self, study_id: u32) -> Result<&PersistedTrial> {
         let mut fields = HashMap::new();
         fields.insert("study_id".to_string(), to_raw(&study_id)?);
-        fields.insert(
-            "datetime_start".to_string(),
-            to_raw(&chrono::Local::now().naive_local().to_string())?,
-        );
+        fields.insert("datetime_start".to_string(), to_raw(&now_aware_utc())?);
         self.write_log(JournalOperation::CreateTrial, fields)?;
         self.sync_with_backend()?;
         let trial_id = self
@@ -270,10 +268,18 @@ impl Storage for JournalStorage {
         );
         fields.insert(
             "datetime_start".to_string(),
-            to_raw(&template.datetime_start)?,
+            to_raw(
+                &template
+                    .datetime_start
+                    .as_deref()
+                    .map(naive_utc_to_aware_utc),
+            )?,
         );
         if let Some(ref dt) = template.datetime_complete {
-            fields.insert("datetime_complete".to_string(), to_raw(dt)?);
+            fields.insert(
+                "datetime_complete".to_string(),
+                to_raw(&naive_utc_to_aware_utc(dt))?,
+            );
         }
         self.write_log(JournalOperation::CreateTrial, fields)?;
         self.sync_with_backend()?;
@@ -408,15 +414,9 @@ impl Storage for JournalStorage {
             && (!matches!(existing_trial.state_values, TrialStateValues::Running)
                 || existing_trial.datetime_start.is_none())
         {
-            fields.insert(
-                "datetime_start".to_string(),
-                to_raw(&chrono::Local::now().naive_local().to_string())?,
-            );
+            fields.insert("datetime_start".to_string(), to_raw(&now_aware_utc())?);
         } else if matches!(state_code, 1..=3) {
-            fields.insert(
-                "datetime_complete".to_string(),
-                to_raw(&chrono::Local::now().naive_local().to_string())?,
-            );
+            fields.insert("datetime_complete".to_string(), to_raw(&now_aware_utc())?);
         }
         self.write_log(JournalOperation::SetTrialStateValues, fields)?;
         self.sync_with_backend()?;
@@ -993,8 +993,12 @@ impl JournalReplayState {
         let user_attrs = get_optional_raw_map(&log.fields, "user_attrs")?;
         let system_attrs = get_optional_raw_map(&log.fields, "system_attrs")?;
         let intermediate_values = get_optional_raw_map(&log.fields, "intermediate_values")?;
-        let datetime_start = get_optional_string(&log.fields, "datetime_start")?;
-        let datetime_complete = get_optional_string(&log.fields, "datetime_complete")?;
+        let datetime_start = get_optional_string(&log.fields, "datetime_start")?
+            .as_deref()
+            .map(journal_datetime_to_naive_utc);
+        let datetime_complete = get_optional_string(&log.fields, "datetime_complete")?
+            .as_deref()
+            .map(journal_datetime_to_naive_utc);
         if !self.study_exists(study_id, log, worker_id)? {
             return Ok(());
         }
@@ -1183,8 +1187,12 @@ impl JournalReplayState {
         let trial_id = get_u32(&log.fields, "trial_id")?;
         let state_code = get_i64(&log.fields, "state")?;
         let values = get_optional_raw_vec(&log.fields, "values")?;
-        let datetime_start = get_optional_string(&log.fields, "datetime_start")?;
-        let datetime_complete = get_optional_string(&log.fields, "datetime_complete")?;
+        let datetime_start = get_optional_string(&log.fields, "datetime_start")?
+            .as_deref()
+            .map(journal_datetime_to_naive_utc);
+        let datetime_complete = get_optional_string(&log.fields, "datetime_complete")?
+            .as_deref()
+            .map(journal_datetime_to_naive_utc);
         if !self.trial_exists_and_updatable(trial_id, log, worker_id)? {
             return Ok(());
         }
@@ -2101,6 +2109,61 @@ mod tests {
         let backend = InMemoryJournalBackend { logs: logs.clone() };
         let storage = JournalStorage::new(Box::new(backend))?;
         Ok((storage, logs))
+    }
+
+    #[test]
+    fn trial_datetimes_are_logged_as_aware_utc() -> Result<()> {
+        let (mut storage, logs) = new_storage()?;
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])?
+            .id;
+        let trial_id = storage.create_new_trial(study_id)?.id;
+        storage.set_trial_state_values(trial_id, TrialStateValues::Complete(vec![1.0]))?;
+
+        let trial = storage.get_trial(trial_id)?;
+        let reported_start = trial.datetime_start.clone().expect("datetime_start is set");
+        let reported_complete = trial
+            .datetime_complete
+            .clone()
+            .expect("datetime_complete is set");
+
+        // Collect the datetimes as they appear in the log itself.
+        let logged: Vec<String> = {
+            let guard = logs.lock().expect("lock logs");
+            guard
+                .iter()
+                .flat_map(|log| {
+                    ["datetime_start", "datetime_complete"]
+                        .iter()
+                        .filter_map(|key| get_optional_string(&log.fields, key).ok().flatten())
+                        .collect::<Vec<_>>()
+                })
+                .collect()
+        };
+        assert_eq!(logged.len(), 2, "expected both datetimes in the log");
+
+        for value in &logged {
+            // Journal logs carry timezone-aware UTC, matching
+            // datetime.now(tz=timezone.utc).isoformat(timespec="microseconds") in Optuna.
+            assert!(value.ends_with("+00:00"), "not aware UTC: {value}");
+            assert_eq!(value.as_bytes()[10], b'T', "not RFC 3339: {value}");
+            assert_eq!(
+                value.len(),
+                "1970-01-01T00:00:00.000000+00:00".len(),
+                "not microsecond precision: {value}"
+            );
+        }
+
+        // What PersistedTrial carries is the very same instants as naive UTC, so the log entries
+        // are the reported values plus an explicit offset.
+        assert_eq!(
+            logged,
+            vec![
+                naive_utc_to_aware_utc(&reported_start),
+                naive_utc_to_aware_utc(&reported_complete),
+            ]
+        );
+        Ok(())
     }
 
     #[test]

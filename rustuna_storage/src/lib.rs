@@ -6,6 +6,7 @@
 //! `rustuna_core::storage::Storage` and `rustuna_core::trial_queue::TrialQueue` traits.
 
 pub mod cache;
+pub mod datetime;
 pub mod directory_queue;
 pub mod journal;
 pub mod sqlite3;
