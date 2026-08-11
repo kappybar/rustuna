@@ -175,6 +175,8 @@ pub struct InMemoryStorage {
     study_caches: HashMap<u32, StudyCache>,
     next_study_id: u32,
     next_trial_id: u32,
+    // Supports the state-counting API required when `discard_trials` removes trials.
+    // Storing only discarded trials' states avoids tracking state transitions and keeps this simple.
     discarded_state_counts: HashMap<(u32, TrialState), u32>,
     option: InMemoryStorageOptions,
 }
@@ -569,18 +571,17 @@ impl Storage for InMemoryStorage {
 
         let states: Option<HashSet<TrialState>> =
             states.map(|states| states.iter().copied().collect());
-        let is_state_requested = |trial: &PersistedTrial| {
-            states
-                .as_ref()
-                .is_none_or(|states| states.contains(&trial.state_values.state()))
-        };
         let live_count = self
             .trials
             .get(&study_id)
             .ok_or(Error::new(ErrorKind::StudyNotFound))?
             .iter()
             .flatten()
-            .filter(|trial| is_state_requested(trial))
+            .filter(|trial| {
+                states
+                    .as_ref()
+                    .is_none_or(|states| states.contains(&trial.state_values.state()))
+            })
             .count() as u32;
         let discarded_count = self
             .discarded_state_counts

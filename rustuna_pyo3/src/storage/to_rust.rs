@@ -836,18 +836,8 @@ impl PyToRustStorage {
         let mut guard = storage.write().map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
         })?;
-        let states = states.map(|states| {
-            states
-                .into_iter()
-                .map(|state| match state {
-                    PyTrialState::RUNNING => TrialState::Running,
-                    PyTrialState::COMPLETE => TrialState::Complete,
-                    PyTrialState::PRUNED => TrialState::Pruned,
-                    PyTrialState::WAITING => TrialState::Waiting,
-                    PyTrialState::FAIL => TrialState::Fail,
-                })
-                .collect::<Vec<_>>()
-        });
+        let states =
+            states.map(|states| states.into_iter().map(TrialState::from).collect::<Vec<_>>());
         guard
             .get_n_trials(study_id, states.as_deref())
             .map_err(err_to_exceptions)

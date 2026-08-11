@@ -808,18 +808,17 @@ impl JournalReplayState {
         }
         let states: Option<std::collections::HashSet<TrialState>> =
             states.map(|states| states.iter().copied().collect());
-        let is_state_requested = |trial: &PersistedTrial| {
-            states
-                .as_ref()
-                .is_none_or(|states| states.contains(&trial.state_values.state()))
-        };
         let live_count = self
             .trials_by_study
             .get(&study_id)
             .ok_or(Error::new(ErrorKind::StudyNotFound))?
             .iter()
             .flatten()
-            .filter(|trial| is_state_requested(trial))
+            .filter(|trial| {
+                states
+                    .as_ref()
+                    .is_none_or(|states| states.contains(&trial.state_values.state()))
+            })
             .count() as u32;
         let discarded_count = self
             .discarded_state_counts
@@ -1495,14 +1494,10 @@ impl JournalReplayState {
                     ),
                 )
             })?;
-            if slot.is_none() {
+            let Some(trial) = slot.as_ref() else {
                 continue;
-            }
-            let state = slot
-                .as_ref()
-                .expect("slot was checked to be present")
-                .state_values
-                .state();
+            };
+            let state = trial.state_values.state();
             targets.push((study_id, trial_number, trial_id, state));
         }
         for (study_id, trial_number, _, state) in targets {
@@ -1528,7 +1523,6 @@ impl JournalReplayState {
                     .discarded_state_counts
                     .entry((study_id, state))
                     .or_default() += 1;
-                self.study_caches.remove(&study_id);
             }
         }
         Ok(())

@@ -250,18 +250,8 @@ impl StorageBinding {
         states: Option<Vec<PyTrialState>>,
     ) -> PyResult<u32> {
         py.detach(|| -> PyResult<u32> {
-            let states = states.map(|states| {
-                states
-                    .into_iter()
-                    .map(|state| match state {
-                        PyTrialState::RUNNING => TrialState::Running,
-                        PyTrialState::COMPLETE => TrialState::Complete,
-                        PyTrialState::PRUNED => TrialState::Pruned,
-                        PyTrialState::WAITING => TrialState::Waiting,
-                        PyTrialState::FAIL => TrialState::Fail,
-                    })
-                    .collect::<Vec<_>>()
-            });
+            let states =
+                states.map(|states| states.into_iter().map(TrialState::from).collect::<Vec<_>>());
             let mut guard = self.storage.write().map_err(|e| {
                 PyRuntimeError::new_err(format!("Failed to acquire the storage guard: {e:?}"))
             })?;

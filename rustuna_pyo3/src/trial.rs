@@ -9,7 +9,7 @@ use rustuna_core::attr::{
 };
 use rustuna_core::distribution::Distribution;
 use rustuna_core::storage::Storage;
-use rustuna_core::trial::{PersistedTrial, Trial, TrialStateValues};
+use rustuna_core::trial::{PersistedTrial, Trial, TrialState, TrialStateValues};
 use rustuna_core::ErrorKind;
 
 use crate::attrs::{pyobj_to_attrs, AttrKind, AttrsDictView};
@@ -204,6 +204,18 @@ impl From<rustuna_core::trial::TrialState> for PyTrialState {
             rustuna_core::trial::TrialState::Pruned => PyTrialState::PRUNED,
             rustuna_core::trial::TrialState::Fail => PyTrialState::FAIL,
             rustuna_core::trial::TrialState::Waiting => PyTrialState::WAITING,
+        }
+    }
+}
+
+impl From<PyTrialState> for TrialState {
+    fn from(item: PyTrialState) -> Self {
+        match item {
+            PyTrialState::RUNNING => TrialState::Running,
+            PyTrialState::COMPLETE => TrialState::Complete,
+            PyTrialState::PRUNED => TrialState::Pruned,
+            PyTrialState::FAIL => TrialState::Fail,
+            PyTrialState::WAITING => TrialState::Waiting,
         }
     }
 }
