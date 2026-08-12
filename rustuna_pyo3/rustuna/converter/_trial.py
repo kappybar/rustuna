@@ -11,7 +11,7 @@ from optuna.trial import FrozenTrial
 
 import rustuna
 
-from ._attrs import OptunaAttrsView, to_rustuna_attrs
+from ._attrs import to_optuna_attrs, to_rustuna_attrs
 from ._distribution import (
     to_optuna_distributions,
     to_rustuna_distribution,
@@ -242,7 +242,7 @@ class FrozenTrialLike(FrozenTrial):
             return self.__user_attrs
 
         user_attrs = self._persisted_trial.user_attrs
-        self.__user_attrs = OptunaAttrsView(user_attrs)
+        self.__user_attrs = to_optuna_attrs(dict(user_attrs))
         return self.__user_attrs
 
     @user_attrs.setter
@@ -255,7 +255,7 @@ class FrozenTrialLike(FrozenTrial):
             return self.__system_attrs
 
         system_attrs = self._persisted_trial.system_attrs
-        self.__system_attrs = OptunaAttrsView(system_attrs)
+        self.__system_attrs = to_optuna_attrs(dict(system_attrs))
         return self.__system_attrs
 
     @system_attrs.setter
