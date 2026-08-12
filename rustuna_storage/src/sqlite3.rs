@@ -6,7 +6,7 @@ use rustuna_core::attr::{AttrKey, Attrs, CategoryLabel};
 use rustuna_core::datetime::now_naive_utc;
 use rustuna_core::distribution::Distribution;
 use rustuna_core::study::{Direction, PersistedStudy};
-use rustuna_core::trial::{PersistedTrial, TrialStateValues};
+use rustuna_core::trial::{PersistedTrial, TrialState, TrialStateValues};
 use rustuna_core::{Error, ErrorKind, Result};
 use serde_json::{json, Number, Value};
 use std::collections::HashMap;
@@ -364,6 +364,48 @@ impl CachedStorageBackend for SQLite3Storage {
             }
         }
         Ok(diff)
+    }
+
+    fn get_n_trials(
+        &mut self,
+        study_id: u32,
+        states: Option<&[TrialState]>,
+    ) -> rustuna_core::Result<u32> {
+        self.validate_study_id(study_id)?;
+
+        let mut sql = "SELECT COUNT(*) FROM trials WHERE study_id = ?".to_string();
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(study_id)];
+        if let Some(states) = states {
+            if states.is_empty() {
+                return Ok(0);
+            }
+            let placeholders = states.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+            sql.push_str(&format!(" AND state IN ({placeholders})"));
+            params.extend(states.iter().map(|state| {
+                let state = match state {
+                    TrialState::Running => "RUNNING",
+                    TrialState::Complete => "COMPLETE",
+                    TrialState::Pruned => "PRUNED",
+                    TrialState::Waiting => "WAITING",
+                    TrialState::Fail => "FAIL",
+                };
+                Box::new(state.to_string()) as Box<dyn rusqlite::ToSql>
+            }));
+        }
+
+        let guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
+        let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        guard
+            .query_row(&sql, param_refs.as_slice(), |row| row.get(0))
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {e}"),
+                )
+            })
     }
 
     fn create_new_study(
@@ -2200,6 +2242,36 @@ mod tests {
         backend.create_database()?;
         backend.validate_discard_support()?;
         Ok(CachedStorage::new(Box::new(backend)))
+    }
+
+    #[test]
+    fn get_n_trials_counts_states_including_discarded_trials() -> Result<()> {
+        let mut storage = init_storage()?;
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])?
+            .id;
+        let running_trial_id = storage.create_new_trial(study_id)?.id;
+        let complete_trial_id = storage.create_new_trial(study_id)?.id;
+        storage.set_trial_state_values(complete_trial_id, TrialStateValues::Complete(vec![1.0]))?;
+
+        assert_eq!(storage.get_n_trials(study_id, None)?, 2);
+        assert_eq!(
+            storage.get_n_trials(study_id, Some(&[TrialState::Running]))?,
+            1
+        );
+        assert_eq!(
+            storage.get_n_trials(study_id, Some(&[TrialState::Complete]))?,
+            1
+        );
+
+        storage.discard_trials(&[complete_trial_id])?;
+        assert_eq!(storage.get_n_trials(study_id, None)?, 2);
+        assert_eq!(
+            storage.get_n_trials(study_id, Some(&[TrialState::Complete]))?,
+            1
+        );
+        assert!(storage.get_trial(running_trial_id).is_ok());
+        Ok(())
     }
 
     #[test]

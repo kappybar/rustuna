@@ -13,7 +13,7 @@ use rustuna_core::distribution::Distribution;
 use rustuna_core::storage::Storage;
 use rustuna_core::study::{Direction, PersistedStudy};
 use rustuna_core::study_cache::StudyCache;
-use rustuna_core::trial::{PersistedTrial, TrialStateValues};
+use rustuna_core::trial::{PersistedTrial, TrialState, TrialStateValues};
 use rustuna_core::{Error, ErrorKind, Result};
 
 use super::{JournalBackend, JournalLog, JournalOperation};
@@ -716,6 +716,11 @@ impl Storage for JournalStorage {
         Ok(cache.get_joint_search_space())
     }
 
+    fn get_n_trials(&mut self, study_id: u32, states: Option<&[TrialState]>) -> Result<u32> {
+        self.sync_with_backend()?;
+        self.replay.get_n_trials(study_id, states)
+    }
+
     fn discard_trials(&mut self, trial_ids: &[u32]) -> Result<()> {
         self.sync_with_backend()?;
         let mut unique_trial_ids = Vec::new();
@@ -773,6 +778,7 @@ struct JournalReplayState {
     last_created_trial_id_by_this_process: Option<u32>,
     studies_sorted: Vec<PersistedStudy>,
     study_caches: HashMap<u32, StudyCache>,
+    discarded_state_counts: HashMap<(u32, TrialState), u32>,
     apply_discard: bool,
 }
 
@@ -791,8 +797,38 @@ impl JournalReplayState {
             last_created_trial_id_by_this_process: None,
             studies_sorted: Vec::new(),
             study_caches: HashMap::new(),
+            discarded_state_counts: HashMap::new(),
             apply_discard,
         }
+    }
+
+    fn get_n_trials(&self, study_id: u32, states: Option<&[TrialState]>) -> Result<u32> {
+        if !self.studies.contains_key(&study_id) {
+            return Err(Error::new(ErrorKind::StudyNotFound));
+        }
+        let states: Option<std::collections::HashSet<TrialState>> =
+            states.map(|states| states.iter().copied().collect());
+        let live_count = self
+            .trials_by_study
+            .get(&study_id)
+            .ok_or(Error::new(ErrorKind::StudyNotFound))?
+            .iter()
+            .flatten()
+            .filter(|trial| {
+                states
+                    .as_ref()
+                    .is_none_or(|states| states.contains(&trial.state_values.state()))
+            })
+            .count() as u32;
+        let discarded_count = self
+            .discarded_state_counts
+            .iter()
+            .filter(|((id, state), _)| {
+                *id == study_id && states.as_ref().is_none_or(|states| states.contains(state))
+            })
+            .map(|(_, count)| count)
+            .sum::<u32>();
+        Ok(live_count + discarded_count)
     }
 
     fn apply_logs(&mut self, logs: &[JournalLog], worker_id: &str) -> Result<()> {
@@ -940,6 +976,8 @@ impl JournalReplayState {
                 }
             }
             self.trials_by_study.remove(&study_id);
+            self.discarded_state_counts
+                .retain(|(id, _), _| *id != study_id);
             self.study_caches.remove(&study_id);
         }
         Ok(())
@@ -1428,7 +1466,7 @@ impl JournalReplayState {
         for trial_id in trial_ids {
             if targets
                 .iter()
-                .any(|(_, _, existing_trial_id)| existing_trial_id == &trial_id)
+                .any(|(_, _, existing_trial_id, _)| existing_trial_id == &trial_id)
             {
                 continue;
             }
@@ -1456,28 +1494,36 @@ impl JournalReplayState {
                     ),
                 )
             })?;
-            if slot.is_none() {
+            let Some(trial) = slot.as_ref() else {
                 continue;
-            }
-            targets.push((study_id, trial_number, trial_id));
+            };
+            let state = trial.state_values.state();
+            targets.push((study_id, trial_number, trial_id, state));
         }
-        for (study_id, trial_number, _) in targets {
-            let trials = self.trials_by_study.get_mut(&study_id).ok_or_else(|| {
-                Error::with_reason(
-                    ErrorKind::StudyNotFound,
-                    format!("Study not found during discard: study_id={study_id}"),
-                )
-            })?;
-            let slot = trials.get_mut(trial_number as usize).ok_or_else(|| {
-                Error::with_reason(
-                    ErrorKind::TrialNotFound,
-                    format!(
-                        "Trial not found at position during discard: trial_number={trial_number}"
-                    ),
-                )
-            })?;
-            *slot = None;
-            self.study_caches.remove(&study_id);
+        for (study_id, trial_number, _, state) in targets {
+            let discarded = {
+                let trials = self.trials_by_study.get_mut(&study_id).ok_or_else(|| {
+                    Error::with_reason(
+                        ErrorKind::StudyNotFound,
+                        format!("Study not found during discard: study_id={study_id}"),
+                    )
+                })?;
+                let slot = trials.get_mut(trial_number as usize).ok_or_else(|| {
+                    Error::with_reason(
+                        ErrorKind::TrialNotFound,
+                        format!(
+                            "Trial not found at position during discard: trial_number={trial_number}"
+                        ),
+                    )
+                })?;
+                slot.take().is_some()
+            };
+            if discarded {
+                *self
+                    .discarded_state_counts
+                    .entry((study_id, state))
+                    .or_default() += 1;
+            }
         }
         Ok(())
     }
@@ -2396,6 +2442,41 @@ mod tests {
         assert_eq!(trials.len(), 1);
         assert_eq!(trials[0].as_ref().unwrap().id, trial_id);
         assert_eq!(storage2.get_trial(trial_id)?.id, trial_id);
+        Ok(())
+    }
+
+    #[test]
+    fn get_n_trials_counts_states_including_discarded_trials() -> Result<()> {
+        let logs = Arc::new(Mutex::new(Vec::new()));
+        let backend = InMemoryJournalBackend { logs };
+        let mut storage = JournalStorage::new_with_options(
+            Box::new(backend),
+            JournalStorageOptions {
+                apply_discard: true,
+            },
+        )?;
+        let study_id = storage.create_new_study("s", vec![Direction::Minimize])?.id;
+        let running_trial_id = storage.create_new_trial(study_id)?.id;
+        let complete_trial_id = storage.create_new_trial(study_id)?.id;
+        storage.set_trial_state_values(complete_trial_id, TrialStateValues::Complete(vec![1.0]))?;
+
+        assert_eq!(storage.get_n_trials(study_id, None)?, 2);
+        assert_eq!(
+            storage.get_n_trials(study_id, Some(&[TrialState::Running]))?,
+            1
+        );
+        assert_eq!(
+            storage.get_n_trials(study_id, Some(&[TrialState::Complete]))?,
+            1
+        );
+
+        storage.discard_trials(&[complete_trial_id])?;
+        assert_eq!(storage.get_n_trials(study_id, None)?, 2);
+        assert_eq!(
+            storage.get_n_trials(study_id, Some(&[TrialState::Complete]))?,
+            1
+        );
+        assert!(storage.get_trial(running_trial_id).is_ok());
         Ok(())
     }
 

@@ -152,6 +152,21 @@ class ToRustunaStorage:
                 self._trial_id_to_study_id[t._trial_id] = study_id
         return persisted_trials
 
+    def get_n_trials(
+        self,
+        study_id: int,
+        *,
+        states: Sequence[rustuna.trial.TrialState] | None = None,
+    ) -> int:
+        if states is None:
+            return self._storage.get_n_trials(study_id)
+        optuna_states = tuple(to_optuna_state(state) for state in states)
+        if not optuna_states:
+            return 0
+        if len(optuna_states) == 1:
+            return self._storage.get_n_trials(study_id, state=optuna_states[0])
+        return len(self._storage.get_all_trials(study_id, states=optuna_states))
+
     def get_trial(self, trial_id: int) -> rustuna.trial.PersistedTrial:
         with self._lock:
             study_id = self._trial_id_to_study_id.get(trial_id, -1)
@@ -428,3 +443,16 @@ class ToOptunaStorage(BaseStorage):
         if deepcopy:
             return copy.deepcopy(trials)
         return trials
+
+    def get_n_trials(
+        self,
+        study_id: int,
+        state: tuple[TrialState, ...] | TrialState | None = None,
+    ) -> int:
+        if state is None:
+            return self._storage.get_n_trials(study_id)
+        states = state if isinstance(state, tuple) else (state,)
+        return self._storage.get_n_trials(
+            study_id,
+            states=[to_rustuna_state(s) for s in states],
+        )

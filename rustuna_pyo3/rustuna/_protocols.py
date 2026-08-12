@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
@@ -196,6 +197,19 @@ class StorageProtocol(Protocol):
 
         Returns:
             List of all trials in the study.
+        """
+
+    def get_n_trials(
+        self, study_id: int, *, states: Sequence[TrialState] | None = None
+    ) -> int:
+        """Get the number of trials in a study.
+
+        Args:
+            study_id: ID of the study.
+            states: Optional trial states to filter by.
+
+        Returns:
+            Number of trials in the study.
         """
 
     def get_trial(self, trial_id: int) -> PersistedTrial:
