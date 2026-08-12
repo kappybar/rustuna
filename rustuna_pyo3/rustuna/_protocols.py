@@ -350,3 +350,90 @@ class StorageProtocol(Protocol):
 
     def may_omit_trials(self) -> bool:
         """Return True if this storage view may omit discarded trials."""
+
+
+class CachedStorageBackend(Protocol):
+    """Protocol for Python backends used by Rustuna's ``CachedStorage``."""
+
+    def create_new_study(
+        self, study_name: str, directions: list[StudyDirection]
+    ) -> PersistedStudy:
+        """Create a new study and return its persisted representation."""
+
+    def delete_study(self, study_id: int) -> None:
+        """Delete a study."""
+
+    def create_new_trial(
+        self,
+        study_id: int,
+        template_trial: PersistedTrial | None = None,
+    ) -> PersistedTrial:
+        """Create a trial and return its persisted representation."""
+
+    def set_trial_param(
+        self,
+        trial_id: int,
+        name: str,
+        distribution: Distribution,
+        value: float,
+    ) -> None:
+        """Persist a trial parameter."""
+
+    def set_trial_state_values(
+        self,
+        trial_id: int,
+        state: TrialState,
+        values: list[float] | None = None,
+    ) -> None:
+        """Persist a trial state and its objective values."""
+
+    def get_studies(self) -> list[PersistedStudy]:
+        """Return all persisted studies."""
+
+    def get_study(self, study_id: int) -> PersistedStudy:
+        """Return a persisted study."""
+
+    def get_trial(self, trial_id: int) -> PersistedTrial:
+        """Return a persisted trial."""
+
+    def get_n_trials(
+        self, study_id: int, *, states: Sequence[TrialState] | None = None
+    ) -> int:
+        """Return the number of persisted trials."""
+
+    def get_study_user_attr(self, study_id: int, key: str) -> str:
+        """Return a study user attribute."""
+
+    def get_study_system_attr(self, study_id: int, key: str) -> str:
+        """Return a study system attribute."""
+
+    def set_study_system_attrs(self, study_id: int, attrs: dict[str, str]) -> None:
+        """Persist study system attributes."""
+
+    def set_study_user_attrs(self, study_id: int, attrs: dict[str, str]) -> None:
+        """Persist study user attributes."""
+
+    def set_trial_system_attrs(self, trial_id: int, attrs: dict[str, str]) -> None:
+        """Persist trial system attributes."""
+
+    def set_trial_user_attrs(self, trial_id: int, attrs: dict[str, str]) -> None:
+        """Persist trial user attributes."""
+
+    def set_trial_intermediate_value(
+        self, trial_id: int, step: int, intermediate_value: float
+    ) -> None:
+        """Persist an intermediate trial value."""
+
+    def discard_trials(self, trial_ids: list[int]) -> None:
+        """Persist discarded trial IDs."""
+
+    def may_omit_trials(self) -> bool:
+        """Return whether reads omit discarded trials."""
+
+    def get_trials_diff(
+        self,
+        study_id: int,
+        included_numbers: list[int],
+        trial_number_greater_than: int,
+    ) -> list[PersistedTrial]:
+        """Return trials that are missing or may have changed in the cache."""

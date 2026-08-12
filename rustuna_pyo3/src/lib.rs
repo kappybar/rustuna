@@ -33,6 +33,7 @@ fn rustuna(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<distribution::PyDistribution>()?;
     // storage
     m.add_class::<storage::in_memory::PyInMemoryStorage>()?;
+    m.add_class::<storage::cached::PyCachedStorage>()?;
     m.add_class::<storage::journal::PyJournalFileStorage>()?;
     m.add_class::<storage::sqlite3::PySQLite3Storage>()?;
     m.add_class::<storage::to_rust::PyToRustStorage>()?;
