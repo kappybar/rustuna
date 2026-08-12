@@ -35,9 +35,8 @@ pub(super) fn loss_values_have_nan<R: AsRef<[f64]>>(loss_values: &[R]) -> bool {
 /// Assigns non-domination ranks (0 for Pareto-optimal, 1 for the next layer, …) but
 /// stops once at least `n_below` points have been ranked. Unranked points receive a
 /// sentinel rank larger than every emitted rank, so callers that only need the top-
-/// `n_below` layers (typical when feeding TPE's good-vs-poor split) get correct
-/// results without paying for the long tail. Passing `n_below = loss_values.len()`
-/// yields a full ranking.
+/// `n_below` layers get correct results without paying for the long tail. Passing
+/// `n_below = loss_values.len()` yields a full ranking.
 pub fn fast_non_dominated_sort_partial<R>(loss_values: &[R], n_below: usize) -> Vec<usize>
 where
     R: AsRef<[f64]>,
@@ -63,9 +62,8 @@ where
     }
 
     // NaN policy: dominance is ill-defined when any coordinate is NaN. Treat NaN
-    // trials as *worse* than any clean trial so they end up in `poor_trials` rather
-    // than poisoning the good/poor split (rank 0 means Pareto-optimal — assigning
-    // NaN trials there would feed garbage into the Parzen estimator).
+    // trials as *worse* than any clean trial so they cannot be selected as part of
+    // the best subset (rank 0 means Pareto-optimal).
     //
     // Implementation: recurse on the clean subset, then assign every NaN-containing
     // row a sentinel rank one larger than the maximum rank emitted for clean rows.

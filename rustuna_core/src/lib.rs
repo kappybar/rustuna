@@ -9,6 +9,7 @@ pub use error::{Error, ErrorKind};
 pub mod attr;
 pub mod datetime;
 pub mod distribution;
+pub mod multi_objective;
 pub mod parzen_estimator;
 pub mod sampler;
 pub mod storage;
