@@ -17,7 +17,8 @@ from typing import Any
 # categorical labels; callers exposing attrs through Optuna are responsible for
 # filtering those Rustuna-specific attributes when necessary.
 _PREFIX_REQUIRE_JSON_ENCODE = "optuna_json_encoded:"
-_CONSTRAINTS_PREFIX = "constraints:"
+_CONSTRAINTS_KEY = "constraints"
+_CONSTRAINTS_PREFIX = f"{_CONSTRAINTS_KEY}:"
 
 
 def to_optuna_attrs(attrs: dict[str, str]) -> dict[str, Any]:
@@ -27,7 +28,8 @@ def to_optuna_attrs(attrs: dict[str, str]) -> dict[str, Any]:
             continue
         if _PREFIX_REQUIRE_JSON_ENCODE + key in attrs:
             converted[key] = json.loads(value)
-        elif key.startswith(_CONSTRAINTS_PREFIX) and isinstance(value, str):
+        elif key.startswith(_CONSTRAINTS_PREFIX):
+            # Convert Rustuna constraints to Optuna constraints
             converted[key] = float(value)
         else:
             converted[key] = value
@@ -42,4 +44,10 @@ def to_rustuna_attrs(attrs: dict[str, Any]) -> dict[str, str]:
             continue
         converted[key] = json.dumps(value)
         converted[_PREFIX_REQUIRE_JSON_ENCODE + key] = "true"
+
+    # Convert Optuna's legacy constraint to Rustuna constraints
+    if _CONSTRAINTS_KEY in converted:
+        constraints = json.loads(converted.pop(_CONSTRAINTS_KEY))
+        for i, c in enumerate(constraints):
+            converted[_CONSTRAINTS_PREFIX + str(i)] = str(c)
     return converted
