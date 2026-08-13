@@ -59,7 +59,6 @@ Instead of re-engineering all of Optuna’s features in Rust, we aim to build a 
 
 For example, the [optuna.visualization module](https://optuna.readthedocs.io/en/stable/reference/visualization/index.html) provides rich functionality for visualizing and analyzing Optuna study results.
 We do not plan to reimplement these features in Rust using libraries such as Plotly or Matplotlib. Instead, we aim to provide ways to use Rustuna’s results with the `optuna.visualization` module or with [Optuna Dashboard](https://github.com/optuna/optuna-dashboard).
-We also do not currently plan to support I/O-bound features such as storage backends for MySQL or PostgreSQL.
 
 ## Installation 
 

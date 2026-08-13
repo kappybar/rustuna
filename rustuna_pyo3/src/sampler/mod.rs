@@ -6,6 +6,7 @@ use pyo3::Py;
 
 use rustuna_core::storage::Storage;
 
+use crate::storage::cached::PyCachedStorage;
 use crate::storage::in_memory::PyInMemoryStorage;
 use crate::storage::journal::PyJournalFileStorage;
 use crate::storage::to_rust::PyToRustStorage;
@@ -23,6 +24,8 @@ fn extract_storage(storage: Py<PyAny>) -> PyResult<Arc<RwLock<dyn Storage>>> {
         let storage_ref = storage.bind(py);
         if let Ok(py_inmemory_storage) = storage_ref.extract::<PyInMemoryStorage>() {
             Ok(py_inmemory_storage.storage())
+        } else if let Ok(py_cached_storage) = storage_ref.extract::<PyCachedStorage>() {
+            Ok(py_cached_storage.storage())
         } else if let Ok(py_journal_storage) = storage_ref.extract::<PyJournalFileStorage>() {
             Ok(py_journal_storage.storage())
         } else if let Ok(py_obj_storage) = storage_ref.extract::<PyToRustStorage>() {
