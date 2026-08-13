@@ -8,7 +8,7 @@ import pytest
 from optuna.distributions import FloatDistribution
 from optuna.exceptions import UpdateFinishedTrialError
 from optuna.study import StudyDirection
-from optuna.testing.pytest_storages import StorageTestCase
+from optuna.testing.pytest_storages import StorageTestCase, _setup_studies
 from optuna.trial._frozen import FrozenTrial
 from optuna.trial._state import TrialState
 from pytest import FixtureRequest
@@ -38,6 +38,29 @@ def storage(request: FixtureRequest) -> Generator[BaseStorage, None, None]:
 
 
 class TestRustunaStorage(StorageTestCase):
+    def test_get_all_studies(self, storage: BaseStorage) -> None:
+        expected_frozen_studies, _ = _setup_studies(
+            storage, n_study=10, n_trial=10, seed=46
+        )
+        frozen_studies = storage.get_all_studies()
+        assert len(frozen_studies) == len(expected_frozen_studies)
+        for _, expected_frozen_study in expected_frozen_studies.items():
+            frozen_study = next(
+                s
+                for s in frozen_studies
+                if s.study_name == expected_frozen_study.study_name
+            )
+            assert frozen_study.direction == expected_frozen_study.direction
+            assert frozen_study.study_name == expected_frozen_study.study_name
+            assert frozen_study.user_attrs == expected_frozen_study.user_attrs
+            # Rustuna stores categorical choices as internal system attributes.
+            system_attrs = {
+                key: value
+                for key, value in frozen_study.system_attrs.items()
+                if not key.startswith("category_labels:")
+            }
+            assert system_attrs == expected_frozen_study.system_attrs
+
     def test_delete_study(self, storage: BaseStorage) -> None:
         study_id = storage.create_new_study(directions=[StudyDirection.MINIMIZE])
         storage.create_new_trial(study_id)
