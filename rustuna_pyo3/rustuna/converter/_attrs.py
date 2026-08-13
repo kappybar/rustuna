@@ -9,12 +9,15 @@ from typing import Any
 # Non-string Optuna values are JSON-encoded under their original keys and are
 # accompanied by a marker key. The marker lets `to_optuna_attrs` restore the
 # original type without attempting to JSON-decode ordinary Rustuna strings.
+# Constraint attrs are the exception: Rustuna stores them as strings, while
+# Optuna exposes constraint values as floats.
 #
 # The marker key is an implementation detail and is omitted when converting
 # attrs back to Optuna. Rustuna may also store internal system attrs, such as
 # categorical labels; callers exposing attrs through Optuna are responsible for
 # filtering those Rustuna-specific attributes when necessary.
 _PREFIX_REQUIRE_JSON_ENCODE = "optuna_json_encoded:"
+_CONSTRAINTS_PREFIX = "constraints:"
 
 
 def to_optuna_attrs(attrs: dict[str, str]) -> dict[str, Any]:
@@ -24,6 +27,8 @@ def to_optuna_attrs(attrs: dict[str, str]) -> dict[str, Any]:
             continue
         if _PREFIX_REQUIRE_JSON_ENCODE + key in attrs:
             converted[key] = json.loads(value)
+        elif key.startswith(_CONSTRAINTS_PREFIX) and isinstance(value, str):
+            converted[key] = float(value)
         else:
             converted[key] = value
     return converted
