@@ -368,8 +368,8 @@ impl TpeSampler {
             .collect();
         let mut active_counts: Vec<u32> = vec![0; n_trials];
 
-        for (param_idx, key) in sorted_keys.iter().enumerate() {
-            for (trial_idx, t) in trials.iter().enumerate() {
+        for (trial_idx, t) in trials.iter().enumerate() {
+            for (param_idx, key) in sorted_keys.iter().enumerate() {
                 if let Some(&v) = t.internal_params.get(*key) {
                     observations_vec[param_idx].push(v);
                     active_counts[trial_idx] += 1;
