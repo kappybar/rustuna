@@ -15,7 +15,7 @@ use crate::sampler::{extract_storage, PySamplerContext};
 use crate::trial::PyTrialState;
 
 #[derive(Clone)]
-#[pyclass(name = "NSGAIISampler")]
+#[pyclass(name = "NSGAIISampler", from_py_object)]
 #[pyo3(module = "rustuna")]
 pub struct PyNSGAIISampler {
     pub sampler: Arc<Mutex<NSGAIISampler>>,

@@ -788,7 +788,7 @@ impl Storage for ToRustStorage {
 }
 
 #[derive(Clone)]
-#[pyclass(name = "ToRustStorage")]
+#[pyclass(name = "ToRustStorage", from_py_object)]
 #[pyo3(module = "rustuna")]
 pub struct PyToRustStorage {
     pub storage: Arc<RwLock<ToRustStorage>>,

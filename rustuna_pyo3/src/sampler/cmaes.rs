@@ -286,7 +286,7 @@ impl Sampler for CmaEsSampler {
 ///     seed: Random seed for CMA-ES. If `None`, the backend chooses a random seed.
 ///     popsize: CMA-ES population size. If `None`, the backend default is used.
 #[derive(Clone)]
-#[pyclass(name = "CmaEsSampler")]
+#[pyclass(name = "CmaEsSampler", from_py_object)]
 #[pyo3(module = "rustuna")]
 pub struct PyCmaEsSampler {
     pub sampler: Arc<Mutex<dyn Sampler>>,

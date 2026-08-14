@@ -11,7 +11,7 @@ use crate::sampler::{extract_storage, PySamplerContext};
 use crate::trial::PyTrialState;
 
 #[derive(Clone)]
-#[pyclass(name = "RandomSampler")]
+#[pyclass(name = "RandomSampler", from_py_object)]
 #[pyo3(module = "rustuna")]
 pub struct PyRandomSampler {
     pub sampler: Arc<Mutex<RandomSampler>>,

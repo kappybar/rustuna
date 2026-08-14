@@ -741,7 +741,7 @@ impl PyStudy {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-#[pyclass(name = "StudyDirection", eq, eq_int)]
+#[pyclass(name = "StudyDirection", eq, eq_int, from_py_object)]
 #[pyo3(module = "rustuna")]
 pub enum PyDirection {
     #[pyo3(name = "MINIMIZE")]
@@ -866,7 +866,7 @@ pub fn py_copy_study(
 }
 
 #[derive(Debug, Clone)]
-#[pyclass(name = "PersistedStudy")]
+#[pyclass(name = "PersistedStudy", skip_from_py_object)]
 #[pyo3(module = "rustuna", get_all, set_all)]
 pub struct PyPersistedStudy {
     pub id: u32,
