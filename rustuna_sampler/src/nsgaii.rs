@@ -381,22 +381,11 @@ impl Sampler for NSGAIISampler {
 /// 3) Trial x and y are feasible and trial x dominates trial y.
 ///
 fn constrained_dominates(
-    trial0: &PersistedTrial,
-    trial1: &PersistedTrial,
+    (values0, constraints0): &(&Vec<f64>, HashMap<String, f64>),
+    (values1, constraints1): &(&Vec<f64>, HashMap<String, f64>),
     directions: &[Direction],
 ) -> Result<bool> {
-    let values0 = match &trial0.state_values {
-        TrialStateValues::Complete(values) => values,
-        _ => return Ok(false),
-    };
-    let values1 = match &trial1.state_values {
-        TrialStateValues::Complete(values) => values,
-        _ => return Ok(true),
-    };
-
-    let constraints0 = trial0.constraints()?;
     let satisfy_constraints0 = constraints0.values().all(|x| *x <= 0.0);
-    let constraints1 = trial1.constraints()?;
     let satisfy_constraints1 = constraints1.values().all(|x| *x <= 0.0);
 
     if satisfy_constraints0 && satisfy_constraints1 {
@@ -421,13 +410,26 @@ fn fast_non_dominated_sort(
 ) -> Result<Vec<Vec<u32>>> {
     let n = population_numbers.len();
 
-    let population_trials = population_numbers
+    let worst_values: Vec<f64> = ctx
+        .directions
+        .iter()
+        .map(|d| match d {
+            Direction::Minimize => f64::MAX,
+            Direction::Maximize => f64::MIN,
+        })
+        .collect();
+    let worst_constraints = HashMap::from([(String::from(""), 1.0)]); // 1.0 is positive value so infeasible
+    let population_values_constraints = population_numbers
         .iter()
         .map(|i| {
-            trials
+            let trial = trials
                 .get(*i as usize)
                 .and_then(|trial| trial.as_ref())
-                .ok_or_else(|| Error::new(ErrorKind::TrialDiscarded))
+                .ok_or_else(|| Error::new(ErrorKind::TrialDiscarded))?;
+            match &trial.state_values {
+                TrialStateValues::Complete(values) => Ok((values, trial.constraints()?)),
+                _ => Ok((&worst_values, worst_constraints.clone())),
+            }
         })
         .collect::<Result<Vec<_>>>()?;
 
@@ -439,12 +441,16 @@ fn fast_non_dominated_sort(
             if i >= j {
                 continue;
             }
-            if constrained_dominates(population_trials[i], population_trials[j], &ctx.directions)? {
+            if constrained_dominates(
+                &population_values_constraints[i],
+                &population_values_constraints[j],
+                &ctx.directions,
+            )? {
                 dominates_list[i].push(j);
                 dominated_count[j] += 1;
             } else if constrained_dominates(
-                population_trials[j],
-                population_trials[i],
+                &population_values_constraints[j],
+                &population_values_constraints[i],
                 &ctx.directions,
             )? {
                 dominates_list[j].push(i);
