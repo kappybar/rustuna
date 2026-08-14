@@ -465,6 +465,46 @@ impl TrialStateValues {
     }
 }
 
+/// validate `trials` as follows.
+/// 1. each completed trial's values has the same size.
+/// 2. each completed trial's values has the same size as directions.
+/// 3. each completed trial's values does not contain f64::NAN.
+pub fn validate_trials(trials: &Vec<&PersistedTrial>, directions: &[Direction]) -> Result<()> {
+    let first_completed_trial_values = trials.iter().find_map(|t| match &t.state_values {
+        TrialStateValues::Complete(v) => Some(v),
+        _ => None,
+    });
+    let Some(first_completed_trial_values) = first_completed_trial_values else {
+        return Ok(());
+    };
+    let values_size = first_completed_trial_values.len();
+
+    if trials.iter().any(|t| match &t.state_values {
+        TrialStateValues::Complete(values) => values.len() != values_size,
+        _ => false,
+    }) {
+        Err(Error::with_reason(
+            ErrorKind::Unexpected,
+            "Some completed trials' values have different sizes.".to_string(),
+        ))
+    } else if values_size != directions.len() {
+        Err(Error::with_reason(
+            ErrorKind::Unexpected,
+            "Some completed trial's values has different size from directions.".to_string(),
+        ))
+    } else if trials.iter().any(|t| match &t.state_values {
+        TrialStateValues::Complete(values) => values.iter().all(|x| x.is_nan()),
+        _ => false,
+    }) {
+        Err(Error::with_reason(
+            ErrorKind::Unexpected,
+            "Some trial's values contain f64::NAN.".to_string(),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

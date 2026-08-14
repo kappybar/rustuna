@@ -9,6 +9,7 @@ use rustuna_core::sampler::{Context, Sampler};
 use rustuna_core::storage::Storage;
 use rustuna_core::study::dominates;
 use rustuna_core::study::Direction;
+use rustuna_core::trial::validate_trials;
 use rustuna_core::trial::{PersistedTrial, TrialStateValues};
 use rustuna_core::Result;
 use rustuna_core::{Error, ErrorKind};
@@ -381,26 +382,26 @@ impl Sampler for NSGAIISampler {
 /// 3) Trial x and y are feasible and trial x dominates trial y.
 ///
 fn constrained_dominates(
-    (values0, constraints0): &(&Vec<f64>, HashMap<String, f64>),
-    (values1, constraints1): &(&Vec<f64>, HashMap<String, f64>),
+    values_feasible_violation_0: &Option<(&[f64], bool, f64)>,
+    values_feasible_violation_1: &Option<(&[f64], bool, f64)>,
     directions: &[Direction],
-) -> Result<bool> {
-    let satisfy_constraints0 = constraints0.values().all(|x| *x <= 0.0);
-    let satisfy_constraints1 = constraints1.values().all(|x| *x <= 0.0);
+) -> bool {
+    let Some((values0, feasible0, violation0)) = values_feasible_violation_0 else {
+        return false;
+    };
+    let Some((values1, feasible1, violation1)) = values_feasible_violation_1 else {
+        return true;
+    };
 
-    if satisfy_constraints0 && satisfy_constraints1 {
-        return dominates(values0, values1, directions);
+    if *feasible0 && *feasible1 {
+        dominates(values0, values1, directions)
+    } else if *feasible0 {
+        true
+    } else if *feasible1 {
+        false
+    } else {
+        *violation0 < *violation1
     }
-    if satisfy_constraints0 {
-        return Ok(true);
-    }
-    if satisfy_constraints1 {
-        return Ok(false);
-    }
-
-    let violation0: f64 = constraints0.values().filter(|&x| *x > 0.0).sum();
-    let violation1: f64 = constraints1.values().filter(|&x| *x > 0.0).sum();
-    Ok(violation0 < violation1)
 }
 
 fn fast_non_dominated_sort(
@@ -410,26 +411,28 @@ fn fast_non_dominated_sort(
 ) -> Result<Vec<Vec<u32>>> {
     let n = population_numbers.len();
 
-    let worst_values: Vec<f64> = ctx
-        .directions
-        .iter()
-        .map(|d| match d {
-            Direction::Minimize => f64::MAX,
-            Direction::Maximize => f64::MIN,
-        })
-        .collect();
-    let worst_constraints = HashMap::from([(String::from(""), 1.0)]); // 1.0 is positive value so infeasible
-    let population_values_constraints = population_numbers
+    let population_trials = population_numbers
         .iter()
         .map(|i| {
-            let trial = trials
+            trials
                 .get(*i as usize)
                 .and_then(|trial| trial.as_ref())
-                .ok_or_else(|| Error::new(ErrorKind::TrialDiscarded))?;
-            match &trial.state_values {
-                TrialStateValues::Complete(values) => Ok((values, trial.constraints()?)),
-                _ => Ok((&worst_values, worst_constraints.clone())),
+                .ok_or_else(|| Error::new(ErrorKind::TrialDiscarded))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    validate_trials(&population_trials, &ctx.directions)?;
+
+    let population_infos = population_trials
+        .iter()
+        .map(|t| match &t.state_values {
+            TrialStateValues::Complete(values) => {
+                let constraints = t.constraints()?;
+                let is_feasible = constraints.values().all(|x| *x <= 0.0);
+                let violation = constraints.values().filter(|&x| *x > 0.0).sum();
+                Ok(Some((values.as_slice(), is_feasible, violation)))
             }
+            _ => Ok(None),
         })
         .collect::<Result<Vec<_>>>()?;
 
@@ -441,18 +444,14 @@ fn fast_non_dominated_sort(
             if i >= j {
                 continue;
             }
-            if constrained_dominates(
-                &population_values_constraints[i],
-                &population_values_constraints[j],
-                &ctx.directions,
-            )? {
+            if constrained_dominates(&population_infos[i], &population_infos[j], &ctx.directions) {
                 dominates_list[i].push(j);
                 dominated_count[j] += 1;
             } else if constrained_dominates(
-                &population_values_constraints[j],
-                &population_values_constraints[i],
+                &population_infos[j],
+                &population_infos[i],
                 &ctx.directions,
-            )? {
+            ) {
                 dominates_list[j].push(i);
                 dominated_count[i] += 1;
             }
