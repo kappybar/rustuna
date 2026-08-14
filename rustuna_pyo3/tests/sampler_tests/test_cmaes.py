@@ -1,4 +1,5 @@
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -20,6 +21,27 @@ def test_cmaes_sampler() -> None:
     assert all(
         trial.state == rustuna.trial.TrialState.COMPLETE for trial in study.trials
     )
+
+
+def test_cmaes_sampler_samples_independently_from_multiple_threads() -> None:
+    sampler = rustuna.samplers.CmaEsSampler(seed=1)
+    storage = rustuna.storages.InMemoryStorage()
+    study = rustuna.create_study(sampler=sampler, storage=storage)
+    ctx = rustuna.samplers.SamplerContext(
+        study_id=study._study_id,
+        trial_number=0,
+        trial_id=0,
+        directions=study.directions,
+    )
+    distribution = rustuna.distributions.FloatDistribution(-1, 1)
+
+    def sample(_: int) -> float:
+        return sampler.sample_independent(ctx, storage, "x", distribution)
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        values = list(executor.map(sample, range(100)))
+
+    assert all(-1 <= value <= 1 for value in values)
 
 
 def test_cmaes_sampler_with_failed_trials() -> None:
