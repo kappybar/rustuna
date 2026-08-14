@@ -5,7 +5,7 @@ use crate::attr::{extract_fixed_params, fixed_params_to_attrs, AttrKey, Attrs, C
 use crate::distribution::Distribution;
 use crate::sampler::{Context as SamplerContext, Sampler};
 use crate::storage::Storage;
-use crate::trial::{PersistedTrial, Trial, TrialStateValues};
+use crate::trial::{validate_trials, PersistedTrial, Trial, TrialStateValues};
 use crate::trial_queue::{InMemoryTrialQueue, TrialQueue};
 use crate::{Error, ErrorKind, Result};
 
@@ -561,37 +561,41 @@ pub fn get_pareto_front(study: &Study) -> Result<Vec<u32>> {
         .filter(|t| matches!(t.state_values, TrialStateValues::Complete(ref _v)))
         .collect::<Vec<_>>();
 
+    validate_trials(&trials, &study.directions)?;
+
     // TODO(HideakiImamura): Use Vec::with_capacity() to reduce the number of memory allocations.
     let mut pareto_front_numbers = vec![];
-    trials.iter().for_each(|trial| {
+    trials.iter().try_for_each(|trial| {
         let mut dominated = false;
-        let trial_values = match trial.state_values {
-            TrialStateValues::Complete(ref v) => v,
-            _ => panic!("Unexpected state"),
+        let TrialStateValues::Complete(ref trial_values) = trial.state_values else {
+            return Ok(());
         };
         for other in trials.iter() {
-            let other_values = match other.state_values {
-                TrialStateValues::Complete(ref v) => v,
-                _ => panic!("Unexpected state"),
+            let TrialStateValues::Complete(ref other_values) = other.state_values else {
+                continue;
             };
             if dominates(other_values, trial_values, &study.directions) {
                 dominated = true;
                 break;
             }
         }
-
         if !dominated {
             pareto_front_numbers.push(trial.number);
         }
-    });
+        Ok(())
+    })?;
 
     Ok(pareto_front_numbers)
 }
 
 /// Returns whether `values0` dominates `values1` under the given directions.
+/// Validate `values0` and `values1` have the same length and neither of them contains f64::NAN
+/// by `rustuna_core::trial::validate_trials` before calling this function.
 pub fn dominates(values0: &[f64], values1: &[f64], directions: &[Direction]) -> bool {
-    assert_eq!(values0.len(), values1.len());
-    assert_eq!(values0.len(), directions.len());
+    debug_assert_eq!(values0.len(), values1.len());
+    debug_assert_eq!(values0.len(), directions.len());
+    debug_assert!(values0.iter().all(|x| !x.is_nan()));
+    debug_assert!(values1.iter().all(|x| !x.is_nan()));
 
     let mut equal = true;
     for ((v0, v1), d) in values0.iter().zip(values1).zip(directions) {
