@@ -9,6 +9,7 @@ use crate::study::Direction;
 use crate::{Error, ErrorKind, Result};
 
 const CONSTRAINTS_KEY: &str = "constraints";
+const CONSTRAINTS_PREFIX: &str = "constraints:";
 
 /// A trial object used while evaluating an objective function.
 ///
@@ -406,8 +407,8 @@ impl PersistedTrial {
         let mut constraints_dict: HashMap<String, f64> = HashMap::new();
         for (key, value) in &self.attrs {
             if let AttrKey::System(key_system) = key {
-                if key_system.as_str().starts_with(CONSTRAINTS_KEY) {
-                    let key: String = key_system.as_str()[CONSTRAINTS_KEY.len() + 1..].into();
+                if let Some(key) = key_system.as_str().strip_prefix(CONSTRAINTS_PREFIX) {
+                    let key: String = key.into();
                     let value: f64 = value.parse::<f64>().map_err(|e| {
                         Error::with_reason(
                             ErrorKind::Unexpected,

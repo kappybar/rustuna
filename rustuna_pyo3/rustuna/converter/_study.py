@@ -8,7 +8,7 @@ from optuna import Study as _OptunaStudy
 
 import rustuna
 
-from ._attrs import _OPTUNA_ATTR_PREFIX, to_optuna_attrs
+from ._attrs import to_optuna_attrs
 from ._storage import ToOptunaStorage
 from ._trial import (
     to_frozen_trial,
@@ -70,12 +70,4 @@ class ToOptunaStudy(_OptunaStudy):
 
     @property
     def user_attrs(self) -> dict[str, Any]:
-        # TODO(c-bata): Align the behavior with FrozenTrialLike.user_attrs.
-        attrs = self._rustuna_study.user_attrs
-        raw_attrs = {
-            key: value
-            for key, value in attrs.items()
-            if not key.startswith(_OPTUNA_ATTR_PREFIX)
-        }
-        raw_attrs.update(to_optuna_attrs(attrs))
-        return raw_attrs
+        return to_optuna_attrs(self._rustuna_study.user_attrs)
