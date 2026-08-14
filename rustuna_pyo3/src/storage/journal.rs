@@ -13,7 +13,7 @@ use crate::study::{PyDirection, PyPersistedStudy};
 use crate::trial::{PyPersistedTrial, PyTrialState};
 
 #[derive(Clone)]
-#[pyclass(name = "JournalFileStorage")]
+#[pyclass(name = "JournalFileStorage", from_py_object)]
 #[pyo3(module = "rustuna")]
 pub struct PyJournalFileStorage {
     pub(crate) binding: StorageBinding,

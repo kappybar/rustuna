@@ -14,7 +14,7 @@ use crate::sampler::{extract_storage, PySamplerContext};
 use crate::trial::PyTrialState;
 
 #[derive(Clone)]
-#[pyclass(name = "TPESampler")]
+#[pyclass(name = "TPESampler", from_py_object)]
 #[pyo3(module = "rustuna")]
 pub struct PyTpeSampler {
     pub sampler: Arc<Mutex<TpeSampler>>,
