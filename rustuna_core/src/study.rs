@@ -591,6 +591,7 @@ pub fn get_pareto_front(study: &Study) -> Result<Vec<u32>> {
 /// Returns whether `values0` dominates `values1` under the given directions.
 /// Validate `values0` and `values1` have the same length and neither of them contains f64::NAN
 /// by `rustuna_core::trial::validate_trials` before calling this function.
+#[inline]
 pub fn dominates(values0: &[f64], values1: &[f64], directions: &[Direction]) -> bool {
     debug_assert_eq!(values0.len(), values1.len());
     debug_assert_eq!(values0.len(), directions.len());
