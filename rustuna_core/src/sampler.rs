@@ -1,7 +1,7 @@
 use rand::prelude::*;
 use rand::rngs::StdRng;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use crate::distribution::Distribution;
 use crate::storage::Storage;
@@ -81,7 +81,7 @@ pub trait Sampler: Send {
 /// This sampler draws values independently from each parameter distribution and does not perform
 /// joint sampling.
 pub struct RandomSampler {
-    rng: StdRng,
+    rng: Mutex<StdRng>,
 }
 impl Default for RandomSampler {
     fn default() -> Self {
@@ -92,14 +92,14 @@ impl RandomSampler {
     /// Creates a sampler with a deterministic default seed.
     pub fn new() -> RandomSampler {
         RandomSampler {
-            rng: StdRng::from_seed(Default::default()),
+            rng: Mutex::new(StdRng::from_seed(Default::default())),
         }
     }
 
     /// Creates a sampler seeded from a user-specified 64-bit seed.
     pub fn seed_from_u64(seed: u64) -> RandomSampler {
         RandomSampler {
-            rng: StdRng::seed_from_u64(seed),
+            rng: Mutex::new(StdRng::seed_from_u64(seed)),
         }
     }
 }
@@ -172,6 +172,13 @@ impl Sampler for RandomSampler {
             return distribution.get_single_value();
         }
 
+        let mut rng = self.rng.lock().map_err(|e| {
+            crate::Error::with_reason(
+                crate::ErrorKind::SamplerError,
+                format!("Failed to acquire RNG guard: {e}"),
+            )
+        })?;
+
         match distribution {
             Distribution::Float {
                 low,
@@ -179,7 +186,7 @@ impl Sampler for RandomSampler {
                 step,
                 log,
             } => {
-                let value = sample_float_with_step(&mut self.rng, *low, *high, *step, *log);
+                let value = sample_float_with_step(&mut rng, *low, *high, *step, *log);
                 Ok(value)
             }
             Distribution::Int {
@@ -188,11 +195,11 @@ impl Sampler for RandomSampler {
                 step,
                 log,
             } => {
-                let value = sample_int_with_step(&mut self.rng, *low, *high, *step, *log);
+                let value = sample_int_with_step(&mut rng, *low, *high, *step, *log);
                 Ok(value)
             }
             Distribution::Categorical { cardinality } => {
-                let param_value = self.rng.gen_range(0..*cardinality);
+                let param_value = rng.gen_range(0..*cardinality);
                 Ok(param_value as f64)
             }
         }
