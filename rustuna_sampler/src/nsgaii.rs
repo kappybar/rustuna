@@ -439,11 +439,8 @@ fn fast_non_dominated_sort(
     let mut dominated_count = vec![0u32; n];
     let mut dominates_list: Vec<Vec<usize>> = vec![vec![]; n];
 
-    for (i, _) in population_numbers.iter().enumerate() {
-        for (j, _) in population_numbers.iter().enumerate() {
-            if i >= j {
-                continue;
-            }
+    for i in 0..n {
+        for j in (i + 1)..n {
             if constrained_dominates(&population_infos[i], &population_infos[j], &ctx.directions) {
                 dominates_list[i].push(j);
                 dominated_count[j] += 1;
