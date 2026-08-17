@@ -365,6 +365,11 @@ impl ToRustStorage {
 
         let cache_trial = self.cache.get_trial(src_trial.id)?.clone();
         if cache_trial.is_finished() {
+            self.cache.set_trial_datetimes(
+                src_trial.id,
+                src_trial.datetime_start.clone(),
+                src_trial.datetime_complete.clone(),
+            )?;
             return Ok(());
         }
         self.cache
@@ -389,6 +394,11 @@ impl ToRustStorage {
             self.cache
                 .set_trial_state_values(src_trial.id, src_trial.state_values.clone())?;
         }
+        self.cache.set_trial_datetimes(
+            src_trial.id,
+            src_trial.datetime_start,
+            src_trial.datetime_complete,
+        )?;
         Ok(())
     }
 
