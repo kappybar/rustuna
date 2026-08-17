@@ -398,7 +398,7 @@ class PedAnovaImportanceEvaluator:
     Implements the PED-ANOVA hyperparameter importance evaluation algorithm.
 
     PED-ANOVA fits Parzen estimators to completed trials in the top
-    ``target_quantile`` fraction. The importance can be interpreted as how important each
+    `target_quantile` fraction. The importance can be interpreted as how important each
     hyperparameter is for achieving performance within that fraction.
 
     For further information about the PED-ANOVA algorithm, please refer to the following paper:
@@ -476,13 +476,39 @@ class PedAnovaImportanceEvaluator:
         self,
         study: Study,
         params: list[str] | None = None,
-    ) -> dict[str, float]: ...
+        *,
+        target: Callable[[PersistedTrial], float] | None = None,
+    ) -> dict[str, float]:
+        """Evaluate parameter importances based on completed trials in the given study.
+
+        Note:
+            This method is not meant to be called by library users. Use
+            [get_param_importances][rustuna.importance.get_param_importances] to evaluate
+            parameter importances from user code.
+
+        Args:
+            study:
+                An optimized study.
+            params:
+                A list of names of parameters to assess. If `None`, all parameters that appear
+                in completed trials, including conditional parameters, are assessed.
+            target:
+                A function that returns the value used to evaluate importances. If `None`,
+                objective values are used for single-objective optimization. For multi-objective
+                optimization, this argument must be specified to return a single float value for
+                each trial. `PedAnovaImportanceEvaluator` assumes lower `target` values are better.
+
+        Returns:
+            A `dict` where the keys are parameter names and the values are assessed importances.
+
+        """
 
 def get_param_importances(
     study: Study,
     *,
     evaluator: PedAnovaImportanceEvaluator | None = None,
     params: list[str] | None = None,
+    target: Callable[[PersistedTrial], float] | None = None,
     normalize: bool = True,
 ) -> dict[str, float]:
     """Evaluate parameter importances using PED-ANOVA based on completed trials in the given study.
@@ -517,6 +543,11 @@ def get_param_importances(
         params:
             A list of names of parameters to assess. If `None`, all parameters that appear in
             completed trials are assessed, including conditional parameters.
+        target:
+            A function that returns the value used to evaluate importances.
+            If `None`, objective values are used for single-objective optimization.
+            For multi-objective optimization, this argument must be specified to return
+            a single float value for each trial.
         normalize:
             A boolean option to specify whether the sum of the importance values should be
             normalized to 1.0.
