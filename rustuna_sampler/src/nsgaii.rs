@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::ops::DerefMut;
+use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use rand::prelude::*;
 use rand::rngs::StdRng;
@@ -55,14 +56,14 @@ use rustuna_core::{Error, ErrorKind};
 /// }
 /// ```
 pub struct NSGAIISampler {
-    rng: StdRng,
+    rng: Mutex<StdRng>,
     population_size: usize,
     mutation_prob: Option<f64>,
     crossover_prob: f64,
     swapping_prob: f64,
     /// Cache mapping generation number to completed trial numbers in that generation.
     /// Updated incrementally in `after_trial` so `sample_joint` does not scan all trials every time.
-    generation_to_numbers: HashMap<u32, Vec<u32>>,
+    generation_to_numbers: RwLock<HashMap<u32, Vec<u32>>>,
 }
 impl Default for NSGAIISampler {
     fn default() -> Self {
@@ -85,12 +86,12 @@ impl NSGAIISampler {
         swapping_prob: f64,
     ) -> NSGAIISampler {
         NSGAIISampler {
-            rng: StdRng::from_seed(Default::default()),
+            rng: Mutex::new(StdRng::from_seed(Default::default())),
             population_size,
             mutation_prob,
             crossover_prob,
             swapping_prob,
-            generation_to_numbers: HashMap::new(),
+            generation_to_numbers: RwLock::new(HashMap::new()),
         }
     }
     /// Creates a reproducibly seeded NSGA-II sampler.
@@ -105,16 +106,45 @@ impl NSGAIISampler {
         swapping_prob: f64,
     ) -> NSGAIISampler {
         NSGAIISampler {
-            rng: StdRng::seed_from_u64(seed),
+            rng: Mutex::new(StdRng::seed_from_u64(seed)),
             population_size,
             mutation_prob,
             crossover_prob,
             swapping_prob,
-            generation_to_numbers: HashMap::new(),
+            generation_to_numbers: RwLock::new(HashMap::new()),
         }
     }
-    fn rebuild_generation_cache(&mut self, trials: &[Option<PersistedTrial>]) {
-        self.generation_to_numbers.clear();
+    fn get_rng_lock(&self) -> Result<MutexGuard<'_, StdRng>> {
+        self.rng.lock().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::SamplerError,
+                format!("Failed to acquire RNG guard: {e}"),
+            )
+        })
+    }
+    fn get_generation_to_numbers_read_lock(
+        &self,
+    ) -> Result<RwLockReadGuard<'_, HashMap<u32, Vec<u32>>>> {
+        self.generation_to_numbers.read().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::SamplerError,
+                format!("Failed to acquire generation_to_numbers read guard: {e}"),
+            )
+        })
+    }
+    fn get_generation_to_numbers_write_lock(
+        &mut self,
+    ) -> Result<RwLockWriteGuard<'_, HashMap<u32, Vec<u32>>>> {
+        self.generation_to_numbers.write().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::SamplerError,
+                format!("Failed to acquire generation_to_numbers write guard: {e}"),
+            )
+        })
+    }
+    fn rebuild_generation_cache(&mut self, trials: &[Option<PersistedTrial>]) -> Result<()> {
+        let mut generation_to_numbers = self.get_generation_to_numbers_write_lock()?;
+        generation_to_numbers.clear();
         let generation_key = AttrKey::System("generation".into());
         for trial in trials.iter().flatten() {
             if !matches!(trial.state_values, TrialStateValues::Complete(_)) {
@@ -122,13 +152,14 @@ impl NSGAIISampler {
             }
             if let Some(gen_str) = trial.attrs.get(&generation_key) {
                 if let Ok(generation) = gen_str.parse::<u32>() {
-                    self.generation_to_numbers
+                    generation_to_numbers
                         .entry(generation)
                         .or_default()
                         .push(trial.number);
                 }
             }
         }
+        Ok(())
     }
     fn select_elite_population_numbers(
         &mut self,
@@ -157,17 +188,18 @@ impl NSGAIISampler {
         ctx: &Context,
         trials: &[Option<PersistedTrial>],
     ) -> Result<(i32, Vec<u32>)> {
-        if self.generation_to_numbers.is_empty() {
-            self.rebuild_generation_cache(trials);
+        if self.get_generation_to_numbers_read_lock()?.is_empty() {
+            self.rebuild_generation_cache(trials)?;
         }
 
         let mut parent_generation = -1;
         let mut parent_population_numbers = Vec::with_capacity(10);
         for generation in 0..10 {
-            let population_numbers = match self.generation_to_numbers.get(&generation) {
-                Some(numbers) if numbers.len() >= self.population_size => numbers.clone(),
-                _ => break,
-            };
+            let population_numbers =
+                match self.get_generation_to_numbers_read_lock()?.get(&generation) {
+                    Some(numbers) if numbers.len() >= self.population_size => numbers.clone(),
+                    _ => break,
+                };
 
             let mut population_numbers = population_numbers;
             population_numbers.append(&mut parent_population_numbers);
@@ -183,19 +215,19 @@ impl NSGAIISampler {
         parent0: HashMap<String, f64>,
         parent1: HashMap<String, f64>,
         search_space: &HashMap<String, Distribution>,
-    ) -> HashMap<String, f64> {
+    ) -> Result<HashMap<String, f64>> {
         let mut child = HashMap::new();
         for name in search_space.keys() {
             let param_value0 = *parent0.get(name).unwrap();
             let param_value1 = *parent1.get(name).unwrap();
-            let param_value = if self.rng.gen_bool(self.swapping_prob) {
+            let param_value = if self.get_rng_lock()?.gen_bool(self.swapping_prob) {
                 param_value1
             } else {
                 param_value0
             };
             child.insert(name.clone(), param_value);
         }
-        child
+        Ok(child)
     }
 }
 impl Sampler for NSGAIISampler {
@@ -210,6 +242,7 @@ impl Sampler for NSGAIISampler {
             return distribution.get_single_value();
         }
 
+        let mut rng = self.get_rng_lock()?;
         match distribution {
             Distribution::Float {
                 low,
@@ -218,15 +251,15 @@ impl Sampler for NSGAIISampler {
                 log,
             } => {
                 let param_value = match (step, log) {
-                    (None, false) => self.rng.gen_range(*low..*high),
-                    (None, true) => self.rng.gen_range(low.ln()..high.ln()).exp(),
+                    (None, false) => rng.gen_range(*low..*high),
+                    (None, true) => rng.gen_range(low.ln()..high.ln()).exp(),
                     (Some(step), false) => {
                         let max_index = ((high - low) / step).floor().max(0.0) as i64;
-                        let index = self.rng.gen_range(0..=max_index);
+                        let index = rng.gen_range(0..=max_index);
                         low + (index as f64) * step
                     }
                     (Some(step), true) => {
-                        let value = self.rng.gen_range(low.ln()..high.ln()).exp();
+                        let value = rng.gen_range(low.ln()..high.ln()).exp();
                         let mut stepped = low + ((value - low) / step).round() * step;
                         if stepped < *low {
                             stepped = *low;
@@ -249,7 +282,7 @@ impl Sampler for NSGAIISampler {
                 let high_f = *high as f64;
                 let step_f = *step as f64;
                 let param_value = if *log {
-                    let value = self.rng.gen_range(low_f.ln()..high_f.ln()).exp();
+                    let value = rng.gen_range(low_f.ln()..high_f.ln()).exp();
                     let max_index = ((high_f - low_f) / step_f).floor().max(0.0) as i64;
                     let mut index = ((value - low_f) / step_f).round() as i64;
                     if index < 0 {
@@ -261,13 +294,13 @@ impl Sampler for NSGAIISampler {
                     low_f + (index as f64) * step_f
                 } else {
                     let max_index = ((high - low) / step).max(0);
-                    let index = self.rng.gen_range(0..=max_index);
+                    let index = rng.gen_range(0..=max_index);
                     (low + index * step) as f64
                 };
                 Ok(param_value)
             }
             Distribution::Categorical { cardinality } => {
-                let param_value = self.rng.gen_range(0..*cardinality);
+                let param_value = rng.gen_range(0..*cardinality);
                 Ok(param_value as f64)
             }
         }
@@ -306,7 +339,7 @@ impl Sampler for NSGAIISampler {
 
         let (parent0_number, parent1_number) = {
             let mut selected = parent_population_numbers
-                .choose_multiple(&mut self.rng, 2)
+                .choose_multiple(self.get_rng_lock()?.deref_mut(), 2)
                 .copied();
             (selected.next().unwrap(), selected.next().unwrap())
         };
@@ -328,8 +361,8 @@ impl Sampler for NSGAIISampler {
         let parent1 = build_parent_params(parent1_number)?;
         drop(guard);
 
-        let child = if self.rng.gen_bool(self.crossover_prob) {
-            self.crossover(parent0, parent1, search_space)
+        let child = if self.get_rng_lock()?.gen_bool(self.crossover_prob) {
+            self.crossover(parent0, parent1, search_space)?
         } else {
             parent0
         };
@@ -339,7 +372,7 @@ impl Sampler for NSGAIISampler {
             .unwrap_or(1.0 / 1.0_f64.max(child.len() as f64));
         let mut params = HashMap::new();
         for name in search_space.keys() {
-            if !self.rng.gen_bool(mutation_prob) {
+            if !self.get_rng_lock()?.gen_bool(mutation_prob) {
                 let param_value = *child.get(name).unwrap();
                 params.insert(name.clone(), param_value);
             }
@@ -361,7 +394,8 @@ impl Sampler for NSGAIISampler {
             let generation_key = AttrKey::System("generation".into());
             if let Some(gen_str) = trial.attrs.get(&generation_key) {
                 if let Ok(generation) = gen_str.parse::<u32>() {
-                    self.generation_to_numbers
+                    let mut generation_to_numbers = self.get_generation_to_numbers_write_lock()?;
+                    generation_to_numbers
                         .entry(generation)
                         .or_default()
                         .push(trial.number);
