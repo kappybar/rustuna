@@ -155,7 +155,7 @@ impl TpeSampler {
             let gamma = Self::gamma_for_single_objective(complete_trials.len());
             let direction: &Direction = &ctx.directions[0];
             let (good_trials, poor_trials) =
-                Self::split_trials_for_single_objective(complete_trials, direction, gamma);
+                Self::split_trials_for_single_objective(complete_trials, direction, gamma)?;
             // Single-objective: recency ramp for both l(x) and g(x) (Optuna default_weights).
             (
                 Self::build_parzen_estimator(&good_trials, search_space, true),
@@ -225,10 +225,10 @@ impl TpeSampler {
         trials: &[&'a rustuna_core::trial::PersistedTrial],
         direction: &Direction,
         gamma: usize,
-    ) -> (
+    ) -> Result<(
         Vec<&'a rustuna_core::trial::PersistedTrial>,
         Vec<&'a rustuna_core::trial::PersistedTrial>,
-    ) {
+    )> {
         let n = trials.len();
         assert!(
             gamma <= n,
@@ -236,10 +236,10 @@ impl TpeSampler {
         );
 
         if n == 0 {
-            return (Vec::new(), Vec::new());
+            return Ok((Vec::new(), Vec::new()));
         }
         if gamma == n {
-            return (trials.to_vec(), Vec::new());
+            return Ok((trials.to_vec(), Vec::new()));
         }
 
         fn value_for(t: &rustuna_core::trial::PersistedTrial) -> f64 {
@@ -249,6 +249,21 @@ impl TpeSampler {
             }
         }
 
+        // Since `usable_complete_trials` already filtered non-completed trials,
+        // we only check feasiblity of `trial`.
+        let feasibles_violations = trials
+            .iter()
+            .map(|trial| {
+                let constraints = trial.constraints()?;
+                let feasible = constraints.values().all(|x| !x.is_nan() && *x <= 0.0);
+                let violation = constraints
+                    .values()
+                    .filter(|&x| !x.is_nan() && *x > 0.0)
+                    .sum::<f64>();
+                Ok((feasible, violation))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
         // NaN trials must always land in `poor_trials` regardless of `direction`:
         // a NaN observation is a failed evaluation, and feeding it into the Parzen
         // estimator would corrupt the `good_trials` model. Using
@@ -257,7 +272,7 @@ impl TpeSampler {
         // good half. Treat NaN as strictly worse than any finite value, in both
         // directions.
         let mut idx: Vec<usize> = (0..n).collect();
-        idx.select_nth_unstable_by(gamma, |&i, &j| {
+        let compare_feasibles = |i, j| {
             let vi = value_for(trials[i]);
             let vj = value_for(trials[j]);
             match (vi.is_nan(), vj.is_nan()) {
@@ -274,6 +289,18 @@ impl TpeSampler {
                     }
                 }
             }
+        };
+        idx.select_nth_unstable_by(gamma, |&i, &j| {
+            let (feasible_i, violation_i) = feasibles_violations[i];
+            let (feasible_j, violation_j) = feasibles_violations[j];
+            match (feasible_i, feasible_j) {
+                (true, true) => compare_feasibles(i, j),
+                (true, false) => Ordering::Less,
+                (false, true) => Ordering::Greater,
+                (false, false) => violation_i
+                    .partial_cmp(&violation_j)
+                    .expect("NaN is already filtered."),
+            }
         });
 
         let mut good_trials = Vec::with_capacity(gamma);
@@ -284,7 +311,7 @@ impl TpeSampler {
         for &i in idx.iter().skip(gamma) {
             poor_trials.push(trials[i]);
         }
-        (good_trials, poor_trials)
+        Ok((good_trials, poor_trials))
     }
 
     fn gamma_for_single_objective(n: usize) -> usize {
@@ -825,5 +852,31 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_single_objective_constraint() {
+        let storage = InMemoryStorage::new();
+        let directions = vec![Direction::Minimize];
+        let study = create_study(
+            "single-objective-constraint",
+            storage,
+            TpeSampler::seed_from_u64(0),
+            directions,
+        )
+        .unwrap();
+        let result = study.optimize(
+            |mut t| {
+                let x = t.suggest_float("x", -15.0, 15.0)?;
+                let c0 = x.powi(2) - 8.0;
+                t.set_constraints(HashMap::from([(String::from("c0"), c0)]))?;
+                Ok(vec![x.powi(2)])
+            },
+            100,
+        );
+        assert!(
+            result.is_ok(),
+            "Optimization should complete without panicking."
+        );
     }
 }
