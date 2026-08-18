@@ -452,6 +452,12 @@ impl Sampler for TpeSampler {
         if !multivariate {
             return Ok(HashMap::new());
         }
+        // A dynamic search space may have no parameters in common across completed
+        // trials. In that case, let each parameter fall back to independent sampling
+        // instead of trying to build a Parzen estimator with no observations.
+        if search_space.is_empty() {
+            return Ok(HashMap::new());
+        }
 
         let mut guard = storage.write().map_err(|e| {
             Error::with_reason(
@@ -541,6 +547,36 @@ mod tests {
             .unwrap();
         let best_trial_number = get_best_trial(&study);
         assert!(best_trial_number.is_ok());
+    }
+
+    #[test]
+    fn test_dynamic_float_range_falls_back_to_independent_sampling() {
+        let storage = InMemoryStorage::new();
+        let directions = vec![Direction::Minimize];
+        let sampler = TpeSampler::from_config(TpeConfig {
+            multivariate: None,
+            n_startup_trials: 2,
+            seed: Some(42),
+        });
+        let study = create_study("dynamic-float-range", storage, sampler, directions).unwrap();
+
+        study
+            .optimize(
+                |mut t| {
+                    let x = if t.number % 2 == 0 {
+                        t.suggest_float("x", 0.0, 1.0)?
+                    } else {
+                        t.suggest_float("x", 0.5, 1.0)?
+                    };
+                    assert!((0.0..=1.0).contains(&x));
+                    if t.number % 2 == 1 {
+                        assert!(x >= 0.5);
+                    }
+                    Ok(vec![(x - 0.75).powi(2)])
+                },
+                6,
+            )
+            .unwrap();
     }
 
     #[test]
