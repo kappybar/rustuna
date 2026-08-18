@@ -66,9 +66,6 @@ fn split_feasible_trials_for_multi_objective<'a>(
     if n == 0 {
         return (Vec::new(), Vec::new());
     }
-    if gamma == 0 {
-        return (Vec::new(), trials.to_vec());
-    }
     if gamma == n {
         return (trials.to_vec(), Vec::new());
     }
