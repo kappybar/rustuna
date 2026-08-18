@@ -190,7 +190,7 @@ impl TpeSampler {
                     complete_trials,
                     directions,
                     gamma,
-                );
+                )?;
                 let good_nums = good_trials.iter().map(|t| t.number).collect();
                 let poor_nums = poor_trials.iter().map(|t| t.number).collect();
                 // We only cache the most recent split
@@ -255,11 +255,8 @@ impl TpeSampler {
             .iter()
             .map(|trial| {
                 let constraints = trial.constraints()?;
-                let feasible = constraints.values().all(|x| !x.is_nan() && *x <= 0.0);
-                let violation = constraints
-                    .values()
-                    .filter(|&x| !x.is_nan() && *x > 0.0)
-                    .sum::<f64>();
+                let feasible = constraints.values().all(|x| *x <= 0.0);
+                let violation = constraints.values().filter(|&x| *x > 0.0).sum::<f64>();
                 Ok((feasible, violation))
             })
             .collect::<Result<Vec<_>>>()?;

@@ -3,10 +3,52 @@ use std::collections::{HashMap, HashSet};
 use crate::multi_objective::{hssp, nds};
 use crate::study::Direction;
 use crate::trial::{PersistedTrial, TrialStateValues};
+use crate::Result;
 
 const EPS: f64 = 1e-12;
 
 pub fn split_trials_for_multi_objective<'a>(
+    trials: &[&'a PersistedTrial],
+    directions: &[Direction],
+    gamma: usize,
+) -> Result<(Vec<&'a PersistedTrial>, Vec<&'a PersistedTrial>)> {
+    let n = trials.len();
+    assert!(
+        gamma <= n,
+        "gamma must be less than or equal to the number of trials"
+    );
+
+    if n == 0 {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    if gamma == n {
+        return Ok((trials.to_vec(), Vec::new()));
+    }
+
+    let mut feasible_trials = Vec::new();
+    let mut infeasible_trial_with_violations = Vec::new();
+    for &trial in trials {
+        let constraints = trial.constraints()?;
+        let feasible = constraints.values().all(|x| *x <= 0.0);
+        if feasible {
+            feasible_trials.push(trial);
+        } else {
+            let violation = constraints.values().filter(|&x| *x > 0.0).sum::<f64>();
+            infeasible_trial_with_violations.push((trial, violation));
+        }
+    }
+
+    let (mut feasible_good_trials, mut feasible_poor_trials) =
+        split_feasible_trials_for_multi_objective(&feasible_trials, directions, gamma);
+    let gamma = gamma.saturating_sub(feasible_good_trials.len());
+    let (infeasible_good_trials, infeasible_poor_trials) =
+        split_infeasible_trials_for_multi_objective(&mut infeasible_trial_with_violations, gamma);
+    feasible_good_trials.extend(infeasible_good_trials);
+    feasible_poor_trials.extend(infeasible_poor_trials);
+    Ok((feasible_good_trials, feasible_poor_trials))
+}
+
+fn split_feasible_trials_for_multi_objective<'a>(
     trials: &[&'a PersistedTrial],
     directions: &[Direction],
     gamma: usize,
@@ -19,6 +61,9 @@ pub fn split_trials_for_multi_objective<'a>(
 
     if n == 0 {
         return (Vec::new(), Vec::new());
+    }
+    if gamma == 0 {
+        return (Vec::new(), trials.to_vec());
     }
     if gamma == n {
         return (trials.to_vec(), Vec::new());
@@ -165,4 +210,37 @@ pub fn split_trials_for_multi_objective<'a>(
     }
 
     (good_trials, poor_trials)
+}
+
+fn split_infeasible_trials_for_multi_objective<'a>(
+    trial_with_violations: &mut [(&'a PersistedTrial, f64)],
+    gamma: usize,
+) -> (Vec<&'a PersistedTrial>, Vec<&'a PersistedTrial>) {
+    let n = trial_with_violations.len();
+    if n == 0 {
+        return (Vec::new(), Vec::new());
+    }
+    if gamma == 0 {
+        return (
+            Vec::new(),
+            trial_with_violations.iter().map(|&(t, _)| t).collect(),
+        );
+    }
+    if gamma == n {
+        return (
+            trial_with_violations.iter().map(|&(t, _)| t).collect(),
+            Vec::new(),
+        );
+    }
+
+    trial_with_violations.select_nth_unstable_by(gamma, |(_, violation_i), (_, violation_j)| {
+        violation_i
+            .partial_cmp(violation_j)
+            .expect("constraint is non-Nan value")
+    });
+    let (good_trials, poor_trials) = trial_with_violations.split_at(gamma);
+    (
+        good_trials.iter().map(|&(t, _)| t).collect(),
+        poor_trials.iter().map(|&(t, _)| t).collect(),
+    )
 }
