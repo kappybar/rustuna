@@ -212,20 +212,20 @@ impl NSGAIISampler {
     }
     fn crossover(
         &mut self,
-        parent0: HashMap<String, f64>,
-        parent1: HashMap<String, f64>,
-        search_space: &HashMap<String, Distribution>,
+        parent0: &HashMap<String, f64>,
+        parent1: &HashMap<String, f64>,
+        sorted_names: &[&str],
     ) -> Result<HashMap<String, f64>> {
         let mut child = HashMap::new();
-        for name in search_space.keys() {
-            let param_value0 = *parent0.get(name).unwrap();
-            let param_value1 = *parent1.get(name).unwrap();
+        for name in sorted_names {
+            let param_value0 = *parent0.get(*name).unwrap();
+            let param_value1 = *parent1.get(*name).unwrap();
             let param_value = if self.get_rng_lock()?.gen_bool(self.swapping_prob) {
                 param_value1
             } else {
                 param_value0
             };
-            child.insert(name.clone(), param_value);
+            child.insert((*name).to_string(), param_value);
         }
         Ok(child)
     }
@@ -345,15 +345,16 @@ impl Sampler for NSGAIISampler {
         };
 
         let trials = guard.get_trials(ctx.study_id)?;
+        let sorted_names = sorted_parameter_names(search_space);
         let build_parent_params = |number: u32| -> Result<HashMap<String, f64>> {
             let trial = trials
                 .get(number as usize)
                 .and_then(Option::as_ref)
                 .ok_or_else(|| Error::new(ErrorKind::TrialDiscarded))?;
             let mut params = HashMap::with_capacity(search_space.len());
-            for name in search_space.keys() {
-                let param_value = *trial.internal_params.get(name).unwrap();
-                params.insert(name.clone(), param_value);
+            for name in &sorted_names {
+                let param_value = *trial.internal_params.get(*name).unwrap();
+                params.insert((*name).to_string(), param_value);
             }
             Ok(params)
         };
@@ -362,7 +363,7 @@ impl Sampler for NSGAIISampler {
         drop(guard);
 
         let child = if self.get_rng_lock()?.gen_bool(self.crossover_prob) {
-            self.crossover(parent0, parent1, search_space)?
+            self.crossover(&parent0, &parent1, &sorted_names)?
         } else {
             parent0
         };
@@ -371,10 +372,11 @@ impl Sampler for NSGAIISampler {
             .mutation_prob
             .unwrap_or(1.0 / 1.0_f64.max(child.len() as f64));
         let mut params = HashMap::new();
-        for name in search_space.keys() {
+
+        for name in &sorted_names {
             if !self.get_rng_lock()?.gen_bool(mutation_prob) {
-                let param_value = *child.get(name).unwrap();
-                params.insert(name.clone(), param_value);
+                let param_value = *child.get(*name).unwrap();
+                params.insert((*name).to_string(), param_value);
             }
         }
         Ok(params)
@@ -404,6 +406,17 @@ impl Sampler for NSGAIISampler {
         }
         Ok(())
     }
+}
+
+/// Returns parameter names sorted lexicographically.
+///
+/// Iterating over a `HashMap` keys yields a non-deterministic order, which breaks
+/// reproducibility when `self.rng` is consumed inside the loop. Sorting once at the
+/// call site ensures stable RNG draw ordering across runs.
+fn sorted_parameter_names(search_space: &HashMap<String, Distribution>) -> Vec<&str> {
+    let mut names = search_space.keys().map(String::as_str).collect::<Vec<_>>();
+    names.sort_unstable();
+    names
 }
 
 /// Return whether `trial0` constrained-dominates `trial1`.
@@ -744,5 +757,59 @@ mod tests {
 
         assert!(study.get_trials()?.len() == n_trials);
         Ok(())
+    }
+
+    #[test]
+    fn test_reproducibility_with_seeded_rng() {
+        // Run the same optimization twice with an identical seed and assert that
+        // every trial produces exactly the same parameter values.  This catches
+        // non-determinism caused by iterating over a HashMap whose order is not
+        // guaranteed, such as the search-space keys inside crossover / mutation.
+        let run = || {
+            let storage = InMemoryStorage::new();
+            let directions = vec![Direction::Minimize, Direction::Minimize];
+            let study = create_study(
+                "reproducibility-test",
+                storage,
+                NSGAIISampler::seed_from_u64(42, 10, None, 0.9, 0.5),
+                directions,
+            )
+            .unwrap();
+            study
+                .optimize(
+                    |mut t| {
+                        // Use many parameters so that crossover and mutation
+                        // consume RNG draws in the key-iteration order.
+                        let mut value0 = 0.0;
+                        let mut value1 = 0.0;
+                        for i in 0..10 {
+                            let name = format!("x{i}");
+                            let xi = t.suggest_float(&name, -10.0, 10.0)?;
+                            value0 += (xi - 5.0).powi(2);
+                            value1 += (xi + 5.0).powi(2);
+                        }
+                        Ok(vec![value0, value1])
+                    },
+                    50,
+                )
+                .unwrap();
+            study.get_trials().unwrap()
+        };
+
+        let trials_a = run();
+        let trials_b = run();
+
+        assert_eq!(
+            trials_a.len(),
+            trials_b.len(),
+            "both runs should produce the same number of trials"
+        );
+        for (ta, tb) in trials_a.iter().zip(trials_b.iter()) {
+            assert_eq!(
+                ta.internal_params, tb.internal_params,
+                "trial {} params differ between runs -- non-deterministic key ordering",
+                ta.number
+            );
+        }
     }
 }
