@@ -136,12 +136,17 @@ pub(crate) struct DefaultNumericalDistributionBuilder;
 pub(crate) struct DefaultCategoricalDistributionBuilder;
 
 /// Each observation's larger distance to its two sorted neighbors, floored at `minsigma`, or
-/// `None` for some observations are outside the search space.
+/// `None` if fewer than two observations are given or some of them are outside the search space.
 ///
 /// A neighbor nearer than `minsigma` cannot lift that floor, and binning at that width hides
 /// exactly those: within a bin only the extremes can have a farther neighbor, and it is the
 /// adjacent non-empty bin's extreme. The per-bin extremes therefore give every bandwidth.
 fn binned_sigmas(obs: &[f64], low: f64, high: f64) -> Option<Vec<f64>> {
+    if obs.len() < 2 {
+        // No inter-observation neighbor exists; the caller falls back to endpoint distances.
+        return None;
+    }
+
     let n_bins = 100.min(obs.len() + 2);
     let minsigma = (high - low) / n_bins as f64;
 
@@ -215,11 +220,11 @@ impl NumericalDistributionBuilder for DefaultNumericalDistributionBuilder {
         let mut sigmas = Vec::with_capacity(mus.len() + 1); // +1 for prior
         if mus.len() == 1 {
             // Case: prior only
-        } else if mus.len() == 2 {
-            // No inter-observation neighbor exists, so fall back to endpoint distances.
-            sigmas.push((mus[0] - adj_low).max(adj_high - mus[0]));
+            sigmas.push(adj_high - adj_low);
         } else if let Some(binned) = binned_sigmas(&mus[..mus.len() - 1], adj_low, adj_high) {
             sigmas = binned;
+            // Sigma for prior
+            sigmas.push(adj_high - adj_low);
         } else {
             let m = mus.len() - 1; // exclude prior
             let mut idx_vals: Vec<(usize, f64)> = (0..m).map(|i| (i, mus[i])).collect();
@@ -227,9 +232,12 @@ impl NumericalDistributionBuilder for DefaultNumericalDistributionBuilder {
             let sorted_obs: Vec<f64> = idx_vals.iter().map(|&(_, v)| v).collect();
 
             // consider_endpoints=False: boundary observations use only the neighbor distance.
+            // When m == 1, no inter-observation neighbor exists, so fall back to endpoint distances.
             sigmas.resize(m, 0.0);
             for (j, &(orig_idx, _)) in idx_vals.iter().enumerate() {
-                sigmas[orig_idx] = if j == 0 {
+                sigmas[orig_idx] = if m == 1 {
+                    (sorted_obs[0] - adj_low).max(adj_high - sorted_obs[0])
+                } else if j == 0 {
                     sorted_obs[1] - sorted_obs[0]
                 } else if j == m - 1 {
                     sorted_obs[m - 1] - sorted_obs[m - 2]
@@ -237,6 +245,8 @@ impl NumericalDistributionBuilder for DefaultNumericalDistributionBuilder {
                     (sorted_obs[j] - sorted_obs[j - 1]).max(sorted_obs[j + 1] - sorted_obs[j])
                 };
             }
+            // Sigma for prior
+            sigmas.push(adj_high - adj_low);
 
             // Clamp (minsigma, maxsigma)
             let maxsigma = adj_high - adj_low;
@@ -245,9 +255,6 @@ impl NumericalDistributionBuilder for DefaultNumericalDistributionBuilder {
                 *s = s.clamp(minsigma, maxsigma);
             }
         }
-
-        // Sigma for prior
-        sigmas.push(adj_high - adj_low);
 
         match (step_opt, log) {
             (None, false) => {
