@@ -26,8 +26,7 @@ use crate::trial::PyTrialState;
 /// configuration is asked, so no bookkeeping is required when a trial finishes.
 pub struct CmaEsSampler {
     state: Mutex<CmaEsSamplerState>,
-    // TODO(c-bata): Remove this mutex after RandomSampler becomes internally synchronized.
-    random_sampler: Mutex<RandomSampler>,
+    random_sampler: RandomSampler,
 }
 
 struct CmaEsSamplerState {
@@ -228,7 +227,7 @@ impl CmaEsSampler {
         };
         Self {
             state: Mutex::new(CmaEsSamplerState::new(seed, popsize)),
-            random_sampler: Mutex::new(random_sampler),
+            random_sampler,
         }
     }
 }
@@ -242,13 +241,6 @@ impl Sampler for CmaEsSampler {
         distribution: &Distribution,
     ) -> Result<f64> {
         self.random_sampler
-            .lock()
-            .map_err(|e| {
-                Error::with_reason(
-                    ErrorKind::SamplerError,
-                    format!("Failed to acquire random sampler guard: {e}"),
-                )
-            })?
             .sample_independent(ctx, storage, name, distribution)
     }
 
