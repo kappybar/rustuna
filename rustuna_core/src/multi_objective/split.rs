@@ -38,11 +38,15 @@ pub fn split_trials_for_multi_objective<'a>(
         }
     }
 
+    let feasible_gamma = gamma.min(feasible_trials.len());
     let (mut feasible_good_trials, mut feasible_poor_trials) =
-        split_feasible_trials_for_multi_objective(&feasible_trials, directions, gamma);
-    let gamma = gamma.saturating_sub(feasible_good_trials.len());
+        split_feasible_trials_for_multi_objective(&feasible_trials, directions, feasible_gamma);
+    let infeasible_gamma = gamma.saturating_sub(feasible_good_trials.len());
     let (infeasible_good_trials, infeasible_poor_trials) =
-        split_infeasible_trials_for_multi_objective(&mut infeasible_trial_with_violations, gamma);
+        split_infeasible_trials_for_multi_objective(
+            &mut infeasible_trial_with_violations,
+            infeasible_gamma,
+        );
     feasible_good_trials.extend(infeasible_good_trials);
     feasible_poor_trials.extend(infeasible_poor_trials);
     Ok((feasible_good_trials, feasible_poor_trials))
@@ -217,6 +221,10 @@ fn split_infeasible_trials_for_multi_objective<'a>(
     gamma: usize,
 ) -> (Vec<&'a PersistedTrial>, Vec<&'a PersistedTrial>) {
     let n = trial_with_violations.len();
+    assert!(
+        gamma <= n,
+        "gamma must be less than or equal to the number of trials"
+    );
     if n == 0 {
         return (Vec::new(), Vec::new());
     }

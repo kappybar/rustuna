@@ -876,4 +876,34 @@ mod tests {
             "Optimization should complete without panicking."
         );
     }
+
+    #[test]
+    fn test_multi_objective_constraint_with_few_feasible_trials() {
+        // Only a tiny slice of the search space is feasible, so the number of feasible
+        // trials stays below gamma. The good half then has to be padded with the least
+        // violating infeasible trials.
+        let storage = InMemoryStorage::new();
+        let directions = vec![Direction::Minimize, Direction::Minimize];
+        let study = create_study(
+            "multi-objective-constraint",
+            storage,
+            TpeSampler::seed_from_u64(0),
+            directions,
+        )
+        .unwrap();
+        let result = study.optimize(
+            |mut t| {
+                let x = t.suggest_float("x", 0.0, 1.0)?;
+                let y = t.suggest_float("y", 0.0, 1.0)?;
+                let c0 = if x < 0.02 { -1.0 } else { 1.0 };
+                t.set_constraints(HashMap::from([(String::from("c0"), c0)]))?;
+                Ok(vec![x, y])
+            },
+            200,
+        );
+        assert!(
+            result.is_ok(),
+            "Optimization should complete without panicking."
+        );
+    }
 }
