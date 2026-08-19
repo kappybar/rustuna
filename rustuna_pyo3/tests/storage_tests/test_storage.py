@@ -128,3 +128,38 @@ def test_get_trials_with_states_filter(storage: StorageProtocol) -> None:
         completed.number,
         failed.number,
     }
+
+
+def test_get_n_trials_with_states_filter(storage: StorageProtocol) -> None:
+    study = rustuna.create_study(storage=storage)
+
+    completed = study.ask()
+    running = study.ask()
+    failed = study.ask()
+
+    study.tell(completed.number, 1.0)
+    study.tell(failed.number, state=rustuna.trial.TrialState.FAIL)
+
+    assert storage.get_n_trials(study._study_id) == 3
+    assert (
+        storage.get_n_trials(
+            study._study_id,
+            states=[rustuna.trial.TrialState.COMPLETE],
+        )
+        == 1
+    )
+    assert (
+        storage.get_n_trials(
+            study._study_id,
+            states=[rustuna.trial.TrialState.RUNNING],
+        )
+        == 1
+    )
+    assert (
+        storage.get_n_trials(
+            study._study_id,
+            states=[rustuna.trial.TrialState.COMPLETE, rustuna.trial.TrialState.FAIL],
+        )
+        == 2
+    )
+    assert storage.get_n_trials(study._study_id, states=[]) == 0

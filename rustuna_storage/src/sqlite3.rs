@@ -1,13 +1,27 @@
-use crate::cache::CachedStorageBackend;
-use rusqlite::{params, Connection, Error as RusqliteError, OptionalExtension};
+use crate::cache::{CachedStorageBackend, DiscardedTrialsDiff};
+use rusqlite::{
+    params, Connection, Error as RusqliteError, OptionalExtension, TransactionBehavior,
+};
 use rustuna_core::attr::{AttrKey, Attrs, CategoryLabel};
+use rustuna_core::datetime::now_naive_utc;
 use rustuna_core::distribution::Distribution;
 use rustuna_core::study::{Direction, PersistedStudy};
-use rustuna_core::trial::{PersistedTrial, TrialStateValues};
+use rustuna_core::trial::{PersistedTrial, TrialState, TrialStateValues};
 use rustuna_core::{Error, ErrorKind, Result};
 use serde_json::{json, Number, Value};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+
+/// Options for [`SQLite3Storage`].
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SQLite3StorageOptions {
+    /// If `true`, discarded trials are omitted from subsequent reads.
+    ///
+    /// As in `JournalStorageOptions`, this only gates reads: `discard_trials` marks the trials
+    /// in the database regardless of this option.
+    pub apply_discard: bool,
+}
 
 /// SQLite-backed storage backend.
 ///
@@ -16,25 +30,60 @@ use std::sync::Mutex;
 /// `rustuna_core`.
 pub struct SQLite3Storage {
     conn: Mutex<Connection>,
+    options: SQLite3StorageOptions,
+    has_discarded_at_column: AtomicBool,
 }
 
 const SCHEMA_SQL: &str = include_str!("sqlite3_schema.sql");
 const TRIALS_STUDY_ID_NUMBER_INDEX_SQL: &str =
     "CREATE INDEX IF NOT EXISTS trials_study_id_number_key ON trials (study_id, number)";
+const TRIALS_DISCARDED_AT_COLUMN_SQL: &str = "ALTER TABLE trials ADD COLUMN discarded_at DATETIME";
+const TRIALS_DISCARDED_AT_INDEX_SQL: &str =
+    "CREATE INDEX IF NOT EXISTS trials_study_id_discarded_at_key ON trials (study_id, discarded_at)";
+
 type TrialRow = (u32, u32, String, Option<String>, Option<String>);
 
 impl SQLite3Storage {
     /// Opens a SQLite database file.
     pub fn new(file_path: &str) -> Result<SQLite3Storage> {
+        Self::new_with_option(file_path, SQLite3StorageOptions::default())
+    }
+
+    /// Opens a SQLite database file with the given options.
+    ///
+    /// When `apply_discard` is enabled, call [`Self::validate_discard_support`] after
+    /// [`Self::create_database`] to reject databases whose schema predates the discard column.
+    pub fn new_with_option(
+        file_path: &str,
+        options: SQLite3StorageOptions,
+    ) -> Result<SQLite3Storage> {
         let conn = Connection::open(file_path).map_err(|e| {
             Error::with_reason(
                 ErrorKind::StorageError,
                 format!("Failed to open {file_path}: {e}"),
             )
         })?;
+        let has_discarded_at_column = Self::has_discarded_at_column(&conn)?;
         Ok(SQLite3Storage {
             conn: Mutex::new(conn),
+            options,
+            has_discarded_at_column: AtomicBool::new(has_discarded_at_column),
         })
+    }
+
+    /// Returns an error when discards were requested but the database cannot record them.
+    ///
+    /// [`Self::create_database`] migrates the column in, so this only fails for databases opened
+    /// without initialization.
+    pub fn validate_discard_support(&self) -> Result<()> {
+        if self.options.apply_discard && !self.has_discarded_at_column.load(Ordering::Acquire) {
+            return Err(Error::with_reason(
+                ErrorKind::StorageError,
+                "apply_discard requires the Rustuna-specific `discarded_at` column on the \
+                 trials table. Open the database with create_database enabled to add it.",
+            ));
+        }
+        Ok(())
     }
 
     /// Creates the Rustuna schema if the database has not been initialized yet.
@@ -70,6 +119,27 @@ impl SQLite3Storage {
                         format!("Failed to create trial lookup index: {e}"),
                     )
                 })?;
+
+            // Same reasoning for the discard column: a database created by Optuna or by an
+            // older Rustuna has a `trials` table without it, and `SCHEMA_SQL` above is skipped
+            // for such databases. Adding it here keeps `apply_discard` from silently degrading
+            // into a no-op that only looks correct until the storage is reopened.
+            if !Self::has_discarded_at_column(&conn)? {
+                conn.execute_batch(TRIALS_DISCARDED_AT_COLUMN_SQL)
+                    .map_err(|e| {
+                        Error::with_reason(
+                            ErrorKind::StorageError,
+                            format!("Failed to add the discarded_at column: {e}"),
+                        )
+                    })?;
+            }
+            conn.execute_batch(TRIALS_DISCARDED_AT_INDEX_SQL)
+                .map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Failed to create discard lookup index: {e}"),
+                    )
+                })?;
             Ok(())
         })();
 
@@ -85,6 +155,10 @@ impl SQLite3Storage {
                 return Err(err);
             }
         }
+
+        let has_discarded_at_column = Self::has_discarded_at_column(&conn)?;
+        self.has_discarded_at_column
+            .store(has_discarded_at_column, Ordering::Release);
 
         Ok(())
     }
@@ -104,6 +178,35 @@ impl SQLite3Storage {
                 )
             })?;
         Ok(exists.is_some())
+    }
+
+    fn has_discarded_at_column(conn: &Connection) -> Result<bool> {
+        let mut stmt = conn.prepare("PRAGMA table_info(trials)").map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Failed to inspect trials schema: {e}"),
+            )
+        })?;
+        let columns = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Failed to inspect trials schema: {e}"),
+                )
+            })?;
+        for column in columns {
+            if column.map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Failed to inspect trials schema: {e}"),
+                )
+            })? == "discarded_at"
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn validate_study_id(&self, study_id: u32) -> Result<()> {
@@ -133,6 +236,178 @@ impl SQLite3Storage {
 }
 
 impl CachedStorageBackend for SQLite3Storage {
+    fn apply_discard(&self) -> bool {
+        self.options.apply_discard
+    }
+
+    fn discard_trials(&mut self, trial_ids: &[u32]) -> Result<()> {
+        if !self.has_discarded_at_column.load(Ordering::Acquire) {
+            // Failing loudly rather than silently: a no-op here would let the caller believe the
+            // trials were discarded until the database is reopened and they all reappear.
+            return Err(Error::with_reason(
+                ErrorKind::StorageError,
+                "Cannot discard trials: the trials table has no `discarded_at` column. Open the \
+                 database with create_database enabled to add it.",
+            ));
+        }
+        if trial_ids.is_empty() {
+            return Ok(());
+        }
+
+        let mut guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
+        let tx = guard.transaction().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Database query failed: {e}"),
+            )
+        })?;
+        for trial_id in trial_ids {
+            // `discarded_at IS NULL` keeps the first timestamp when the same trial is discarded
+            // twice. Restamping it would move the trial ahead of readers that already passed it,
+            // making them replay a discard they have applied.
+            let updated = tx
+                .execute(
+                    "UPDATE trials SET discarded_at = ? WHERE trial_id = ? AND discarded_at IS NULL",
+                    params![now_naive_utc(), trial_id],
+                )
+                .map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {e}"),
+                    )
+                })?;
+            if updated == 0 {
+                // Either the trial does not exist, or it was already discarded.
+                let exists: Option<u32> = tx
+                    .query_row(
+                        "SELECT trial_id FROM trials WHERE trial_id = ?",
+                        params![trial_id],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .map_err(|e| {
+                        Error::with_reason(
+                            ErrorKind::StorageError,
+                            format!("Database query failed: {e}"),
+                        )
+                    })?;
+                if exists.is_none() {
+                    return Err(Error::new(ErrorKind::TrialNotFound));
+                }
+            }
+        }
+        tx.commit().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Database query failed: {e}"),
+            )
+        })
+    }
+
+    fn get_discarded_trials_diff(
+        &mut self,
+        study_id: u32,
+        cursor: Option<&str>,
+    ) -> Result<DiscardedTrialsDiff> {
+        if !self.has_discarded_at_column.load(Ordering::Acquire) {
+            return Ok(DiscardedTrialsDiff::default());
+        }
+        let guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
+
+        // `>=` instead of `>`: several trials can share a timestamp, and the cursor only carries
+        // the timestamp itself. Re-reading the boundary batch costs at most one discard call and
+        // applying a discard twice is a no-op, whereas `>` would drop the trials tied with it.
+        //
+        // Trials discarded by another process whose clock lags behind the cursor are missed. That
+        // only costs memory (the trial stays cached), never correctness, so it is not worth
+        // ordering discards across machines.
+        let mut stmt = guard
+            .prepare(
+                "SELECT number, discarded_at FROM trials \
+                 WHERE study_id = ? AND discarded_at IS NOT NULL AND discarded_at >= ?",
+            )
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {e}"),
+                )
+            })?;
+        // Every non-NULL timestamp compares greater than or equal to the empty string.
+        let rows = stmt
+            .query_map(params![study_id, cursor.unwrap_or("")], |row| {
+                Ok((row.get::<_, u32>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {e}"),
+                )
+            })?;
+
+        let mut diff = DiscardedTrialsDiff::default();
+        for row in rows {
+            let (number, discarded_at) = row.map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {e}"),
+                )
+            })?;
+            diff.numbers.push(number);
+            if diff.cursor.as_ref().is_none_or(|max| *max < discarded_at) {
+                diff.cursor = Some(discarded_at);
+            }
+        }
+        Ok(diff)
+    }
+
+    fn get_n_trials(
+        &mut self,
+        study_id: u32,
+        states: Option<&[TrialState]>,
+    ) -> rustuna_core::Result<u32> {
+        self.validate_study_id(study_id)?;
+
+        let mut sql = "SELECT COUNT(*) FROM trials WHERE study_id = ?".to_string();
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(study_id)];
+        if let Some(states) = states {
+            if states.is_empty() {
+                return Ok(0);
+            }
+            let placeholders = states.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+            sql.push_str(&format!(" AND state IN ({placeholders})"));
+            params.extend(states.iter().map(|state| {
+                let state = match state {
+                    TrialState::Running => "RUNNING",
+                    TrialState::Complete => "COMPLETE",
+                    TrialState::Pruned => "PRUNED",
+                    TrialState::Waiting => "WAITING",
+                    TrialState::Fail => "FAIL",
+                };
+                Box::new(state.to_string()) as Box<dyn rusqlite::ToSql>
+            }));
+        }
+
+        let guard = self
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
+        let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        guard
+            .query_row(&sql, param_refs.as_slice(), |row| row.get(0))
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {e}"),
+                )
+            })
+    }
+
     fn create_new_study(
         &mut self,
         study_name: &str,
@@ -196,27 +471,52 @@ impl CachedStorageBackend for SQLite3Storage {
         &mut self,
         study_id: u32,
     ) -> rustuna_core::Result<rustuna_core::trial::PersistedTrial> {
-        self.validate_study_id(study_id)?;
-
-        let guard = self
+        let mut guard = self
             .conn
             .lock()
             .map_err(|_| Error::new(ErrorKind::StorageError))?;
-        guard
-            .execute(
-                "INSERT INTO trials (number, study_id, state, datetime_start, datetime_complete) \
-             VALUES (NULL, ?, ?, strftime('%Y-%m-%d %H:%M:%f','now','localtime'), NULL)",
-                params![study_id, "RUNNING"],
-            )
+        // A trial must not become visible until its number has been assigned. Without a
+        // transaction, another process can observe the row inserted below with number=NULL and
+        // fail while decoding it as a u32. IMMEDIATE also serializes number allocation among
+        // concurrent writers before either of them computes COUNT(...).
+        let tx = guard
+            .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|e| {
                 Error::with_reason(
                     ErrorKind::StorageError,
                     format!("Database query failed: {e}"),
                 )
             })?;
+        let study_exists: Option<u32> = tx
+            .query_row(
+                "SELECT study_id FROM studies WHERE study_id = ?",
+                params![study_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {e}"),
+                )
+            })?;
+        if study_exists.is_none() {
+            return Err(Error::new(ErrorKind::StudyNotFound));
+        }
+        tx.execute(
+            "INSERT INTO trials (number, study_id, state, datetime_start, datetime_complete) \
+                 VALUES (NULL, ?, ?, ?, NULL)",
+            params![study_id, "RUNNING", now_naive_utc()],
+        )
+        .map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Database query failed: {e}"),
+            )
+        })?;
 
-        let trial_id = guard.last_insert_rowid() as u32;
-        let number: u32 = guard
+        let trial_id = tx.last_insert_rowid() as u32;
+        let number: u32 = tx
             .query_row(
                 "SELECT COUNT(trial_id) FROM trials WHERE study_id = ? AND trial_id < ?",
                 params![study_id, trial_id],
@@ -229,19 +529,18 @@ impl CachedStorageBackend for SQLite3Storage {
                 )
             })?;
 
-        guard
-            .execute(
-                "UPDATE trials SET number = ? WHERE trial_id = ?",
-                params![number, trial_id],
+        tx.execute(
+            "UPDATE trials SET number = ? WHERE trial_id = ?",
+            params![number, trial_id],
+        )
+        .map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Database query failed: {e}"),
             )
-            .map_err(|e| {
-                Error::with_reason(
-                    ErrorKind::StorageError,
-                    format!("Database query failed: {e}"),
-                )
-            })?;
+        })?;
 
-        let datetime_start: Option<String> = guard
+        let datetime_start: Option<String> = tx
             .query_row(
                 "SELECT datetime_start FROM trials WHERE trial_id = ?",
                 params![trial_id],
@@ -254,6 +553,12 @@ impl CachedStorageBackend for SQLite3Storage {
                     format!("Database query failed: {e}"),
                 )
             })?;
+        tx.commit().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Database query failed: {e}"),
+            )
+        })?;
 
         let mut trial = PersistedTrial::new(trial_id, study_id, number);
         trial.datetime_start = datetime_start;
@@ -387,11 +692,30 @@ impl CachedStorageBackend for SQLite3Storage {
         trial_id: u32,
         state_values: rustuna_core::trial::TrialStateValues,
     ) -> rustuna_core::Result<()> {
-        let guard = self
+        if matches!(&state_values, TrialStateValues::Complete(values) if values.is_empty()) {
+            return Err(Error::with_reason(
+                ErrorKind::InvalidObjectiveValues,
+                format!("Cannot complete trial {trial_id} without objective values"),
+            ));
+        }
+
+        let mut guard = self
             .conn
             .lock()
             .map_err(|_| Error::new(ErrorKind::StorageError))?;
-        let result: Option<String> = guard
+        // State and objective values form one logical record. Keep both the finished-state check
+        // and all writes in one IMMEDIATE transaction so another process can never observe
+        // COMPLETE before its trial_values rows exist, and a failed values write cannot leave a
+        // permanently incomplete trial behind.
+        let tx = guard
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::StorageError,
+                    format!("Database query failed: {e}"),
+                )
+            })?;
+        let result: Option<String> = tx
             .query_row(
                 "SELECT state FROM trials WHERE trial_id = ?",
                 params![trial_id],
@@ -412,78 +736,92 @@ impl CachedStorageBackend for SQLite3Storage {
 
         match &state_values {
             TrialStateValues::Complete(values) => {
-                guard
-                    .execute(
-                        "UPDATE trials SET state = ?, datetime_complete = strftime('%Y-%m-%d %H:%M:%f','now','localtime') WHERE trial_id = ?",
-                        params!["COMPLETE", trial_id],
+                let placeholders = values
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| format!("({trial_id}, {i}, ?, 'FINITE')"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let sql = format!(
+                    "INSERT INTO trial_values (trial_id, objective, value, value_type) VALUES {placeholders} \
+                     ON CONFLICT(trial_id, objective) DO UPDATE SET value=excluded.value, value_type=excluded.value_type"
+                );
+                let params: Vec<&dyn rusqlite::ToSql> =
+                    values.iter().map(|v| v as &dyn rusqlite::ToSql).collect();
+                tx.execute(&sql, params.as_slice()).map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {e}"),
                     )
-                    .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {e}")))?;
+                })?;
 
-                if !values.is_empty() {
-                    let placeholders = values
-                        .iter()
-                        .enumerate()
-                        .map(|(i, _)| format!("({trial_id}, {i}, ?, 'FINITE')"))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    let sql = format!(
-                        "INSERT INTO trial_values (trial_id, objective, value, value_type) VALUES {placeholders} \
-                         ON CONFLICT(trial_id, objective) DO UPDATE SET value=excluded.value, value_type=excluded.value_type"
-                    );
-                    let params: Vec<&dyn rusqlite::ToSql> =
-                        values.iter().map(|v| v as &dyn rusqlite::ToSql).collect();
-                    guard.execute(&sql, params.as_slice()).map_err(|e| {
-                        Error::with_reason(
-                            ErrorKind::StorageError,
-                            format!("Database query failed: {e}"),
-                        )
-                    })?;
-                }
+                tx.execute(
+                    "UPDATE trials SET state = ?, datetime_complete = ? WHERE trial_id = ?",
+                    params!["COMPLETE", now_naive_utc(), trial_id],
+                )
+                .map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {e}"),
+                    )
+                })?;
             }
             TrialStateValues::Pruned => {
-                guard
-                    .execute(
-                        "UPDATE trials SET state = ?, datetime_complete = strftime('%Y-%m-%d %H:%M:%f','now','localtime') WHERE trial_id = ?",
-                        params!["PRUNED", trial_id],
+                tx.execute(
+                    "UPDATE trials SET state = ?, datetime_complete = ? WHERE trial_id = ?",
+                    params!["PRUNED", now_naive_utc(), trial_id],
+                )
+                .map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {e}"),
                     )
-                    .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {e}")))?;
+                })?;
             }
             TrialStateValues::Fail => {
-                guard
-                    .execute(
-                        "UPDATE trials SET state = ?, datetime_complete = strftime('%Y-%m-%d %H:%M:%f','now','localtime') WHERE trial_id = ?",
-                        params!["FAIL", trial_id],
+                tx.execute(
+                    "UPDATE trials SET state = ?, datetime_complete = ? WHERE trial_id = ?",
+                    params!["FAIL", now_naive_utc(), trial_id],
+                )
+                .map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {e}"),
                     )
-                    .map_err(|e| Error::with_reason(ErrorKind::StorageError, format!("Database query failed: {e}")))?;
+                })?;
             }
             TrialStateValues::Running => {
-                guard
-                    .execute(
-                        "UPDATE trials SET state = ?, datetime_complete = NULL WHERE trial_id = ?",
-                        params!["RUNNING", trial_id],
+                tx.execute(
+                    "UPDATE trials SET state = ?, datetime_complete = NULL WHERE trial_id = ?",
+                    params!["RUNNING", trial_id],
+                )
+                .map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {e}"),
                     )
-                    .map_err(|e| {
-                        Error::with_reason(
-                            ErrorKind::StorageError,
-                            format!("Database query failed: {e}"),
-                        )
-                    })?;
+                })?;
             }
             TrialStateValues::Waiting => {
-                guard
-                    .execute(
-                        "UPDATE trials SET state = ?, datetime_complete = NULL WHERE trial_id = ?",
-                        params!["WAITING", trial_id],
+                tx.execute(
+                    "UPDATE trials SET state = ?, datetime_complete = NULL WHERE trial_id = ?",
+                    params!["WAITING", trial_id],
+                )
+                .map_err(|e| {
+                    Error::with_reason(
+                        ErrorKind::StorageError,
+                        format!("Database query failed: {e}"),
                     )
-                    .map_err(|e| {
-                        Error::with_reason(
-                            ErrorKind::StorageError,
-                            format!("Database query failed: {e}"),
-                        )
-                    })?;
+                })?;
             }
         }
 
+        tx.commit().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Database query failed: {e}"),
+            )
+        })?;
         Ok(())
     }
 
@@ -640,7 +978,7 @@ impl CachedStorageBackend for SQLite3Storage {
             .lock()
             .map_err(|_| Error::new(ErrorKind::StorageError))?;
 
-        // Query to trials table .
+        // Query to trials table.
         let trial_row: Option<TrialRow> = guard
             .query_row(
                 "SELECT study_id, number, state, datetime_start, datetime_complete FROM trials WHERE trial_id = ?",
@@ -656,33 +994,7 @@ impl CachedStorageBackend for SQLite3Storage {
             "WAITING" => TrialStateValues::Waiting,
             "PRUNED" => TrialStateValues::Pruned,
             "FAIL" => TrialStateValues::Fail,
-            "COMPLETE" => {
-                // Query to trial_values table.
-                let mut stmt = guard
-                    .prepare("SELECT value FROM trial_values WHERE trial_id = ? ORDER BY objective")
-                    .map_err(|e| {
-                        Error::with_reason(
-                            ErrorKind::StorageError,
-                            format!("Database query failed: {e}"),
-                        )
-                    })?;
-                let values = stmt
-                    .query_map(params![trial_id], |row| row.get(0))
-                    .map_err(|e| {
-                        Error::with_reason(
-                            ErrorKind::StorageError,
-                            format!("Database query failed: {e}"),
-                        )
-                    })?
-                    .collect::<std::result::Result<Vec<f64>, _>>()
-                    .map_err(|e| {
-                        Error::with_reason(
-                            ErrorKind::StorageError,
-                            format!("Database query failed: {e}"),
-                        )
-                    })?;
-                TrialStateValues::Complete(values)
-            }
+            "COMPLETE" => TrialStateValues::Complete(read_trial_values(&guard, trial_id)?),
             _ => return Err(Error::new(ErrorKind::StorageError)),
         };
 
@@ -1137,6 +1449,12 @@ impl CachedStorageBackend for SQLite3Storage {
 
         let select_columns =
             "SELECT trial_id, number, state, datetime_start, datetime_complete FROM trials";
+        let discard_condition =
+            if self.options.apply_discard && self.has_discarded_at_column.load(Ordering::Acquire) {
+                " AND discarded_at IS NULL"
+            } else {
+                ""
+            };
         // Numbers above the threshold are already returned by the range query. Filtering them
         // out here avoids an unnecessary second scan in the usual case where the current trial
         // is the only unfinished trial.
@@ -1152,7 +1470,9 @@ impl CachedStorageBackend for SQLite3Storage {
         let (sql, params): (String, Vec<Box<dyn rusqlite::ToSql>>) = if included_numbers.is_empty()
         {
             (
-                format!("{select_columns} WHERE study_id = ? AND number > ? ORDER BY trial_id"),
+                format!(
+                    "{select_columns} WHERE study_id = ? AND number > ?{discard_condition} ORDER BY trial_id"
+                ),
                 vec![Box::new(study_id), Box::new(trial_number_greater_than)],
             )
         } else {
@@ -1173,9 +1493,9 @@ impl CachedStorageBackend for SQLite3Storage {
             );
             (
                 format!(
-                    "{select_columns} WHERE study_id = ? AND number > ? \
+                    "{select_columns} WHERE study_id = ? AND number > ?{discard_condition} \
                          UNION ALL \
-                         {select_columns} WHERE study_id = ? AND number IN ({placeholders}) \
+                         {select_columns} WHERE study_id = ? AND number IN ({placeholders}){discard_condition} \
                          ORDER BY trial_id"
                 ),
                 params,
@@ -1223,34 +1543,7 @@ impl CachedStorageBackend for SQLite3Storage {
                 "WAITING" => TrialStateValues::Waiting,
                 "PRUNED" => TrialStateValues::Pruned,
                 "FAIL" => TrialStateValues::Fail,
-                "COMPLETE" => {
-                    let mut values_stmt = guard
-                        .prepare(
-                            "SELECT value FROM trial_values WHERE trial_id = ? ORDER BY objective",
-                        )
-                        .map_err(|e| {
-                            Error::with_reason(
-                                ErrorKind::StorageError,
-                                format!("Database query failed: {e}"),
-                            )
-                        })?;
-                    let values = values_stmt
-                        .query_map(params![trial_id], |row| row.get(0))
-                        .map_err(|e| {
-                            Error::with_reason(
-                                ErrorKind::StorageError,
-                                format!("Database query failed: {e}"),
-                            )
-                        })?
-                        .collect::<std::result::Result<Vec<f64>, _>>()
-                        .map_err(|e| {
-                            Error::with_reason(
-                                ErrorKind::StorageError,
-                                format!("Database query failed: {e}"),
-                            )
-                        })?;
-                    TrialStateValues::Complete(values)
-                }
+                "COMPLETE" => TrialStateValues::Complete(read_trial_values(&guard, trial_id)?),
                 _ => return Err(Error::new(ErrorKind::StorageError)),
             };
 
@@ -1674,6 +1967,39 @@ fn value_to_category_label(v: &Value) -> Option<CategoryLabel> {
     }
 }
 
+fn read_trial_values(conn: &Connection, trial_id: u32) -> Result<Vec<f64>> {
+    let mut stmt = conn
+        .prepare("SELECT value FROM trial_values WHERE trial_id = ? ORDER BY objective")
+        .map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Database query failed: {e}"),
+            )
+        })?;
+    let values = stmt
+        .query_map(params![trial_id], |row| row.get(0))
+        .map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Database query failed: {e}"),
+            )
+        })?
+        .collect::<std::result::Result<Vec<f64>, _>>()
+        .map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Database query failed: {e}"),
+            )
+        })?;
+    if values.is_empty() {
+        return Err(Error::with_reason(
+            ErrorKind::StorageError,
+            format!("Trial {trial_id} is COMPLETE but has no objective values"),
+        ));
+    }
+    Ok(values)
+}
+
 fn read_intermediate_values(conn: &Connection, trial_id: u32) -> Result<HashMap<u32, f64>> {
     let mut stmt = conn
         .prepare(
@@ -1733,13 +2059,89 @@ fn decode_intermediate_value(stored_value: Option<f64>, value_type: &str) -> Res
 mod tests {
     use super::*;
     use crate::cache::CachedStorage;
+    use crate::test_utils::TempDir;
     use rustuna_core::sampler::RandomSampler;
+    use rustuna_core::storage::Storage;
     use rustuna_core::study::{create_study, Direction};
-    use tempfile::tempdir;
 
     fn init_storage() -> Result<SQLite3Storage> {
-        let storage = SQLite3Storage::new(":memory:")?;
+        init_storage_with_option(SQLite3StorageOptions::default())
+    }
+
+    /// Reads SQLite's own idea of the current UTC time, truncated to whole seconds.
+    ///
+    /// It is an independent reference for the timestamps Rustuna binds from Rust: a column holding
+    /// local time would sit an offset away from it on any machine that is not on UTC. Seconds are
+    /// the finest common precision, since `strftime` stops at milliseconds.
+    fn database_utc_second(storage: &SQLite3Storage) -> Result<String> {
+        let guard = storage
+            .conn
+            .lock()
+            .map_err(|_| Error::new(ErrorKind::StorageError))?;
+        let now: String = guard
+            .query_row("SELECT strftime('%Y-%m-%d %H:%M:%f', 'now')", [], |row| {
+                row.get(0)
+            })
+            .map_err(|e| Error::with_reason(ErrorKind::StorageError, e.to_string()))?;
+        Ok(now[..19].to_string())
+    }
+
+    #[test]
+    fn trial_datetimes_are_stored_as_naive_utc() -> Result<()> {
+        let mut storage = init_storage()?;
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])?
+            .id;
+        let before = database_utc_second(&storage)?;
+        let trial = storage.create_new_trial(study_id)?;
+        let trial_id = trial.id;
+        let reported_start = trial.datetime_start.clone().expect("datetime_start is set");
+        storage.set_trial_state_values(trial_id, TrialStateValues::Complete(vec![1.0]))?;
+        let trial = storage.get_trial(trial_id)?;
+        let reported_complete = trial
+            .datetime_complete
+            .clone()
+            .expect("datetime_complete is set");
+        assert_eq!(
+            trial.datetime_start.as_deref(),
+            Some(reported_start.as_str())
+        );
+
+        let (stored_start, stored_complete): (String, String) = {
+            let guard = storage
+                .conn
+                .lock()
+                .map_err(|_| Error::new(ErrorKind::StorageError))?;
+            guard
+                .query_row(
+                    "SELECT datetime_start, datetime_complete FROM trials WHERE trial_id = ?",
+                    params![trial_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .map_err(|e| Error::with_reason(ErrorKind::StorageError, e.to_string()))?
+        };
+
+        // PersistedTrial and the columns hold the same naive UTC value, with no conversion.
+        assert_eq!(stored_start, reported_start);
+        assert_eq!(stored_complete, reported_complete);
+
+        // Naive UTC of a fixed width sorts chronologically, so bracketing the stored values
+        // between two readings of the database clock needs no date arithmetic.
+        let after = database_utc_second(&storage)?;
+        for value in [&stored_start, &stored_complete] {
+            let second = &value[..19];
+            assert!(
+                before.as_str() <= second && second <= after.as_str(),
+                "{value} is not UTC (database clock went {before} -> {after})"
+            );
+        }
+        Ok(())
+    }
+
+    fn init_storage_with_option(options: SQLite3StorageOptions) -> Result<SQLite3Storage> {
+        let storage = SQLite3Storage::new_with_option(":memory:", options)?;
         storage.create_database()?;
+        storage.validate_discard_support()?;
         Ok(storage)
     }
 
@@ -1761,7 +2163,7 @@ mod tests {
 
     #[test]
     fn create_database_is_idempotent() -> Result<()> {
-        let dir = tempdir().map_err(|_| Error::new(ErrorKind::Unexpected))?;
+        let dir = TempDir::new().map_err(|_| Error::new(ErrorKind::Unexpected))?;
         let path = dir.path().join("storage.sqlite3");
         let storage = SQLite3Storage::new(path.to_string_lossy().as_ref())?;
 
@@ -1806,6 +2208,208 @@ mod tests {
             .optional()
             .map_err(|e| Error::with_reason(ErrorKind::StorageError, e.to_string()))?;
         assert_eq!(index_name.as_deref(), Some("trials_study_id_number_key"));
+        Ok(())
+    }
+
+    #[test]
+    fn discard_trials_are_omitted_by_cached_storage() -> Result<()> {
+        let backend = init_storage_with_option(SQLite3StorageOptions {
+            apply_discard: true,
+        })?;
+        let mut storage = CachedStorage::new(Box::new(backend));
+        assert!(storage.may_omit_trials());
+
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])?
+            .id;
+        let trial0_id = storage.create_new_trial(study_id)?.id;
+        let trial1_id = storage.create_new_trial(study_id)?.id;
+        storage.discard_trials(&[trial0_id])?;
+
+        let trials = storage.get_trials(study_id)?;
+        assert!(trials[0].is_none());
+        assert_eq!(trials[1].as_ref().unwrap().id, trial1_id);
+        assert!(matches!(
+            storage.get_trial(trial0_id).unwrap_err().kind,
+            ErrorKind::TrialDiscarded
+        ));
+        Ok(())
+    }
+
+    fn open_file_storage(path: &str, apply_discard: bool) -> Result<CachedStorage> {
+        let backend =
+            SQLite3Storage::new_with_option(path, SQLite3StorageOptions { apply_discard })?;
+        backend.create_database()?;
+        backend.validate_discard_support()?;
+        Ok(CachedStorage::new(Box::new(backend)))
+    }
+
+    #[test]
+    fn get_n_trials_counts_states_including_discarded_trials() -> Result<()> {
+        let mut storage = init_storage()?;
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])?
+            .id;
+        let running_trial_id = storage.create_new_trial(study_id)?.id;
+        let complete_trial_id = storage.create_new_trial(study_id)?.id;
+        storage.set_trial_state_values(complete_trial_id, TrialStateValues::Complete(vec![1.0]))?;
+
+        assert_eq!(storage.get_n_trials(study_id, None)?, 2);
+        assert_eq!(
+            storage.get_n_trials(study_id, Some(&[TrialState::Running]))?,
+            1
+        );
+        assert_eq!(
+            storage.get_n_trials(study_id, Some(&[TrialState::Complete]))?,
+            1
+        );
+
+        storage.discard_trials(&[complete_trial_id])?;
+        assert_eq!(storage.get_n_trials(study_id, None)?, 2);
+        assert_eq!(
+            storage.get_n_trials(study_id, Some(&[TrialState::Complete]))?,
+            1
+        );
+        assert!(storage.get_trial(running_trial_id).is_ok());
+        Ok(())
+    }
+
+    #[test]
+    fn discarded_trials_stay_discarded_after_reopening() -> Result<()> {
+        let dir = TempDir::new().map_err(|_| Error::new(ErrorKind::Unexpected))?;
+        let path = dir.path().join("storage.sqlite3");
+        let path = path.to_string_lossy().to_string();
+
+        let (study_id, trial0_id, trial1_id) = {
+            let mut storage = open_file_storage(&path, true)?;
+            let study_id = storage
+                .create_new_study("example", vec![Direction::Minimize])?
+                .id;
+            let trial0_id = storage.create_new_trial(study_id)?.id;
+            storage.set_trial_state_values(trial0_id, TrialStateValues::Complete(vec![1.0]))?;
+            let trial1_id = storage.create_new_trial(study_id)?.id;
+            storage.set_trial_state_values(trial1_id, TrialStateValues::Complete(vec![2.0]))?;
+            storage.discard_trials(&[trial0_id])?;
+            (study_id, trial0_id, trial1_id)
+        };
+
+        // A fresh cache has no trial_id -> location mapping, so resolving the discarded trial
+        // goes through the backend. It must not resurrect it into the cache.
+        let mut storage = open_file_storage(&path, true)?;
+        assert!(matches!(
+            storage.get_trial(trial0_id).unwrap_err().kind,
+            ErrorKind::TrialDiscarded
+        ));
+        assert_eq!(storage.get_trial(trial1_id)?.id, trial1_id);
+        let trials = storage.get_trials(study_id)?;
+        assert!(trials[0].is_none());
+        assert_eq!(trials[1].as_ref().unwrap().id, trial1_id);
+
+        // The same, but asking for the discarded trial before anything else is cached.
+        let mut storage = open_file_storage(&path, true)?;
+        assert!(matches!(
+            storage.get_trial(trial0_id).unwrap_err().kind,
+            ErrorKind::TrialDiscarded
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn discards_are_persisted_when_apply_discard_is_disabled() -> Result<()> {
+        let dir = TempDir::new().map_err(|_| Error::new(ErrorKind::Unexpected))?;
+        let path = dir.path().join("storage.sqlite3");
+        let path = path.to_string_lossy().to_string();
+
+        let (study_id, trial_id) = {
+            // As in JournalStorage, the discard is written even though this storage does not
+            // apply it when reading.
+            let mut storage = open_file_storage(&path, false)?;
+            let study_id = storage
+                .create_new_study("example", vec![Direction::Minimize])?
+                .id;
+            let trial_id = storage.create_new_trial(study_id)?.id;
+            storage.create_new_trial(study_id)?;
+            storage.discard_trials(&[trial_id])?;
+            assert_eq!(storage.get_trial(trial_id)?.id, trial_id);
+            assert!(!storage.may_omit_trials());
+            (study_id, trial_id)
+        };
+
+        let mut storage = open_file_storage(&path, true)?;
+        let trials = storage.get_trials(study_id)?;
+        assert!(trials[0].is_none());
+        assert!(matches!(
+            storage.get_trial(trial_id).unwrap_err().kind,
+            ErrorKind::TrialDiscarded
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn discards_by_another_process_are_synchronized() -> Result<()> {
+        let dir = TempDir::new().map_err(|_| Error::new(ErrorKind::Unexpected))?;
+        let path = dir.path().join("storage.sqlite3");
+        let path = path.to_string_lossy().to_string();
+
+        let mut reader = open_file_storage(&path, true)?;
+        let study_id = reader
+            .create_new_study("example", vec![Direction::Minimize])?
+            .id;
+        let trial0_id = reader.create_new_trial(study_id)?.id;
+        reader.set_trial_state_values(trial0_id, TrialStateValues::Complete(vec![1.0]))?;
+        let trial1_id = reader.create_new_trial(study_id)?.id;
+        reader.set_trial_state_values(trial1_id, TrialStateValues::Complete(vec![2.0]))?;
+        assert_eq!(reader.get_trials(study_id)?.iter().flatten().count(), 2);
+
+        // trial0 is already finished, so get_trials_diff will never revisit it. Only the
+        // dedicated discard synchronization can notice this.
+        let mut writer = open_file_storage(&path, true)?;
+        writer.discard_trials(&[trial0_id])?;
+
+        let trials = reader.get_trials(study_id)?;
+        assert!(trials[0].is_none());
+        assert_eq!(trials[1].as_ref().unwrap().id, trial1_id);
+        Ok(())
+    }
+
+    #[test]
+    fn rejected_writes_on_discarded_trials_do_not_reach_the_database() -> Result<()> {
+        let dir = TempDir::new().map_err(|_| Error::new(ErrorKind::Unexpected))?;
+        let path = dir.path().join("storage.sqlite3");
+        let path = path.to_string_lossy().to_string();
+
+        let (study_id, trial_id) = {
+            let mut storage = open_file_storage(&path, true)?;
+            let study_id = storage
+                .create_new_study("example", vec![Direction::Minimize])?
+                .id;
+            let trial_id = storage.create_new_trial(study_id)?.id;
+            storage.discard_trials(&[trial_id])?;
+
+            assert!(matches!(
+                storage
+                    .set_trial_state_values(trial_id, TrialStateValues::Complete(vec![42.0]))
+                    .unwrap_err()
+                    .kind,
+                ErrorKind::TrialDiscarded
+            ));
+            assert!(matches!(
+                storage
+                    .set_trial_intermediate_values(trial_id, HashMap::from([(0, 42.0)]))
+                    .unwrap_err()
+                    .kind,
+                ErrorKind::TrialDiscarded
+            ));
+            (study_id, trial_id)
+        };
+
+        // Reopen without applying discards to see what actually landed in the database.
+        let mut storage = open_file_storage(&path, false)?;
+        let trials = storage.get_trials(study_id)?;
+        let trial = trials[0].as_ref().expect("trial should still be readable");
+        assert_eq!(trial.id, trial_id);
+        assert!(matches!(trial.state_values, TrialStateValues::Running));
+        assert!(trial.intermediate_values.is_empty());
         Ok(())
     }
 
@@ -1872,6 +2476,47 @@ mod tests {
 
         let trial = storage.create_new_trial(study_id)?;
         assert_eq!(trial.number, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn create_new_trial_rolls_back_insert_when_number_assignment_fails() -> Result<()> {
+        let mut storage = init_storage()?;
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])?
+            .id;
+        {
+            let guard = storage
+                .conn
+                .lock()
+                .map_err(|_| Error::new(ErrorKind::StorageError))?;
+            guard
+                .execute_batch(
+                    "CREATE TRIGGER fail_trial_number_update \
+                     BEFORE UPDATE OF number ON trials \
+                     WHEN NEW.number IS NOT NULL \
+                     BEGIN \
+                         SELECT RAISE(ABORT, 'forced number update failure'); \
+                     END;",
+                )
+                .map_err(|e| Error::with_reason(ErrorKind::StorageError, e.to_string()))?;
+        }
+
+        let err = storage
+            .create_new_trial(study_id)
+            .expect_err("number assignment should fail");
+        assert!(matches!(err.kind, ErrorKind::StorageError));
+
+        let row_count: u32 = {
+            let guard = storage
+                .conn
+                .lock()
+                .map_err(|_| Error::new(ErrorKind::StorageError))?;
+            guard
+                .query_row("SELECT COUNT(*) FROM trials", [], |row| row.get(0))
+                .map_err(|e| Error::with_reason(ErrorKind::StorageError, e.to_string()))?
+        };
+        assert_eq!(row_count, 0, "the INSERT must roll back with the UPDATE");
         Ok(())
     }
 
@@ -2091,6 +2736,96 @@ mod tests {
             trial.state_values,
             TrialStateValues::Complete(vec![1.5, 2.5])
         );
+        Ok(())
+    }
+
+    #[test]
+    fn set_trial_state_values_rejects_empty_complete_values() -> Result<()> {
+        let mut storage = init_storage()?;
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])?
+            .id;
+        let trial_id = storage.create_new_trial(study_id)?.id;
+
+        let err = storage
+            .set_trial_state_values(trial_id, TrialStateValues::Complete(vec![]))
+            .expect_err("COMPLETE requires at least one objective value");
+        assert!(matches!(err.kind, ErrorKind::InvalidObjectiveValues));
+        assert_eq!(
+            storage.get_trial(trial_id)?.state_values,
+            TrialStateValues::Running
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn set_trial_state_values_rolls_back_state_when_values_write_fails() -> Result<()> {
+        let mut storage = init_storage()?;
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])?
+            .id;
+        let trial_id = storage.create_new_trial(study_id)?.id;
+        {
+            let guard = storage
+                .conn
+                .lock()
+                .map_err(|_| Error::new(ErrorKind::StorageError))?;
+            guard
+                .execute_batch(
+                    "CREATE TRIGGER fail_trial_values_insert \
+                     BEFORE INSERT ON trial_values \
+                     BEGIN \
+                         SELECT RAISE(ABORT, 'forced trial values failure'); \
+                     END;",
+                )
+                .map_err(|e| Error::with_reason(ErrorKind::StorageError, e.to_string()))?;
+        }
+
+        let err = storage
+            .set_trial_state_values(trial_id, TrialStateValues::Complete(vec![1.0]))
+            .expect_err("trial values INSERT should fail");
+        assert!(matches!(err.kind, ErrorKind::StorageError));
+
+        let trial = storage.get_trial(trial_id)?;
+        assert_eq!(trial.state_values, TrialStateValues::Running);
+        assert_eq!(trial.datetime_complete, None);
+        Ok(())
+    }
+
+    #[test]
+    fn reads_reject_complete_trial_without_objective_values() -> Result<()> {
+        let mut storage = init_storage()?;
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])?
+            .id;
+        let trial_id = storage.create_new_trial(study_id)?.id;
+        {
+            let guard = storage
+                .conn
+                .lock()
+                .map_err(|_| Error::new(ErrorKind::StorageError))?;
+            guard
+                .execute(
+                    "UPDATE trials SET state = 'COMPLETE', datetime_complete = ? \
+                     WHERE trial_id = ?",
+                    params![now_naive_utc(), trial_id],
+                )
+                .map_err(|e| Error::with_reason(ErrorKind::StorageError, e.to_string()))?;
+        }
+
+        let get_trial_err = storage
+            .get_trial(trial_id)
+            .expect_err("get_trial must reject an incomplete COMPLETE row");
+        assert!(matches!(get_trial_err.kind, ErrorKind::StorageError));
+        assert!(get_trial_err.reason.contains(&format!("Trial {trial_id}")));
+
+        let get_trials_diff_err = storage
+            .get_trials_diff(study_id, &[], -1)
+            .expect_err("get_trials_diff must reject an incomplete COMPLETE row");
+        assert!(matches!(get_trials_diff_err.kind, ErrorKind::StorageError));
+        assert!(get_trials_diff_err
+            .reason
+            .contains(&format!("Trial {trial_id}")));
         Ok(())
     }
 

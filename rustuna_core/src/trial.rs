@@ -8,6 +8,9 @@ use crate::storage::Storage;
 use crate::study::Direction;
 use crate::{Error, ErrorKind, Result};
 
+const CONSTRAINTS_KEY: &str = "constraints";
+const CONSTRAINTS_PREFIX: &str = "constraints:";
+
 /// A trial object used while evaluating an objective function.
 ///
 /// This is the Rustuna counterpart of `optuna.trial.Trial`. It provides parameter suggestion
@@ -23,7 +26,7 @@ pub struct Trial {
     sampler: Arc<Mutex<dyn Sampler>>,
     joint_params: HashMap<String, (Distribution, f64)>,
     fixed_params: HashMap<String, CategoryLabel>,
-    cached_trial: PersistedTrial,
+    cached_user_attrs: HashMap<String, String>,
 }
 impl Trial {
     /// Constructs a trial from storage and sampler state.
@@ -40,9 +43,7 @@ impl Trial {
         joint_params: HashMap<String, (Distribution, f64)>,
         fixed_params: HashMap<String, CategoryLabel>,
     ) -> Self {
-        let mut cached_trial = PersistedTrial::new(trial_id, study_id, number);
-        cached_trial.datetime_start = datetime_start.clone();
-        cached_trial.datetime_complete = datetime_complete.clone();
+        let cached_user_attrs = HashMap::new();
         Trial {
             id: trial_id,
             study_id,
@@ -54,7 +55,7 @@ impl Trial {
             sampler,
             joint_params,
             fixed_params,
-            cached_trial,
+            cached_user_attrs,
         }
     }
 
@@ -105,14 +106,6 @@ impl Trial {
                 })?;
                 storage_guard.set_trial_param(self.id, name, distribution, internal_value)?;
                 drop(storage_guard);
-
-                self.cached_trial
-                    .internal_params
-                    .insert(name.to_string(), internal_value);
-                self.cached_trial
-                    .distributions
-                    .insert(name.to_string(), distribution.clone());
-
                 return Ok(internal_value);
             }
         }
@@ -156,14 +149,6 @@ impl Trial {
         })?;
         storage_guard.set_trial_param(self.id, name, distribution, param_value)?;
         drop(storage_guard);
-
-        self.cached_trial
-            .internal_params
-            .insert(name.to_string(), param_value);
-        self.cached_trial
-            .distributions
-            .insert(name.to_string(), distribution.clone());
-
         Ok(param_value)
     }
 
@@ -226,8 +211,11 @@ impl Trial {
     // making it difficult to cache the value.
     /// Returns a user attribute stored on the trial.
     pub fn get_user_attr(&mut self, key: &str) -> Option<&String> {
-        let key = AttrKey::User(key.into());
-        self.cached_trial.attrs.get(&key)
+        self.cached_user_attrs.get(key)
+    }
+    /// Returns user attributes stored on the trial.
+    pub fn get_user_attrs(&self) -> HashMap<String, String> {
+        self.cached_user_attrs.clone()
     }
 
     /// Sets a single user attribute on the trial.
@@ -240,10 +228,10 @@ impl Trial {
         })?;
         let mut attrs = Attrs::new();
 
-        let key = AttrKey::User(key.into());
-        attrs.insert(key.clone(), value.clone());
+        let attr_key = AttrKey::User(key.into());
+        attrs.insert(attr_key.clone(), value.clone());
         guard.set_trial_attrs(self.id, attrs, false)?;
-        self.cached_trial.attrs.insert(key, value);
+        self.cached_user_attrs.insert(key.to_string(), value);
         Ok(())
     }
 
@@ -262,11 +250,28 @@ impl Trial {
         guard.set_trial_attrs(self.id, attrs, false)?;
         drop(guard);
 
-        for (key, value) in user_attrs {
-            self.cached_trial
-                .attrs
-                .insert(AttrKey::User(key.into()), value);
+        self.cached_user_attrs.extend(user_attrs);
+        Ok(())
+    }
+
+    /// Sets multiple constraints on the trial.
+    pub fn set_constraints(&mut self, constraints: HashMap<String, f64>) -> Result<()> {
+        let mut attrs = Attrs::with_capacity(constraints.len());
+        for (key, value) in constraints {
+            let key_with_constraint_prefix = format!("{}:{}", CONSTRAINTS_KEY, key);
+            attrs.insert(
+                AttrKey::System(key_with_constraint_prefix.as_str().into()),
+                value.to_string(),
+            );
         }
+        let mut guard = self.storage.write().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::StorageError,
+                format!("Failed to acquire storage guard: {e}"),
+            )
+        })?;
+        guard.set_trial_attrs(self.id, attrs, false)?;
+        drop(guard);
         Ok(())
     }
 }
@@ -289,7 +294,14 @@ pub struct PersistedTrial {
     /// trial data and may be used by future pruning APIs.
     pub intermediate_values: HashMap<u32, f64>,
     pub attrs: Attrs,
+    /// When the trial started, as timezone-naive **UTC** (`%Y-%m-%d %H:%M:%S%.f`).
+    ///
+    /// UTC needs a clock but no timezone database, which is why it is the representation shared by
+    /// every backend: see [`crate::datetime`]. Storage backends encode it slightly differently on
+    /// disk (SQLite keeps naive UTC, journal logs carry an explicit `+00:00`), and the conversion
+    /// to the local time that `FrozenTrial` exposes happens in the Python bindings.
     pub datetime_start: Option<String>,
+    /// When the trial finished, in the same representation as [`Self::datetime_start`].
     pub datetime_complete: Option<String>,
 }
 impl PersistedTrial {
@@ -356,6 +368,26 @@ impl PersistedTrial {
         }
         Ok(())
     }
+
+    /// Gets constraints on the trial.
+    pub fn constraints(&self) -> Result<HashMap<String, f64>, Error> {
+        let mut constraints_dict: HashMap<String, f64> = HashMap::new();
+        for (key, value) in &self.attrs {
+            if let AttrKey::System(key_system) = key {
+                if let Some(key) = key_system.as_str().strip_prefix(CONSTRAINTS_PREFIX) {
+                    let key: String = key.into();
+                    let value: f64 = value.parse::<f64>().map_err(|e| {
+                        Error::with_reason(
+                            ErrorKind::Unexpected,
+                            format!("Failed to parse constraint as f64 : {e}"),
+                        )
+                    })?;
+                    constraints_dict.insert(key, value);
+                }
+            }
+        }
+        Ok(constraints_dict)
+    }
 }
 
 /// Trial state together with objective values when available.
@@ -371,6 +403,74 @@ pub enum TrialStateValues {
     Fail,
     /// Trial is waiting in a queue.
     Waiting,
+}
+
+/// State of a trial without its objective values.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum TrialState {
+    /// Trial is running.
+    Running,
+    /// Trial finished successfully.
+    Complete,
+    /// Trial was pruned.
+    Pruned,
+    /// Trial is waiting in a queue.
+    Waiting,
+    /// Trial failed.
+    Fail,
+}
+
+impl TrialStateValues {
+    /// Returns the state without objective values.
+    pub fn state(&self) -> TrialState {
+        match self {
+            TrialStateValues::Running => TrialState::Running,
+            TrialStateValues::Complete(_) => TrialState::Complete,
+            TrialStateValues::Pruned => TrialState::Pruned,
+            TrialStateValues::Waiting => TrialState::Waiting,
+            TrialStateValues::Fail => TrialState::Fail,
+        }
+    }
+}
+
+/// validate `trials` as follows.
+/// 1. each completed trial's values has the same size.
+/// 2. each completed trial's values has the same size as directions.
+/// 3. each completed trial's values does not contain f64::NAN.
+pub fn validate_trials(trials: &Vec<&PersistedTrial>, directions: &[Direction]) -> Result<()> {
+    let first_completed_trial_values = trials.iter().find_map(|t| match &t.state_values {
+        TrialStateValues::Complete(v) => Some(v),
+        _ => None,
+    });
+    let Some(first_completed_trial_values) = first_completed_trial_values else {
+        return Ok(());
+    };
+    let values_size = first_completed_trial_values.len();
+
+    if trials.iter().any(|t| match &t.state_values {
+        TrialStateValues::Complete(values) => values.len() != values_size,
+        _ => false,
+    }) {
+        Err(Error::with_reason(
+            ErrorKind::Unexpected,
+            "Some completed trials' values have different sizes.".to_string(),
+        ))
+    } else if values_size != directions.len() {
+        Err(Error::with_reason(
+            ErrorKind::Unexpected,
+            "Some completed trial's values has different size from directions.".to_string(),
+        ))
+    } else if trials.iter().any(|t| match &t.state_values {
+        TrialStateValues::Complete(values) => values.iter().all(|x| x.is_nan()),
+        _ => false,
+    }) {
+        Err(Error::with_reason(
+            ErrorKind::Unexpected,
+            "Some trial's values contain f64::NAN.".to_string(),
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -498,6 +598,10 @@ mod tests {
         guard.set_trial_attrs(trial.id, attrs, false)?;
 
         // Check the attributes
+        assert_eq!(
+            trial.get_user_attrs(),
+            HashMap::from([(String::from("key"), String::from("user"))])
+        );
         let trial = guard.get_trial(trial.id)?;
         assert_eq!(
             trial.attrs.get(&AttrKey::User("key".into())),
@@ -507,6 +611,26 @@ mod tests {
             trial.attrs.get(&AttrKey::System("key".into())),
             Some(&"system".to_string())
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_set_constraints() -> Result<()> {
+        let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
+        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
+        let directions = vec![Direction::Minimize];
+        let study = create_study_with_arc("dummy", storage.clone(), sampler, directions)?;
+
+        let mut trial = study.ask()?;
+        let _ = trial.suggest_float("x", -10.0, 10.0)?;
+        let constraints = HashMap::from([(String::from("c0"), 10.0)]);
+        trial.set_constraints(constraints)?;
+
+        let _ = study.tell(trial.number, TrialStateValues::Complete(vec![0.0]));
+        let trials = study.get_trials()?;
+
+        let constraints = trials[0].constraints()?;
+        assert_eq!(constraints, HashMap::from([(String::from("c0"), 10.0)]));
         Ok(())
     }
 }

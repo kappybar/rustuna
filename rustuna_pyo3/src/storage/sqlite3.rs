@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 
 use rustuna_core::storage::Storage;
 use rustuna_storage::cache::CachedStorage;
-use rustuna_storage::sqlite3::SQLite3Storage;
+use rustuna_storage::sqlite3::{SQLite3Storage, SQLite3StorageOptions};
 
 use crate::distribution::PyDistribution;
 use crate::storage::binding::StorageBinding;
@@ -13,7 +13,7 @@ use crate::study::{PyDirection, PyPersistedStudy};
 use crate::trial::{PyPersistedTrial, PyTrialState};
 
 #[derive(Clone)]
-#[pyclass(name = "SQLite3Storage")]
+#[pyclass(name = "SQLite3Storage", from_py_object)]
 #[pyo3(module = "rustuna")]
 pub struct PySQLite3Storage {
     pub(crate) binding: StorageBinding,
@@ -28,16 +28,23 @@ impl PySQLite3Storage {
 #[pymethods]
 impl PySQLite3Storage {
     #[new]
-    #[pyo3(signature = (file_path, *, create_database = true))]
-    fn py_new(file_path: &str, create_database: bool) -> PyResult<Self> {
-        let backend = SQLite3Storage::new(file_path).map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to open the SQLite3 file: {e:?}"))
-        })?;
+    #[pyo3(signature = (file_path, *, create_database = true, apply_discard = false))]
+    fn py_new(file_path: &str, create_database: bool, apply_discard: bool) -> PyResult<Self> {
+        let backend =
+            SQLite3Storage::new_with_option(file_path, SQLite3StorageOptions { apply_discard })
+                .map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to open the SQLite3 file: {e:?}"))
+                })?;
         if create_database {
             backend.create_database().map_err(|e| {
                 PyRuntimeError::new_err(format!("Failed to create the database: {e:?}"))
             })?;
         }
+        // After create_database, so that databases initialized by Optuna are migrated rather
+        // than rejected.
+        backend
+            .validate_discard_support()
+            .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))?;
         let arc_storage = Arc::new(RwLock::new(CachedStorage::new(Box::new(backend))));
         let binding = StorageBinding::new(arc_storage);
         Ok(PySQLite3Storage { binding })
@@ -128,6 +135,16 @@ impl PySQLite3Storage {
         states: Option<Vec<PyTrialState>>,
     ) -> PyResult<Vec<PyPersistedTrial>> {
         self.binding.get_trials(py, study_id, states)
+    }
+
+    #[pyo3(signature = (study_id, *, states = None))]
+    fn get_n_trials(
+        &self,
+        py: Python<'_>,
+        study_id: u32,
+        states: Option<Vec<PyTrialState>>,
+    ) -> PyResult<u32> {
+        self.binding.get_n_trials(py, study_id, states)
     }
 
     fn get_trial(&self, py: Python<'_>, trial_id: u32) -> PyResult<PyPersistedTrial> {

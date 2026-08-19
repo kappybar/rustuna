@@ -1,4 +1,5 @@
 pub mod binding;
+pub mod cached;
 pub mod in_memory;
 pub mod journal;
 pub mod sqlite3;

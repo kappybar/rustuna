@@ -13,10 +13,11 @@ use rustuna_core::distribution::Distribution;
 use rustuna_core::storage::Storage;
 use rustuna_core::study::{Direction, PersistedStudy};
 use rustuna_core::study_cache::StudyCache;
-use rustuna_core::trial::{PersistedTrial, TrialStateValues};
+use rustuna_core::trial::{PersistedTrial, TrialState, TrialStateValues};
 use rustuna_core::{Error, ErrorKind, Result};
 
 use super::{JournalBackend, JournalLog, JournalOperation};
+use crate::datetime::{journal_datetime_to_naive_utc, naive_utc_to_aware_utc, now_aware_utc};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 /// Options for [`JournalStorage`].
@@ -146,10 +147,7 @@ impl Storage for JournalStorage {
     fn create_new_trial(&mut self, study_id: u32) -> Result<&PersistedTrial> {
         let mut fields = HashMap::new();
         fields.insert("study_id".to_string(), to_raw(&study_id)?);
-        fields.insert(
-            "datetime_start".to_string(),
-            to_raw(&chrono::Local::now().naive_local().to_string())?,
-        );
+        fields.insert("datetime_start".to_string(), to_raw(&now_aware_utc())?);
         self.write_log(JournalOperation::CreateTrial, fields)?;
         self.sync_with_backend()?;
         let trial_id = self
@@ -270,10 +268,18 @@ impl Storage for JournalStorage {
         );
         fields.insert(
             "datetime_start".to_string(),
-            to_raw(&template.datetime_start)?,
+            to_raw(
+                &template
+                    .datetime_start
+                    .as_deref()
+                    .map(naive_utc_to_aware_utc),
+            )?,
         );
         if let Some(ref dt) = template.datetime_complete {
-            fields.insert("datetime_complete".to_string(), to_raw(dt)?);
+            fields.insert(
+                "datetime_complete".to_string(),
+                to_raw(&naive_utc_to_aware_utc(dt))?,
+            );
         }
         self.write_log(JournalOperation::CreateTrial, fields)?;
         self.sync_with_backend()?;
@@ -408,15 +414,9 @@ impl Storage for JournalStorage {
             && (!matches!(existing_trial.state_values, TrialStateValues::Running)
                 || existing_trial.datetime_start.is_none())
         {
-            fields.insert(
-                "datetime_start".to_string(),
-                to_raw(&chrono::Local::now().naive_local().to_string())?,
-            );
+            fields.insert("datetime_start".to_string(), to_raw(&now_aware_utc())?);
         } else if matches!(state_code, 1..=3) {
-            fields.insert(
-                "datetime_complete".to_string(),
-                to_raw(&chrono::Local::now().naive_local().to_string())?,
-            );
+            fields.insert("datetime_complete".to_string(), to_raw(&now_aware_utc())?);
         }
         self.write_log(JournalOperation::SetTrialStateValues, fields)?;
         self.sync_with_backend()?;
@@ -716,6 +716,11 @@ impl Storage for JournalStorage {
         Ok(cache.get_joint_search_space())
     }
 
+    fn get_n_trials(&mut self, study_id: u32, states: Option<&[TrialState]>) -> Result<u32> {
+        self.sync_with_backend()?;
+        self.replay.get_n_trials(study_id, states)
+    }
+
     fn discard_trials(&mut self, trial_ids: &[u32]) -> Result<()> {
         self.sync_with_backend()?;
         let mut unique_trial_ids = Vec::new();
@@ -773,6 +778,7 @@ struct JournalReplayState {
     last_created_trial_id_by_this_process: Option<u32>,
     studies_sorted: Vec<PersistedStudy>,
     study_caches: HashMap<u32, StudyCache>,
+    discarded_state_counts: HashMap<(u32, TrialState), u32>,
     apply_discard: bool,
 }
 
@@ -791,8 +797,38 @@ impl JournalReplayState {
             last_created_trial_id_by_this_process: None,
             studies_sorted: Vec::new(),
             study_caches: HashMap::new(),
+            discarded_state_counts: HashMap::new(),
             apply_discard,
         }
+    }
+
+    fn get_n_trials(&self, study_id: u32, states: Option<&[TrialState]>) -> Result<u32> {
+        if !self.studies.contains_key(&study_id) {
+            return Err(Error::new(ErrorKind::StudyNotFound));
+        }
+        let states: Option<std::collections::HashSet<TrialState>> =
+            states.map(|states| states.iter().copied().collect());
+        let live_count = self
+            .trials_by_study
+            .get(&study_id)
+            .ok_or(Error::new(ErrorKind::StudyNotFound))?
+            .iter()
+            .flatten()
+            .filter(|trial| {
+                states
+                    .as_ref()
+                    .is_none_or(|states| states.contains(&trial.state_values.state()))
+            })
+            .count() as u32;
+        let discarded_count = self
+            .discarded_state_counts
+            .iter()
+            .filter(|((id, state), _)| {
+                *id == study_id && states.as_ref().is_none_or(|states| states.contains(state))
+            })
+            .map(|(_, count)| count)
+            .sum::<u32>();
+        Ok(live_count + discarded_count)
     }
 
     fn apply_logs(&mut self, logs: &[JournalLog], worker_id: &str) -> Result<()> {
@@ -940,6 +976,8 @@ impl JournalReplayState {
                 }
             }
             self.trials_by_study.remove(&study_id);
+            self.discarded_state_counts
+                .retain(|(id, _), _| *id != study_id);
             self.study_caches.remove(&study_id);
         }
         Ok(())
@@ -993,8 +1031,12 @@ impl JournalReplayState {
         let user_attrs = get_optional_raw_map(&log.fields, "user_attrs")?;
         let system_attrs = get_optional_raw_map(&log.fields, "system_attrs")?;
         let intermediate_values = get_optional_raw_map(&log.fields, "intermediate_values")?;
-        let datetime_start = get_optional_string(&log.fields, "datetime_start")?;
-        let datetime_complete = get_optional_string(&log.fields, "datetime_complete")?;
+        let datetime_start = get_optional_string(&log.fields, "datetime_start")?
+            .as_deref()
+            .map(journal_datetime_to_naive_utc);
+        let datetime_complete = get_optional_string(&log.fields, "datetime_complete")?
+            .as_deref()
+            .map(journal_datetime_to_naive_utc);
         if !self.study_exists(study_id, log, worker_id)? {
             return Ok(());
         }
@@ -1183,8 +1225,12 @@ impl JournalReplayState {
         let trial_id = get_u32(&log.fields, "trial_id")?;
         let state_code = get_i64(&log.fields, "state")?;
         let values = get_optional_raw_vec(&log.fields, "values")?;
-        let datetime_start = get_optional_string(&log.fields, "datetime_start")?;
-        let datetime_complete = get_optional_string(&log.fields, "datetime_complete")?;
+        let datetime_start = get_optional_string(&log.fields, "datetime_start")?
+            .as_deref()
+            .map(journal_datetime_to_naive_utc);
+        let datetime_complete = get_optional_string(&log.fields, "datetime_complete")?
+            .as_deref()
+            .map(journal_datetime_to_naive_utc);
         if !self.trial_exists_and_updatable(trial_id, log, worker_id)? {
             return Ok(());
         }
@@ -1420,7 +1466,7 @@ impl JournalReplayState {
         for trial_id in trial_ids {
             if targets
                 .iter()
-                .any(|(_, _, existing_trial_id)| existing_trial_id == &trial_id)
+                .any(|(_, _, existing_trial_id, _)| existing_trial_id == &trial_id)
             {
                 continue;
             }
@@ -1448,28 +1494,36 @@ impl JournalReplayState {
                     ),
                 )
             })?;
-            if slot.is_none() {
+            let Some(trial) = slot.as_ref() else {
                 continue;
-            }
-            targets.push((study_id, trial_number, trial_id));
+            };
+            let state = trial.state_values.state();
+            targets.push((study_id, trial_number, trial_id, state));
         }
-        for (study_id, trial_number, _) in targets {
-            let trials = self.trials_by_study.get_mut(&study_id).ok_or_else(|| {
-                Error::with_reason(
-                    ErrorKind::StudyNotFound,
-                    format!("Study not found during discard: study_id={study_id}"),
-                )
-            })?;
-            let slot = trials.get_mut(trial_number as usize).ok_or_else(|| {
-                Error::with_reason(
-                    ErrorKind::TrialNotFound,
-                    format!(
-                        "Trial not found at position during discard: trial_number={trial_number}"
-                    ),
-                )
-            })?;
-            *slot = None;
-            self.study_caches.remove(&study_id);
+        for (study_id, trial_number, _, state) in targets {
+            let discarded = {
+                let trials = self.trials_by_study.get_mut(&study_id).ok_or_else(|| {
+                    Error::with_reason(
+                        ErrorKind::StudyNotFound,
+                        format!("Study not found during discard: study_id={study_id}"),
+                    )
+                })?;
+                let slot = trials.get_mut(trial_number as usize).ok_or_else(|| {
+                    Error::with_reason(
+                        ErrorKind::TrialNotFound,
+                        format!(
+                            "Trial not found at position during discard: trial_number={trial_number}"
+                        ),
+                    )
+                })?;
+                slot.take().is_some()
+            };
+            if discarded {
+                *self
+                    .discarded_state_counts
+                    .entry((study_id, state))
+                    .or_default() += 1;
+            }
         }
         Ok(())
     }
@@ -2104,6 +2158,61 @@ mod tests {
     }
 
     #[test]
+    fn trial_datetimes_are_logged_as_aware_utc() -> Result<()> {
+        let (mut storage, logs) = new_storage()?;
+        let study_id = storage
+            .create_new_study("example", vec![Direction::Minimize])?
+            .id;
+        let trial_id = storage.create_new_trial(study_id)?.id;
+        storage.set_trial_state_values(trial_id, TrialStateValues::Complete(vec![1.0]))?;
+
+        let trial = storage.get_trial(trial_id)?;
+        let reported_start = trial.datetime_start.clone().expect("datetime_start is set");
+        let reported_complete = trial
+            .datetime_complete
+            .clone()
+            .expect("datetime_complete is set");
+
+        // Collect the datetimes as they appear in the log itself.
+        let logged: Vec<String> = {
+            let guard = logs.lock().expect("lock logs");
+            guard
+                .iter()
+                .flat_map(|log| {
+                    ["datetime_start", "datetime_complete"]
+                        .iter()
+                        .filter_map(|key| get_optional_string(&log.fields, key).ok().flatten())
+                        .collect::<Vec<_>>()
+                })
+                .collect()
+        };
+        assert_eq!(logged.len(), 2, "expected both datetimes in the log");
+
+        for value in &logged {
+            // Journal logs carry timezone-aware UTC, matching
+            // datetime.now(tz=timezone.utc).isoformat(timespec="microseconds") in Optuna.
+            assert!(value.ends_with("+00:00"), "not aware UTC: {value}");
+            assert_eq!(value.as_bytes()[10], b'T', "not RFC 3339: {value}");
+            assert_eq!(
+                value.len(),
+                "1970-01-01T00:00:00.000000+00:00".len(),
+                "not microsecond precision: {value}"
+            );
+        }
+
+        // What PersistedTrial carries is the very same instants as naive UTC, so the log entries
+        // are the reported values plus an explicit offset.
+        assert_eq!(
+            logged,
+            vec![
+                naive_utc_to_aware_utc(&reported_start),
+                naive_utc_to_aware_utc(&reported_complete),
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
     fn test_create_trial_order_across_storages() -> Result<()> {
         let logs = Arc::new(Mutex::new(Vec::new()));
         let backend1 = InMemoryJournalBackend { logs: logs.clone() };
@@ -2333,6 +2442,41 @@ mod tests {
         assert_eq!(trials.len(), 1);
         assert_eq!(trials[0].as_ref().unwrap().id, trial_id);
         assert_eq!(storage2.get_trial(trial_id)?.id, trial_id);
+        Ok(())
+    }
+
+    #[test]
+    fn get_n_trials_counts_states_including_discarded_trials() -> Result<()> {
+        let logs = Arc::new(Mutex::new(Vec::new()));
+        let backend = InMemoryJournalBackend { logs };
+        let mut storage = JournalStorage::new_with_options(
+            Box::new(backend),
+            JournalStorageOptions {
+                apply_discard: true,
+            },
+        )?;
+        let study_id = storage.create_new_study("s", vec![Direction::Minimize])?.id;
+        let running_trial_id = storage.create_new_trial(study_id)?.id;
+        let complete_trial_id = storage.create_new_trial(study_id)?.id;
+        storage.set_trial_state_values(complete_trial_id, TrialStateValues::Complete(vec![1.0]))?;
+
+        assert_eq!(storage.get_n_trials(study_id, None)?, 2);
+        assert_eq!(
+            storage.get_n_trials(study_id, Some(&[TrialState::Running]))?,
+            1
+        );
+        assert_eq!(
+            storage.get_n_trials(study_id, Some(&[TrialState::Complete]))?,
+            1
+        );
+
+        storage.discard_trials(&[complete_trial_id])?;
+        assert_eq!(storage.get_n_trials(study_id, None)?, 2);
+        assert_eq!(
+            storage.get_n_trials(study_id, Some(&[TrialState::Complete]))?,
+            1
+        );
+        assert!(storage.get_trial(running_trial_id).is_ok());
         Ok(())
     }
 

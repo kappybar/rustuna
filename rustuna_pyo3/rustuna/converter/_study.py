@@ -70,11 +70,4 @@ class ToOptunaStudy(_OptunaStudy):
 
     @property
     def user_attrs(self) -> dict[str, Any]:
-        attrs = self._rustuna_study.user_attrs
-        raw_attrs = {
-            key: value
-            for key, value in attrs.items()
-            if not key.startswith("optuna_attr:")
-        }
-        raw_attrs.update(to_optuna_attrs(attrs))
-        return raw_attrs
+        return to_optuna_attrs(self._rustuna_study.user_attrs)

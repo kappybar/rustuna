@@ -25,9 +25,14 @@ use crate::trial::PyTrialState;
 /// generation are reconstructed from completed trials in the storage when the next parameter
 /// configuration is asked, so no bookkeeping is required when a trial finishes.
 pub struct CmaEsSampler {
+    state: Mutex<CmaEsSamplerState>,
+    // TODO(c-bata): Remove this mutex after RandomSampler becomes internally synchronized.
+    random_sampler: Mutex<RandomSampler>,
+}
+
+struct CmaEsSamplerState {
     seed: Option<u64>,
     popsize: Option<usize>,
-    random_sampler: RandomSampler,
     optimizer: Option<Py<PyAny>>,
     population_size: Option<usize>,
     search_space: Option<HashMap<String, Distribution>>,
@@ -35,16 +40,11 @@ pub struct CmaEsSampler {
     solution_trial_ids: Vec<u32>,
 }
 
-impl CmaEsSampler {
-    pub fn new(seed: Option<u64>, popsize: Option<usize>) -> Self {
-        let random_sampler = match seed {
-            Some(seed) => RandomSampler::seed_from_u64(seed),
-            None => RandomSampler::new(),
-        };
+impl CmaEsSamplerState {
+    fn new(seed: Option<u64>, popsize: Option<usize>) -> Self {
         Self {
             seed,
             popsize,
-            random_sampler,
             optimizer: None,
             population_size: None,
             search_space: None,
@@ -126,25 +126,8 @@ impl CmaEsSampler {
             Ok(())
         })
     }
-}
 
-impl Sampler for CmaEsSampler {
-    fn sample_independent(
-        &mut self,
-        ctx: &Context,
-        storage: Arc<RwLock<dyn Storage>>,
-        name: &str,
-        distribution: &Distribution,
-    ) -> Result<f64> {
-        self.random_sampler
-            .sample_independent(ctx, storage, name, distribution)
-    }
-
-    fn support_joint_sampling(&self) -> bool {
-        true
-    }
-
-    fn sample_joint(
+    fn sample(
         &mut self,
         ctx: &Context,
         storage: Arc<RwLock<dyn Storage>>,
@@ -237,6 +220,60 @@ impl Sampler for CmaEsSampler {
     }
 }
 
+impl CmaEsSampler {
+    pub fn new(seed: Option<u64>, popsize: Option<usize>) -> Self {
+        let random_sampler = match seed {
+            Some(seed) => RandomSampler::seed_from_u64(seed),
+            None => RandomSampler::new(),
+        };
+        Self {
+            state: Mutex::new(CmaEsSamplerState::new(seed, popsize)),
+            random_sampler: Mutex::new(random_sampler),
+        }
+    }
+}
+
+impl Sampler for CmaEsSampler {
+    fn sample_independent(
+        &mut self,
+        ctx: &Context,
+        storage: Arc<RwLock<dyn Storage>>,
+        name: &str,
+        distribution: &Distribution,
+    ) -> Result<f64> {
+        self.random_sampler
+            .lock()
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::SamplerError,
+                    format!("Failed to acquire random sampler guard: {e}"),
+                )
+            })?
+            .sample_independent(ctx, storage, name, distribution)
+    }
+
+    fn support_joint_sampling(&self) -> bool {
+        true
+    }
+
+    fn sample_joint(
+        &mut self,
+        ctx: &Context,
+        storage: Arc<RwLock<dyn Storage>>,
+        search_space: &HashMap<String, Distribution>,
+    ) -> Result<HashMap<String, f64>> {
+        self.state
+            .lock()
+            .map_err(|e| {
+                Error::with_reason(
+                    ErrorKind::SamplerError,
+                    format!("Failed to acquire sampler state guard: {e}"),
+                )
+            })?
+            .sample(ctx, storage, search_space)
+    }
+}
+
 /// Sampler using CMA-ES (Covariance Matrix Adaptation Evolution Strategy) algorithm.
 ///
 /// This sampler is backed by Python's `cmaes` package. The optimizer state is held only in
@@ -249,7 +286,7 @@ impl Sampler for CmaEsSampler {
 ///     seed: Random seed for CMA-ES. If `None`, the backend chooses a random seed.
 ///     popsize: CMA-ES population size. If `None`, the backend default is used.
 #[derive(Clone)]
-#[pyclass(name = "CmaEsSampler")]
+#[pyclass(name = "CmaEsSampler", from_py_object)]
 #[pyo3(module = "rustuna")]
 pub struct PyCmaEsSampler {
     pub sampler: Arc<Mutex<dyn Sampler>>,

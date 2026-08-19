@@ -422,9 +422,8 @@ pub fn decode_log_line(line: &[u8]) -> Result<JournalLog> {
 mod tests {
     use std::collections::HashMap;
 
-    use tempfile::tempdir;
-
     use super::*;
+    use crate::test_utils::TempDir;
 
     fn test_log(number: usize) -> JournalLog {
         JournalLog {
@@ -437,7 +436,7 @@ mod tests {
     #[test]
     fn retains_sparse_offsets_and_reads_incrementally() -> Result<()> {
         let dir =
-            tempdir().map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+            TempDir::new().map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
         let path = dir.path().join("journal.log");
         let mut backend = JournalFileBackend::new(&path, None)?;
         let num_logs = LOG_OFFSET_CHECKPOINT_INTERVAL * 2 + 3;
@@ -484,7 +483,7 @@ mod tests {
     #[test]
     fn reads_from_an_arbitrary_log_number() -> Result<()> {
         let dir =
-            tempdir().map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+            TempDir::new().map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
         let path = dir.path().join("journal.log");
         let mut backend = JournalFileBackend::new(&path, None)?;
         let logs = (0..10).map(test_log).collect::<Vec<_>>();
@@ -519,7 +518,7 @@ mod tests {
     #[test]
     fn does_not_cache_an_incomplete_log_before_requested_number() -> Result<()> {
         let dir =
-            tempdir().map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+            TempDir::new().map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
         let path = dir.path().join("journal.log");
         let mut backend = JournalFileBackend::new(&path, None)?;
         backend.append_logs(&[test_log(0), test_log(1)])?;
@@ -563,7 +562,7 @@ mod tests {
     #[test]
     fn retries_an_incomplete_trailing_log() -> Result<()> {
         let dir =
-            tempdir().map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+            TempDir::new().map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
         let path = dir.path().join("journal.log");
         let mut backend = JournalFileBackend::new(&path, None)?;
         backend.append_logs(&[test_log(0), test_log(1)])?;
@@ -607,7 +606,7 @@ mod tests {
     #[test]
     fn reports_a_corrupt_log_when_a_later_log_exists() -> Result<()> {
         let dir =
-            tempdir().map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+            TempDir::new().map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
         let path = dir.path().join("journal.log");
         let mut backend = JournalFileBackend::new(&path, None)?;
         backend.append_logs(&[test_log(0)])?;
@@ -636,7 +635,7 @@ mod tests {
     #[test]
     fn retries_a_log_when_the_handler_fails() -> Result<()> {
         let dir =
-            tempdir().map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
+            TempDir::new().map_err(|e| Error::with_reason(ErrorKind::Unexpected, e.to_string()))?;
         let path = dir.path().join("journal.log");
         let mut backend = JournalFileBackend::new(&path, None)?;
         backend.append_logs(&[test_log(0), test_log(1)])?;

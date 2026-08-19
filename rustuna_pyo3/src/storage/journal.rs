@@ -13,7 +13,7 @@ use crate::study::{PyDirection, PyPersistedStudy};
 use crate::trial::{PyPersistedTrial, PyTrialState};
 
 #[derive(Clone)]
-#[pyclass(name = "JournalFileStorage")]
+#[pyclass(name = "JournalFileStorage", from_py_object)]
 #[pyo3(module = "rustuna")]
 pub struct PyJournalFileStorage {
     pub(crate) binding: StorageBinding,
@@ -129,6 +129,16 @@ impl PyJournalFileStorage {
         states: Option<Vec<PyTrialState>>,
     ) -> PyResult<Vec<PyPersistedTrial>> {
         self.binding.get_trials(py, study_id, states)
+    }
+
+    #[pyo3(signature = (study_id, *, states = None))]
+    fn get_n_trials(
+        &self,
+        py: Python<'_>,
+        study_id: u32,
+        states: Option<Vec<PyTrialState>>,
+    ) -> PyResult<u32> {
+        self.binding.get_n_trials(py, study_id, states)
     }
 
     fn get_trial(&self, py: Python<'_>, trial_id: u32) -> PyResult<PyPersistedTrial> {

@@ -24,6 +24,7 @@ use crate::sampler::nsgaii::PyNSGAIISampler;
 use crate::sampler::random::PyRandomSampler;
 use crate::sampler::to_rust::ToRustSampler;
 use crate::sampler::tpe::PyTpeSampler;
+use crate::storage::cached::PyCachedStorage;
 use crate::storage::in_memory::PyInMemoryStorage;
 use crate::storage::journal::PyJournalFileStorage;
 use crate::storage::sqlite3::PySQLite3Storage;
@@ -162,6 +163,8 @@ fn resolve_storage_pyobj(
     let storage_ref = storage.bind(py);
     if let Ok(py_inmemory_storage) = storage_ref.extract::<PyInMemoryStorage>() {
         Ok((py_inmemory_storage.storage(), storage_pyobj))
+    } else if let Ok(py_cached_storage) = storage_ref.extract::<PyCachedStorage>() {
+        Ok((py_cached_storage.storage(), storage_pyobj))
     } else if let Ok(py_journal_storage) = storage_ref.extract::<PyJournalFileStorage>() {
         Ok((py_journal_storage.storage(), storage_pyobj))
     } else if let Ok(py_sqlite3_storage) = storage_ref.extract::<PySQLite3Storage>() {
@@ -738,7 +741,7 @@ impl PyStudy {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-#[pyclass(name = "StudyDirection", eq, eq_int)]
+#[pyclass(name = "StudyDirection", eq, eq_int, from_py_object)]
 #[pyo3(module = "rustuna")]
 pub enum PyDirection {
     #[pyo3(name = "MINIMIZE")]
@@ -863,7 +866,7 @@ pub fn py_copy_study(
 }
 
 #[derive(Debug, Clone)]
-#[pyclass(name = "PersistedStudy")]
+#[pyclass(name = "PersistedStudy", skip_from_py_object)]
 #[pyo3(module = "rustuna", get_all, set_all)]
 pub struct PyPersistedStudy {
     pub id: u32,

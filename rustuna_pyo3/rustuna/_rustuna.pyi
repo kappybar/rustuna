@@ -12,6 +12,7 @@ from collections.abc import (
 from typing import Any, Literal, TypedDict, TypeVar, overload
 
 from ._protocols import (
+    CachedStorageBackend,
     SamplerProtocol,
     StorageProtocol,
     TrialQueueProtocol,
@@ -165,6 +166,12 @@ class Trial:
         Args:
             attrs: A dictionary object.
         """
+    def set_constraints(self, constraints: dict[str, float]) -> None:
+        """Set constraints to the trial.
+
+        Args:
+            constraints: A dictionary object.
+        """
 
 class AttrsDictView(Mapping[str, str]):
     def __len__(self) -> int: ...
@@ -212,8 +219,8 @@ class PersistedTrial:
         user_attrs: Dictionary that contains the attributes of the Trial set with set_user_attr.
         system_attrs: Dictionary that contains the attributes of the Trial set with set_system_attr.
         internal_params: Dictionary that contains internal representations of the parameters.
-        datetime_start: Datetime where the Trial started.
-        datetime_complete: Datetime where the Trial finished.
+        datetime_start: Datetime where the Trial started, as timezone-naive local time.
+        datetime_complete: Datetime where the Trial finished, as timezone-naive local time.
     """
 
     def __init__(
@@ -253,6 +260,8 @@ class PersistedTrial:
     def user_attrs(self) -> AttrsDictView: ...
     @property
     def system_attrs(self) -> AttrsDictView: ...
+    @property
+    def constraints(self) -> dict[str, float]: ...
     @property
     def internal_params(self) -> dict[str, float]: ...
     @property
@@ -389,7 +398,7 @@ class PedAnovaImportanceEvaluator:
     Implements the PED-ANOVA hyperparameter importance evaluation algorithm.
 
     PED-ANOVA fits Parzen estimators to completed trials in the top
-    ``target_quantile`` fraction. The importance can be interpreted as how important each
+    `target_quantile` fraction. The importance can be interpreted as how important each
     hyperparameter is for achieving performance within that fraction.
 
     For further information about the PED-ANOVA algorithm, please refer to the following paper:
@@ -467,13 +476,39 @@ class PedAnovaImportanceEvaluator:
         self,
         study: Study,
         params: list[str] | None = None,
-    ) -> dict[str, float]: ...
+        *,
+        target: Callable[[PersistedTrial], float] | None = None,
+    ) -> dict[str, float]:
+        """Evaluate parameter importances based on completed trials in the given study.
+
+        Note:
+            This method is not meant to be called by library users. Use
+            [get_param_importances][rustuna.importance.get_param_importances] to evaluate
+            parameter importances from user code.
+
+        Args:
+            study:
+                An optimized study.
+            params:
+                A list of names of parameters to assess. If `None`, all parameters that appear
+                in completed trials, including conditional parameters, are assessed.
+            target:
+                A function that returns the value used to evaluate importances. If `None`,
+                objective values are used for single-objective optimization. For multi-objective
+                optimization, this argument must be specified to return a single float value for
+                each trial. `PedAnovaImportanceEvaluator` assumes lower `target` values are better.
+
+        Returns:
+            A `dict` where the keys are parameter names and the values are assessed importances.
+
+        """
 
 def get_param_importances(
     study: Study,
     *,
     evaluator: PedAnovaImportanceEvaluator | None = None,
     params: list[str] | None = None,
+    target: Callable[[PersistedTrial], float] | None = None,
     normalize: bool = True,
 ) -> dict[str, float]:
     """Evaluate parameter importances using PED-ANOVA based on completed trials in the given study.
@@ -508,6 +543,11 @@ def get_param_importances(
         params:
             A list of names of parameters to assess. If `None`, all parameters that appear in
             completed trials are assessed, including conditional parameters.
+        target:
+            A function that returns the value used to evaluate importances.
+            If `None`, objective values are used for single-objective optimization.
+            For multi-objective optimization, this argument must be specified to return
+            a single float value for each trial.
         normalize:
             A boolean option to specify whether the sum of the importance values should be
             normalized to 1.0.
@@ -763,6 +803,61 @@ class PersistedStudy:
 
 ## Storage
 
+class CachedStorage:
+    """Wrap a Python CachedStorageBackend with Rustuna's in-memory cache."""
+    def __init__(self, backend: CachedStorageBackend) -> None: ...
+    def create_new_study(
+        self, study_name: str, directions: list[StudyDirection]
+    ) -> PersistedStudy: ...
+    def delete_study(self, study_id: int) -> None: ...
+    def create_new_trial(
+        self,
+        study_id: int,
+        template_trial: PersistedTrial | None = None,
+    ) -> PersistedTrial: ...
+    def set_trial_param(
+        self, trial_id: int, name: str, distribution: Distribution, value: float
+    ) -> None: ...
+    def set_category_labels(
+        self,
+        study_id: int,
+        param_name: str,
+        choices: list[CategoricalChoiceType],
+    ) -> None: ...
+    def get_category_labels(
+        self,
+        study_id: int,
+        param_name: str,
+        cardinality: int,
+    ) -> list[CategoricalChoiceType] | None: ...
+    def set_trial_state_values(
+        self, trial_id: int, state: TrialState, values: None | list[float] = None
+    ) -> None: ...
+    def get_studies(self) -> list[PersistedStudy]: ...
+    def get_study(self, study_id: int) -> PersistedStudy: ...
+    def get_trials(
+        self, study_id: int, *, states: list[TrialState] | None = None
+    ) -> list[PersistedTrial]: ...
+    def get_n_trials(
+        self, study_id: int, *, states: Sequence[TrialState] | None = None
+    ) -> int: ...
+    def get_trial(self, trial_id: int) -> PersistedTrial: ...
+    def get_cached_trial(self, trial_id: int) -> PersistedTrial: ...
+    def get_trial_id_from_study_id_trial_number(
+        self, study_id: int, trial_number: int
+    ) -> int: ...
+    def get_study_user_attr(self, study_id: int, key: str) -> str: ...
+    def get_study_system_attr(self, study_id: int, key: str) -> str: ...
+    def set_study_system_attrs(self, study_id: int, attrs: dict[str, str]) -> None: ...
+    def set_study_user_attrs(self, study_id: int, attrs: dict[str, str]) -> None: ...
+    def set_trial_system_attrs(self, trial_id: int, attrs: dict[str, str]) -> None: ...
+    def set_trial_user_attrs(self, trial_id: int, attrs: dict[str, str]) -> None: ...
+    def set_trial_intermediate_value(
+        self, trial_id: int, step: int, intermediate_value: float
+    ) -> None: ...
+    def discard_trials(self, trial_ids: list[int]) -> None: ...
+    def may_omit_trials(self) -> bool: ...
+
 class ToRustStorage:
     """Wrapper to convert a StorageProtocol implementation to Rust Storage trait.
 
@@ -806,6 +901,9 @@ class ToRustStorage:
     def get_trials(
         self, study_id: int, *, states: list[TrialState] | None = None
     ) -> list[PersistedTrial]: ...
+    def get_n_trials(
+        self, study_id: int, *, states: Sequence[TrialState] | None = None
+    ) -> int: ...
     def get_trial(self, trial_id: int) -> PersistedTrial: ...
     def get_cached_trial(self, trial_id: int) -> PersistedTrial: ...
     def get_trial_id_from_study_id_trial_number(
@@ -869,6 +967,9 @@ class InMemoryStorage:
     def get_trials(
         self, study_id: int, *, states: list[TrialState] | None = None
     ) -> list[PersistedTrial]: ...
+    def get_n_trials(
+        self, study_id: int, *, states: Sequence[TrialState] | None = None
+    ) -> int: ...
     def get_trial(self, trial_id: int) -> PersistedTrial: ...
     def get_cached_trial(self, trial_id: int) -> PersistedTrial: ...
     def get_trial_id_from_study_id_trial_number(
@@ -938,6 +1039,9 @@ class JournalFileStorage:
     def get_trials(
         self, study_id: int, *, states: list[TrialState] | None = None
     ) -> list[PersistedTrial]: ...
+    def get_n_trials(
+        self, study_id: int, *, states: Sequence[TrialState] | None = None
+    ) -> int: ...
     def get_trial(self, trial_id: int) -> PersistedTrial: ...
     def get_cached_trial(self, trial_id: int) -> PersistedTrial: ...
     def get_trial_id_from_study_id_trial_number(
@@ -973,12 +1077,20 @@ class SQLite3Storage:
     Args:
         file_path: Path to the SQLite3 database file.
         create_database: If True, initialize the database when it is missing.
+        apply_discard: If True, omit discarded trials from subsequent reads. ``discard_trials()``
+            marks the trials in the database regardless of this option, so a storage opened with
+            ``apply_discard=False`` still records discards for other readers to apply. Discards
+            need a Rustuna-specific column on the ``trials`` table; it is added by
+            ``create_database``, and enabling this option on a database that lacks it raises an
+            error instead of silently ignoring discards. Discards applied by another process are
+            picked up on the next read, except when that process' clock lags behind.
     """
     def __init__(
         self,
         file_path: str,
         *,
         create_database: bool = True,
+        apply_discard: bool = False,
     ) -> None: ...
     def create_new_study(
         self, study_name: str, directions: list[StudyDirection]
@@ -1007,6 +1119,9 @@ class SQLite3Storage:
     def get_trials(
         self, study_id: int, *, states: list[TrialState] | None = None
     ) -> list[PersistedTrial]: ...
+    def get_n_trials(
+        self, study_id: int, *, states: Sequence[TrialState] | None = None
+    ) -> int: ...
     def get_trial(self, trial_id: int) -> PersistedTrial: ...
     def get_cached_trial(self, trial_id: int) -> PersistedTrial: ...
     def get_trial_id_from_study_id_trial_number(

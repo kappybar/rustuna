@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::ops::DerefMut;
+use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use rand::prelude::*;
 use rand::rngs::StdRng;
@@ -8,6 +9,8 @@ use rustuna_core::distribution::Distribution;
 use rustuna_core::sampler::{Context, Sampler};
 use rustuna_core::storage::Storage;
 use rustuna_core::study::dominates;
+use rustuna_core::study::Direction;
+use rustuna_core::trial::validate_trials;
 use rustuna_core::trial::{PersistedTrial, TrialStateValues};
 use rustuna_core::Result;
 use rustuna_core::{Error, ErrorKind};
@@ -53,14 +56,14 @@ use rustuna_core::{Error, ErrorKind};
 /// }
 /// ```
 pub struct NSGAIISampler {
-    rng: StdRng,
+    rng: Mutex<StdRng>,
     population_size: usize,
     mutation_prob: Option<f64>,
     crossover_prob: f64,
     swapping_prob: f64,
     /// Cache mapping generation number to completed trial numbers in that generation.
     /// Updated incrementally in `after_trial` so `sample_joint` does not scan all trials every time.
-    generation_to_numbers: HashMap<u32, Vec<u32>>,
+    generation_to_numbers: RwLock<HashMap<u32, Vec<u32>>>,
 }
 impl Default for NSGAIISampler {
     fn default() -> Self {
@@ -83,12 +86,12 @@ impl NSGAIISampler {
         swapping_prob: f64,
     ) -> NSGAIISampler {
         NSGAIISampler {
-            rng: StdRng::from_seed(Default::default()),
+            rng: Mutex::new(StdRng::from_seed(Default::default())),
             population_size,
             mutation_prob,
             crossover_prob,
             swapping_prob,
-            generation_to_numbers: HashMap::new(),
+            generation_to_numbers: RwLock::new(HashMap::new()),
         }
     }
     /// Creates a reproducibly seeded NSGA-II sampler.
@@ -103,16 +106,45 @@ impl NSGAIISampler {
         swapping_prob: f64,
     ) -> NSGAIISampler {
         NSGAIISampler {
-            rng: StdRng::seed_from_u64(seed),
+            rng: Mutex::new(StdRng::seed_from_u64(seed)),
             population_size,
             mutation_prob,
             crossover_prob,
             swapping_prob,
-            generation_to_numbers: HashMap::new(),
+            generation_to_numbers: RwLock::new(HashMap::new()),
         }
     }
-    fn rebuild_generation_cache(&mut self, trials: &[Option<PersistedTrial>]) {
-        self.generation_to_numbers.clear();
+    fn get_rng_lock(&self) -> Result<MutexGuard<'_, StdRng>> {
+        self.rng.lock().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::SamplerError,
+                format!("Failed to acquire RNG guard: {e}"),
+            )
+        })
+    }
+    fn get_generation_to_numbers_read_lock(
+        &self,
+    ) -> Result<RwLockReadGuard<'_, HashMap<u32, Vec<u32>>>> {
+        self.generation_to_numbers.read().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::SamplerError,
+                format!("Failed to acquire generation_to_numbers read guard: {e}"),
+            )
+        })
+    }
+    fn get_generation_to_numbers_write_lock(
+        &mut self,
+    ) -> Result<RwLockWriteGuard<'_, HashMap<u32, Vec<u32>>>> {
+        self.generation_to_numbers.write().map_err(|e| {
+            Error::with_reason(
+                ErrorKind::SamplerError,
+                format!("Failed to acquire generation_to_numbers write guard: {e}"),
+            )
+        })
+    }
+    fn rebuild_generation_cache(&mut self, trials: &[Option<PersistedTrial>]) -> Result<()> {
+        let mut generation_to_numbers = self.get_generation_to_numbers_write_lock()?;
+        generation_to_numbers.clear();
         let generation_key = AttrKey::System("generation".into());
         for trial in trials.iter().flatten() {
             if !matches!(trial.state_values, TrialStateValues::Complete(_)) {
@@ -120,13 +152,14 @@ impl NSGAIISampler {
             }
             if let Some(gen_str) = trial.attrs.get(&generation_key) {
                 if let Ok(generation) = gen_str.parse::<u32>() {
-                    self.generation_to_numbers
+                    generation_to_numbers
                         .entry(generation)
                         .or_default()
                         .push(trial.number);
                 }
             }
         }
+        Ok(())
     }
     fn select_elite_population_numbers(
         &mut self,
@@ -155,17 +188,18 @@ impl NSGAIISampler {
         ctx: &Context,
         trials: &[Option<PersistedTrial>],
     ) -> Result<(i32, Vec<u32>)> {
-        if self.generation_to_numbers.is_empty() {
-            self.rebuild_generation_cache(trials);
+        if self.get_generation_to_numbers_read_lock()?.is_empty() {
+            self.rebuild_generation_cache(trials)?;
         }
 
         let mut parent_generation = -1;
         let mut parent_population_numbers = Vec::with_capacity(10);
         for generation in 0..10 {
-            let population_numbers = match self.generation_to_numbers.get(&generation) {
-                Some(numbers) if numbers.len() >= self.population_size => numbers.clone(),
-                _ => break,
-            };
+            let population_numbers =
+                match self.get_generation_to_numbers_read_lock()?.get(&generation) {
+                    Some(numbers) if numbers.len() >= self.population_size => numbers.clone(),
+                    _ => break,
+                };
 
             let mut population_numbers = population_numbers;
             population_numbers.append(&mut parent_population_numbers);
@@ -178,22 +212,22 @@ impl NSGAIISampler {
     }
     fn crossover(
         &mut self,
-        parent0: HashMap<String, f64>,
-        parent1: HashMap<String, f64>,
-        search_space: &HashMap<String, Distribution>,
-    ) -> HashMap<String, f64> {
+        parent0: &HashMap<String, f64>,
+        parent1: &HashMap<String, f64>,
+        sorted_names: &[&str],
+    ) -> Result<HashMap<String, f64>> {
         let mut child = HashMap::new();
-        for name in search_space.keys() {
-            let param_value0 = *parent0.get(name).unwrap();
-            let param_value1 = *parent1.get(name).unwrap();
-            let param_value = if self.rng.gen_bool(self.swapping_prob) {
+        for name in sorted_names {
+            let param_value0 = *parent0.get(*name).unwrap();
+            let param_value1 = *parent1.get(*name).unwrap();
+            let param_value = if self.get_rng_lock()?.gen_bool(self.swapping_prob) {
                 param_value1
             } else {
                 param_value0
             };
-            child.insert(name.clone(), param_value);
+            child.insert((*name).to_string(), param_value);
         }
-        child
+        Ok(child)
     }
 }
 impl Sampler for NSGAIISampler {
@@ -208,6 +242,7 @@ impl Sampler for NSGAIISampler {
             return distribution.get_single_value();
         }
 
+        let mut rng = self.get_rng_lock()?;
         match distribution {
             Distribution::Float {
                 low,
@@ -216,15 +251,15 @@ impl Sampler for NSGAIISampler {
                 log,
             } => {
                 let param_value = match (step, log) {
-                    (None, false) => self.rng.gen_range(*low..*high),
-                    (None, true) => self.rng.gen_range(low.ln()..high.ln()).exp(),
+                    (None, false) => rng.gen_range(*low..*high),
+                    (None, true) => rng.gen_range(low.ln()..high.ln()).exp(),
                     (Some(step), false) => {
                         let max_index = ((high - low) / step).floor().max(0.0) as i64;
-                        let index = self.rng.gen_range(0..=max_index);
+                        let index = rng.gen_range(0..=max_index);
                         low + (index as f64) * step
                     }
                     (Some(step), true) => {
-                        let value = self.rng.gen_range(low.ln()..high.ln()).exp();
+                        let value = rng.gen_range(low.ln()..high.ln()).exp();
                         let mut stepped = low + ((value - low) / step).round() * step;
                         if stepped < *low {
                             stepped = *low;
@@ -247,7 +282,7 @@ impl Sampler for NSGAIISampler {
                 let high_f = *high as f64;
                 let step_f = *step as f64;
                 let param_value = if *log {
-                    let value = self.rng.gen_range(low_f.ln()..high_f.ln()).exp();
+                    let value = rng.gen_range(low_f.ln()..high_f.ln()).exp();
                     let max_index = ((high_f - low_f) / step_f).floor().max(0.0) as i64;
                     let mut index = ((value - low_f) / step_f).round() as i64;
                     if index < 0 {
@@ -259,13 +294,13 @@ impl Sampler for NSGAIISampler {
                     low_f + (index as f64) * step_f
                 } else {
                     let max_index = ((high - low) / step).max(0);
-                    let index = self.rng.gen_range(0..=max_index);
+                    let index = rng.gen_range(0..=max_index);
                     (low + index * step) as f64
                 };
                 Ok(param_value)
             }
             Distribution::Categorical { cardinality } => {
-                let param_value = self.rng.gen_range(0..*cardinality);
+                let param_value = rng.gen_range(0..*cardinality);
                 Ok(param_value as f64)
             }
         }
@@ -304,21 +339,22 @@ impl Sampler for NSGAIISampler {
 
         let (parent0_number, parent1_number) = {
             let mut selected = parent_population_numbers
-                .choose_multiple(&mut self.rng, 2)
+                .choose_multiple(self.get_rng_lock()?.deref_mut(), 2)
                 .copied();
             (selected.next().unwrap(), selected.next().unwrap())
         };
 
         let trials = guard.get_trials(ctx.study_id)?;
+        let sorted_names = sorted_parameter_names(search_space);
         let build_parent_params = |number: u32| -> Result<HashMap<String, f64>> {
             let trial = trials
                 .get(number as usize)
                 .and_then(Option::as_ref)
                 .ok_or_else(|| Error::new(ErrorKind::TrialDiscarded))?;
             let mut params = HashMap::with_capacity(search_space.len());
-            for name in search_space.keys() {
-                let param_value = *trial.internal_params.get(name).unwrap();
-                params.insert(name.clone(), param_value);
+            for name in &sorted_names {
+                let param_value = *trial.internal_params.get(*name).unwrap();
+                params.insert((*name).to_string(), param_value);
             }
             Ok(params)
         };
@@ -326,8 +362,8 @@ impl Sampler for NSGAIISampler {
         let parent1 = build_parent_params(parent1_number)?;
         drop(guard);
 
-        let child = if self.rng.gen_bool(self.crossover_prob) {
-            self.crossover(parent0, parent1, search_space)
+        let child = if self.get_rng_lock()?.gen_bool(self.crossover_prob) {
+            self.crossover(&parent0, &parent1, &sorted_names)?
         } else {
             parent0
         };
@@ -336,10 +372,11 @@ impl Sampler for NSGAIISampler {
             .mutation_prob
             .unwrap_or(1.0 / 1.0_f64.max(child.len() as f64));
         let mut params = HashMap::new();
-        for name in search_space.keys() {
-            if !self.rng.gen_bool(mutation_prob) {
-                let param_value = *child.get(name).unwrap();
-                params.insert(name.clone(), param_value);
+
+        for name in &sorted_names {
+            if !self.get_rng_lock()?.gen_bool(mutation_prob) {
+                let param_value = *child.get(*name).unwrap();
+                params.insert((*name).to_string(), param_value);
             }
         }
         Ok(params)
@@ -359,7 +396,8 @@ impl Sampler for NSGAIISampler {
             let generation_key = AttrKey::System("generation".into());
             if let Some(gen_str) = trial.attrs.get(&generation_key) {
                 if let Ok(generation) = gen_str.parse::<u32>() {
-                    self.generation_to_numbers
+                    let mut generation_to_numbers = self.get_generation_to_numbers_write_lock()?;
+                    generation_to_numbers
                         .entry(generation)
                         .or_default()
                         .push(trial.number);
@@ -370,44 +408,92 @@ impl Sampler for NSGAIISampler {
     }
 }
 
+/// Returns parameter names sorted lexicographically.
+///
+/// Iterating over a `HashMap` keys yields a non-deterministic order, which breaks
+/// reproducibility when `self.rng` is consumed inside the loop. Sorting once at the
+/// call site ensures stable RNG draw ordering across runs.
+fn sorted_parameter_names(search_space: &HashMap<String, Distribution>) -> Vec<&str> {
+    let mut names = search_space.keys().map(String::as_str).collect::<Vec<_>>();
+    names.sort_unstable();
+    names
+}
+
+/// Return whether `trial0` constrained-dominates `trial1`.
+///
+/// A trial x is said to constrained-dominate a trial y, if any of the following conditions is
+/// true:
+/// 1) Trial x is feasible and trial y is not.
+/// 2) Trial x and y are both infeasible, but solution x has a smaller overall constraint
+///    violation.
+/// 3) Trial x and y are feasible and trial x dominates trial y.
+///
+fn constrained_dominates(
+    values_feasible_violation_0: &Option<(&[f64], bool, f64)>,
+    values_feasible_violation_1: &Option<(&[f64], bool, f64)>,
+    directions: &[Direction],
+) -> bool {
+    let Some((values0, feasible0, violation0)) = values_feasible_violation_0 else {
+        return false;
+    };
+    let Some((values1, feasible1, violation1)) = values_feasible_violation_1 else {
+        return true;
+    };
+
+    if *feasible0 && *feasible1 {
+        dominates(values0, values1, directions)
+    } else if *feasible0 {
+        true
+    } else if *feasible1 {
+        false
+    } else {
+        *violation0 < *violation1
+    }
+}
+
 fn fast_non_dominated_sort(
     ctx: &Context,
     trials: &[Option<PersistedTrial>],
     population_numbers: &[u32],
 ) -> Result<Vec<Vec<u32>>> {
     let n = population_numbers.len();
-    let population_values = population_numbers
+
+    let population_trials = population_numbers
         .iter()
-        .map(|n| {
-            let trial = trials
-                .get(*n as usize)
+        .map(|i| {
+            trials
+                .get(*i as usize)
                 .and_then(|trial| trial.as_ref())
-                .ok_or_else(|| Error::new(ErrorKind::TrialDiscarded))?;
-            match &trial.state_values {
-                TrialStateValues::Complete(values) => Ok(values.clone()),
-                _ => Ok(vec![f64::NAN; ctx.directions.len()]),
+                .ok_or_else(|| Error::new(ErrorKind::TrialDiscarded))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    validate_trials(&population_trials, &ctx.directions)?;
+
+    let population_infos = population_trials
+        .iter()
+        .map(|t| match &t.state_values {
+            TrialStateValues::Complete(values) => {
+                let constraints = t.constraints()?;
+                let is_feasible = constraints.values().all(|x| *x <= 0.0);
+                let violation = constraints.values().filter(|&x| *x > 0.0).sum();
+                Ok(Some((values.as_slice(), is_feasible, violation)))
             }
+            _ => Ok(None),
         })
         .collect::<Result<Vec<_>>>()?;
 
     let mut dominated_count = vec![0u32; n];
     let mut dominates_list: Vec<Vec<usize>> = vec![vec![]; n];
 
-    for (i, _) in population_numbers.iter().enumerate() {
-        for (j, _) in population_numbers.iter().enumerate() {
-            if i >= j {
-                continue;
-            }
-            if dominates(
-                &population_values[i],
-                &population_values[j],
-                &ctx.directions,
-            ) {
+    for i in 0..n {
+        for j in (i + 1)..n {
+            if constrained_dominates(&population_infos[i], &population_infos[j], &ctx.directions) {
                 dominates_list[i].push(j);
                 dominated_count[j] += 1;
-            } else if dominates(
-                &population_values[j],
-                &population_values[i],
+            } else if constrained_dominates(
+                &population_infos[j],
+                &population_infos[i],
                 &ctx.directions,
             ) {
                 dominates_list[j].push(i);
@@ -611,6 +697,119 @@ mod tests {
                     w_val
                 );
             }
+        }
+    }
+
+    #[test]
+    fn test_constraints() {
+        let storage = InMemoryStorage::new();
+        let directions = vec![Direction::Minimize, Direction::Minimize];
+        let study = create_study(
+            "constraints",
+            storage,
+            NSGAIISampler::new(2, None, 1.0, 1.0),
+            directions,
+        )
+        .unwrap();
+        let n_trials = 10;
+        let result = study.optimize(
+            |mut t| {
+                let x = t.suggest_float("x", -15.0, 30.0)?;
+                let y = t.suggest_float("y", -15.0, 30.0)?;
+                let v0 = 4.0 * x.powi(2) + 4.0 * y.powi(2);
+                let v1 = (x - 5.0).powi(2) + (y - 5.0).powi(2);
+                t.set_constraints(HashMap::from([(String::from("c0"), 1000.0 - v0)]))?;
+                Ok(vec![v0, v1])
+            },
+            n_trials,
+        );
+        assert!(
+            result.is_ok(),
+            "Optimization with constraints should complete without panicking"
+        );
+    }
+
+    #[test]
+    fn test_uncompleted_trial() -> Result<()> {
+        let storage = InMemoryStorage::new();
+        let directions = vec![Direction::Minimize, Direction::Minimize];
+        let study = create_study(
+            "uncompleted_trial",
+            storage,
+            NSGAIISampler::new(2, None, 1.0, 1.0),
+            directions,
+        )
+        .unwrap();
+
+        let n_trials = 50;
+        for _ in 0..n_trials {
+            let mut trial = study.ask()?;
+            let x = trial.suggest_int("x", 1, 2)?;
+            let y = trial.suggest_int("y", 1, 2)?;
+            let v0 = (x as f64 - 1.5).powi(2);
+            let v1 = (y as f64 - 1.5).powi(2);
+            if x == 1 {
+                study.tell(trial.number, TrialStateValues::Complete(vec![v0, v1]))?;
+            } else {
+                study.tell(trial.number, TrialStateValues::Fail)?;
+            }
+        }
+
+        assert!(study.get_trials()?.len() == n_trials);
+        Ok(())
+    }
+
+    #[test]
+    fn test_reproducibility_with_seeded_rng() {
+        // Run the same optimization twice with an identical seed and assert that
+        // every trial produces exactly the same parameter values.  This catches
+        // non-determinism caused by iterating over a HashMap whose order is not
+        // guaranteed, such as the search-space keys inside crossover / mutation.
+        let run = || {
+            let storage = InMemoryStorage::new();
+            let directions = vec![Direction::Minimize, Direction::Minimize];
+            let study = create_study(
+                "reproducibility-test",
+                storage,
+                NSGAIISampler::seed_from_u64(42, 10, None, 0.9, 0.5),
+                directions,
+            )
+            .unwrap();
+            study
+                .optimize(
+                    |mut t| {
+                        // Use many parameters so that crossover and mutation
+                        // consume RNG draws in the key-iteration order.
+                        let mut value0 = 0.0;
+                        let mut value1 = 0.0;
+                        for i in 0..10 {
+                            let name = format!("x{i}");
+                            let xi = t.suggest_float(&name, -10.0, 10.0)?;
+                            value0 += (xi - 5.0).powi(2);
+                            value1 += (xi + 5.0).powi(2);
+                        }
+                        Ok(vec![value0, value1])
+                    },
+                    50,
+                )
+                .unwrap();
+            study.get_trials().unwrap()
+        };
+
+        let trials_a = run();
+        let trials_b = run();
+
+        assert_eq!(
+            trials_a.len(),
+            trials_b.len(),
+            "both runs should produce the same number of trials"
+        );
+        for (ta, tb) in trials_a.iter().zip(trials_b.iter()) {
+            assert_eq!(
+                ta.internal_params, tb.internal_params,
+                "trial {} params differ between runs -- non-deterministic key ordering",
+                ta.number
+            );
         }
     }
 }
