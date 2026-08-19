@@ -1,4 +1,4 @@
-name: tests
+name: Checks and tests (Rust)
 on:
   pull_request:
     branches:
