@@ -39,17 +39,17 @@ pub fn split_trials_for_multi_objective<'a>(
     }
 
     let feasible_gamma = gamma.min(feasible_trials.len());
-    let (mut feasible_good_trials, mut feasible_poor_trials) =
+    let (mut good_trials, mut poor_trials) =
         split_feasible_trials_for_multi_objective(&feasible_trials, directions, feasible_gamma);
-    let infeasible_gamma = gamma.saturating_sub(feasible_good_trials.len());
+    let infeasible_gamma = gamma.saturating_sub(good_trials.len());
     let (infeasible_good_trials, infeasible_poor_trials) =
         split_infeasible_trials_for_multi_objective(
             &mut infeasible_trial_with_violations,
             infeasible_gamma,
         );
-    feasible_good_trials.extend(infeasible_good_trials);
-    feasible_poor_trials.extend(infeasible_poor_trials);
-    Ok((feasible_good_trials, feasible_poor_trials))
+    good_trials.extend(infeasible_good_trials);
+    poor_trials.extend(infeasible_poor_trials);
+    Ok((good_trials, poor_trials))
 }
 
 fn split_feasible_trials_for_multi_objective<'a>(
