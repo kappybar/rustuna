@@ -258,6 +258,12 @@ impl Trial {
     pub fn set_constraints(&mut self, constraints: HashMap<String, f64>) -> Result<()> {
         let mut attrs = Attrs::with_capacity(constraints.len());
         for (key, value) in constraints {
+            if value.is_nan() {
+                return Err(Error::with_reason(
+                    ErrorKind::Unexpected,
+                    format!("The constraint value of '{key}' should not be NaN."),
+                ));
+            }
             let key_with_constraint_prefix = format!("{}:{}", CONSTRAINTS_KEY, key);
             attrs.insert(
                 AttrKey::System(key_with_constraint_prefix.as_str().into()),
@@ -631,6 +637,25 @@ mod tests {
 
         let constraints = trials[0].constraints()?;
         assert_eq!(constraints, HashMap::from([(String::from("c0"), 10.0)]));
+        Ok(())
+    }
+
+    #[test]
+    fn test_set_constraints_with_nan() -> Result<()> {
+        let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
+        let sampler = Arc::new(Mutex::new(RandomSampler::new()));
+        let directions = vec![Direction::Minimize];
+        let study = create_study_with_arc("dummy", storage.clone(), sampler, directions)?;
+
+        let mut trial = study.ask()?;
+        let _ = trial.suggest_float("x", -10.0, 10.0)?;
+        let constraints = HashMap::from([(String::from("c0"), f64::NAN)]);
+        let err = trial.set_constraints(constraints).unwrap_err();
+        assert!(matches!(err.kind, ErrorKind::Unexpected));
+
+        let _ = study.tell(trial.number, TrialStateValues::Complete(vec![0.0]));
+        let trials = study.get_trials()?;
+        assert!(trials[0].constraints()?.is_empty());
         Ok(())
     }
 }
