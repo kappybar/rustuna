@@ -1210,16 +1210,16 @@ class RandomSampler:
     ) -> None: ...
 
 class QMCSampler:
-    """Sampler using a quasi-Monte Carlo (Sobol') sequence.
+    """A Quasi-Monte Carlo Sampler that generates low-discrepancy sequences.
 
     The sampler covers the search space with a low-discrepancy sequence instead of independent
     random draws, so a given number of trials spreads more evenly than random search does. The
     sequence matches `scipy.stats.qmc.Sobol(d, scramble=False)`, which is what Optuna's
     `QMCSampler` uses under its default settings. Scrambling is not implemented yet.
 
-    Sobol' points are a quadrature rule, so they are most uniform when the number of trials is a
-    power of two. Parameters outside the joint search space, including everything in the first
-    trial, fall back to random sampling.
+    Sobol' points are most uniform when the number of trials is a power of two. Parameters
+    outside the joint search space, including everything in the first trial, fall back to
+    random sampling.
 
     The position in the sequence is kept in a study system attribute rather than in the sampler,
     so workers sharing a storage walk one sequence together and a resumed study continues where
