@@ -193,14 +193,17 @@ fn untransform_numerical_param(transformed_param: f64, distribution: &Distributi
                 if distribution.is_single() {
                     param
                 } else {
-                    param.min(high.next_down())
+                    // `exp` does not round-trip `ln` exactly, so a transformed value sitting on
+                    // the lower bound can come back just below `low`. Clamping keeps every
+                    // suggestion inside the range the user asked for.
+                    param.clamp(*low, high.next_down())
                 }
             } else if let Some(step) = step {
                 round_to_step(transformed_param, *low, *high, *step)
             } else if distribution.is_single() {
                 transformed_param
             } else {
-                transformed_param.min(high.next_down())
+                transformed_param.clamp(*low, high.next_down())
             }
         }
         Distribution::Int {
