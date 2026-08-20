@@ -53,6 +53,33 @@ class TestQMCSampler(BasicSamplerTestCase, RelativeSamplerTestCase):
         # joint sample to reserve a sequence index.
         super().test_trial_relative_params(n_jobs, sampler)
 
+    def test_matches_optuna_qmc_sampler(self) -> None:
+        # Rustuna assigns Sobol' dimensions in sorted parameter order while Optuna uses the order the
+        # first trial suggested them in, so the objective suggests its parameters alphabetically to
+        # keep the two aligned.
+        names = ["a", "b", "c"]
+        n_trials = 9
+
+        def optuna_objective(trial: optuna.Trial) -> float:
+            return sum(trial.suggest_float(name, 0.0, 1.0) for name in names)
+
+        def rustuna_objective(trial: rustuna.Trial) -> float:
+            return sum(trial.suggest_float(name, 0.0, 1.0) for name in names)
+
+        optuna_study = optuna.create_study(
+            sampler=optuna.samplers.QMCSampler(qmc_type="sobol", scramble=False)
+        )
+        optuna_study.optimize(optuna_objective, n_trials=n_trials)
+
+        rustuna_study = rustuna.create_study(sampler=rustuna.samplers.QMCSampler())
+        rustuna_study.optimize(rustuna_objective, n_trials=n_trials)
+
+        # The first trial of either sampler predates the relative search space and is sampled
+        # independently, so only the trials that walk the sequence are comparable.
+        expected = [t.params[name] for t in optuna_study.trials[1:] for name in names]
+        sampled = [t.params[name] for t in rustuna_study.trials[1:] for name in names]
+        assert sampled == pytest.approx(expected)
+
 
 class TestCmaEsSampler(BasicSamplerTestCase, RelativeSamplerTestCase):
     @pytest.fixture
@@ -163,31 +190,3 @@ def test_to_optuna_sampler_after_trial_failure_still_persists_trial() -> None:
     persisted = study.trials[0]
     assert persisted.state == optuna.trial.TrialState.COMPLETE
     assert persisted.values == [1.0]
-
-
-def test_qmc_sampler_matches_optuna_qmc_sampler() -> None:
-    # Rustuna assigns Sobol' dimensions in sorted parameter order while Optuna uses the order the
-    # first trial suggested them in, so the objective suggests its parameters alphabetically to
-    # keep the two aligned.
-    names = ["a", "b", "c"]
-    n_trials = 9
-
-    def optuna_objective(trial: optuna.Trial) -> float:
-        return sum(trial.suggest_float(name, 0.0, 1.0) for name in names)
-
-    def rustuna_objective(trial: rustuna.Trial) -> float:
-        return sum(trial.suggest_float(name, 0.0, 1.0) for name in names)
-
-    optuna_study = optuna.create_study(
-        sampler=optuna.samplers.QMCSampler(qmc_type="sobol", scramble=False)
-    )
-    optuna_study.optimize(optuna_objective, n_trials=n_trials)
-
-    rustuna_study = rustuna.create_study(sampler=rustuna.samplers.QMCSampler())
-    rustuna_study.optimize(rustuna_objective, n_trials=n_trials)
-
-    # The first trial of either sampler predates the relative search space and is sampled
-    # independently, so only the trials that walk the sequence are comparable.
-    expected = [t.params[name] for t in optuna_study.trials[1:] for name in names]
-    sampled = [t.params[name] for t in rustuna_study.trials[1:] for name in names]
-    assert sampled == pytest.approx(expected)
