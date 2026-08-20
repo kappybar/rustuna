@@ -1,7 +1,9 @@
 Rustuna contains data that is licensed by third-party developers
 
 ===
-Licence pertaining to sobol.cc and the accompanying sets of direction numbers
+Licence pertaining to the set of direction numbers.
+The direction numbers table is cut down to 1024 dimensions, encoded
+into bytes, and placed in rustuna_sampler/src/qmc/joe_kuo_6.bin.
 
 -----------------------------------------------------------------------------
 Copyright (c) 2008, Frances Y. Kuo and Stephen Joe
