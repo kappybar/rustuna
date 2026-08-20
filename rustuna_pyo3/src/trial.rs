@@ -345,10 +345,7 @@ impl PyTrial {
         // the sampling itself runs detached (see suggest_float above).
         let mut category_labels: Vec<CategoryLabel> = Vec::with_capacity(choices.len());
         for choice in choices {
-            match pyobject_to_category_label(choice.bind(py)) {
-                Ok(label) => category_labels.push(label),
-                Err(e) => return Err(e),
-            }
+            category_labels.push(pyobject_to_category_label(choice.bind(py))?);
         }
         let label = py
             .detach(|| {
