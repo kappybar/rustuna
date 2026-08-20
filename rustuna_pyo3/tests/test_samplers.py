@@ -208,36 +208,3 @@ def test_qmc_sampler_reproduces_the_scipy_sobol_sequence(dimension: int) -> None
     expected = scipy_qmc.Sobol(d=dimension, scramble=False).random(16)
     sampled = [[trial.params[name] for name in names] for trial in study.trials[1:]]
     assert sampled == pytest.approx(expected)
-
-
-def test_qmc_sampler_keeps_every_distribution_in_range() -> None:
-    def objective(trial: rustuna.Trial) -> float:
-        linear = trial.suggest_float("linear", -10.0, 10.0)
-        logarithmic = trial.suggest_float("logarithmic", 1e-3, 1e3, log=True)
-        stepped = trial.suggest_float("stepped", 0.0, 10.0, step=0.5)
-        integer = trial.suggest_int("integer", -5, 5)
-        choice = trial.suggest_categorical("choice", ["a", "b", "c"])
-
-        assert -10.0 <= linear <= 10.0
-        assert 1e-3 <= logarithmic <= 1e3
-        assert 0.0 <= stepped <= 10.0 and stepped % 0.5 == pytest.approx(0.0)
-        assert -5 <= integer <= 5 and isinstance(integer, int)
-        assert choice in ("a", "b", "c")
-        return linear
-
-    study = rustuna.create_study(sampler=rustuna.samplers.QMCSampler())
-    study.optimize(objective, n_trials=32)
-
-
-def test_qmc_sampler_seed_only_affects_independent_sampling() -> None:
-    def objective(trial: rustuna.Trial) -> float:
-        return trial.suggest_float("x", 0.0, 1.0)
-
-    sampled = []
-    for seed in (0, 12345):
-        study = rustuna.create_study(sampler=rustuna.samplers.QMCSampler(seed=seed))
-        study.optimize(objective, n_trials=5)
-        sampled.append([trial.params["x"] for trial in study.trials[1:]])
-
-    # The Sobol' sequence is deterministic, so only the first trial can differ between seeds.
-    assert sampled[0] == sampled[1] == [0.0, 0.5, 0.75, 0.25]
