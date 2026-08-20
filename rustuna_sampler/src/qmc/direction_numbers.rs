@@ -1,19 +1,20 @@
 //! Joe-Kuo direction numbers for the Sobol' sequence.
 //!
-//! The table is the `new-joe-kuo-6.21201` set published by Joe and Kuo, selected with their
-//! search criterion 6 and covering 21201 dimensions. It is the same table that
-//! `scipy.stats.qmc.Sobol` uses, which is what lets [`super::SobolEngine`] reproduce SciPy's
-//! points exactly.
+//! The table is the leading part of the `new-joe-kuo-6.21201` set published by Joe and Kuo,
+//! selected with their search criterion 6. SciPy embeds all 21201 dimensions of it; Rustuna keeps
+//! the first [`MAX_DIM`] so that the table stays small, which is plenty for hyperparameter
+//! search. Over that range the direction numbers are identical to SciPy's, which is what lets
+//! [`super::SobolEngine`] reproduce SciPy's points exactly.
 //!
 //! See <https://web.maths.unsw.edu.au/~fkuo/sobol/> and
 //! S. Joe and F. Y. Kuo, "Constructing Sobol sequences with better two-dimensional projections",
 //! SIAM Journal on Scientific Computing, 30(5):2635-2654, 2008.
 
 /// Number of dimensions the embedded table supports.
-pub const MAX_DIM: usize = 21201;
+pub const MAX_DIM: usize = 1024;
 
 /// Largest primitive polynomial degree in the embedded table.
-pub const MAX_DEGREE: usize = 18;
+pub const MAX_DEGREE: usize = 13;
 
 /// Byte width of the packed degree field.
 const DEGREE_WIDTH: usize = 1;
@@ -26,7 +27,8 @@ fn m_width(i: usize) -> usize {
     i.div_ceil(8)
 }
 
-/// Packed table generated from the published `new-joe-kuo-6.21201` text file.
+/// Packed table generated from the published `new-joe-kuo-6.21201` text file, truncated to
+/// [`MAX_DIM`] dimensions.
 ///
 /// Fields are little-endian and byte-aligned, with dimensions in ascending order and no padding
 /// between them. For a dimension of degree `s` the layout is
@@ -43,8 +45,8 @@ fn m_width(i: usize) -> usize {
 /// ```
 ///
 /// The initial values are narrow because every `m_i` is below `2^i`, so it fits in
-/// `ceil(i / 8)` bytes. That keeps the table at 653 KiB rather than the 1.5 MiB a fixed `u32`
-/// per value would need, without giving up byte alignment.
+/// `ceil(i / 8)` bytes. That keeps the table at 21 KiB rather than the 76 KiB a fixed `u32` per
+/// value would need, without giving up byte alignment.
 static PACKED: &[u8] = include_bytes!("joe_kuo_6.bin");
 
 /// Direction numbers for a single dimension.

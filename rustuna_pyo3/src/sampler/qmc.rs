@@ -24,6 +24,9 @@ use crate::trial::PyTrialState;
 /// outside the joint search space, including everything in the first trial, fall back to
 /// random sampling.
 ///
+/// The joint search space may hold at most 1024 parameters, which is how far the embedded
+/// table of direction numbers reaches. A larger one raises an error.
+///
 /// The position in the sequence is kept in a study system attribute rather than in the sampler,
 /// so workers sharing a storage walk one sequence together and a resumed study continues where it
 /// left off. Threads within one process are serialized by the storage lock, but two processes can

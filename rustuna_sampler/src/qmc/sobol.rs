@@ -223,17 +223,16 @@ mod tests {
     fn matches_scipy_in_the_largest_supported_dimension() -> Result<()> {
         // The tail dimensions exercise the widest polynomials in the table, so this also checks
         // that the packed direction numbers decode correctly all the way to the end.
-        // scipy.stats.qmc.Sobol(d=21201, scramble=False).fast_forward(12345).random(1) * 2^30.
+        // scipy.stats.qmc.Sobol(d=1024, scramble=False).fast_forward(12345).random(1) * 2^30.
         let point = as_fixed_point(&SobolEngine::new(MAX_DIM)?.nth_point(12345)?);
         for (index, expected) in [
             (0, 688193536),
             (1, 873398272),
             (100, 579272704),
-            (1000, 389218304),
-            (10000, 135987200),
-            (21198, 776536064),
-            (21199, 210173952),
-            (21200, 52625408),
+            (500, 324861952),
+            (1021, 954925056),
+            (1022, 370868224),
+            (1023, 619642880),
         ] {
             assert_eq!(point[index], expected, "dimension {index}");
         }
