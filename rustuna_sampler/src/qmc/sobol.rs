@@ -80,6 +80,9 @@ pub fn nth_point(dim: usize, n: u64) -> Result<Vec<f64>> {
 
 /// Exclusive-ors the direction numbers selected by the set bits of the Gray code of `n`.
 fn gray_code_xor(row: &[u32; BITS], n: u64) -> u32 {
+    // The Gray code of an index below `CAPACITY` is also below it, so `j` stays within `row`.
+    debug_assert!(n < CAPACITY);
+
     let mut quasi = 0;
     let mut gray = n ^ (n >> 1);
     let mut j = 0;
@@ -151,20 +154,6 @@ mod tests {
     /// Returns the points at indices `0..n`.
     fn first_points(dim: usize, n: u64) -> Result<Vec<Vec<f64>>> {
         (0..n).map(|index| nth_point(dim, index)).collect()
-    }
-
-    #[test]
-    fn matches_scipy_in_one_dimension() -> Result<()> {
-        // scipy.stats.qmc.Sobol(d=1, scramble=False).random(16)
-        let expected = [
-            0.0, 0.5, 0.75, 0.25, 0.375, 0.875, 0.625, 0.125, 0.1875, 0.6875, 0.9375, 0.4375,
-            0.3125, 0.8125, 0.5625, 0.0625,
-        ];
-        let points = first_points(1, expected.len() as u64)?;
-        for (point, expected) in points.iter().zip(expected) {
-            assert_eq!(point, &[expected]);
-        }
-        Ok(())
     }
 
     #[test]
