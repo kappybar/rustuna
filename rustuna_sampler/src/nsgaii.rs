@@ -135,7 +135,7 @@ impl NSGAIISampler {
         })
     }
     fn get_generation_to_numbers_write_lock(
-        &mut self,
+        &self,
     ) -> Result<RwLockWriteGuard<'_, HashMap<u32, Vec<u32>>>> {
         self.generation_to_numbers.write().map_err(|e| {
             Error::with_reason(
@@ -144,7 +144,7 @@ impl NSGAIISampler {
             )
         })
     }
-    fn rebuild_generation_cache(&mut self, trials: &[Option<PersistedTrial>]) -> Result<()> {
+    fn rebuild_generation_cache(&self, trials: &[Option<PersistedTrial>]) -> Result<()> {
         let mut generation_to_numbers = self.get_generation_to_numbers_write_lock()?;
         generation_to_numbers.clear();
         let generation_key = AttrKey::System("generation".into());
@@ -228,7 +228,7 @@ impl NSGAIISampler {
     }
 
     fn select_elite_population_numbers(
-        &mut self,
+        &self,
         ctx: &Context,
         trials: &[Option<PersistedTrial>],
         population_numbers: &[u32],
@@ -249,7 +249,7 @@ impl NSGAIISampler {
         }
         Ok(elite_population_numbers)
     }
-    fn get_child_generation(&mut self, trials: &[Option<PersistedTrial>]) -> Result<u32> {
+    fn get_child_generation(&self, trials: &[Option<PersistedTrial>]) -> Result<u32> {
         // TODO: Incrementally sync trials completed by other workers without a full rescan.
         if self.get_generation_to_numbers_read_lock()?.is_empty() {
             self.rebuild_generation_cache(trials)?;
@@ -272,7 +272,7 @@ impl NSGAIISampler {
     }
 
     fn get_parent_population_numbers(
-        &mut self,
+        &self,
         ctx: &Context,
         trials: &[Option<PersistedTrial>],
         child_generation: u32,
@@ -343,7 +343,7 @@ impl NSGAIISampler {
         Ok((child_generation, parent_population_numbers, new_attrs))
     }
     fn crossover(
-        &mut self,
+        &self,
         parent0: &HashMap<String, f64>,
         parent1: &HashMap<String, f64>,
         sorted_names: &[&str],
@@ -364,7 +364,7 @@ impl NSGAIISampler {
 }
 impl Sampler for NSGAIISampler {
     fn sample_independent(
-        &mut self,
+        &self,
         _ctx: &Context,
         _storage: Arc<RwLock<dyn Storage>>,
         _name: &str,
@@ -443,7 +443,7 @@ impl Sampler for NSGAIISampler {
     }
 
     fn sample_joint(
-        &mut self,
+        &self,
         ctx: &Context,
         storage: Arc<RwLock<dyn Storage>>,
         search_space: &HashMap<String, Distribution>,
@@ -537,7 +537,7 @@ impl Sampler for NSGAIISampler {
     }
 
     fn after_trial(
-        &mut self,
+        &self,
         ctx: &Context,
         storage: Arc<RwLock<dyn Storage>>,
         state_values: &TrialStateValues,
@@ -1042,7 +1042,7 @@ mod tests {
         let resumed = rustuna_core::study::Study::from_id(
             study.id,
             std::sync::Arc::clone(&study.storage),
-            std::sync::Arc::new(std::sync::Mutex::new(new_sampler)),
+            std::sync::Arc::new(new_sampler),
         )
         .unwrap();
 
@@ -1095,7 +1095,7 @@ mod tests {
         let resumed = rustuna_core::study::Study::from_id(
             study.id,
             Arc::clone(&study.storage),
-            Arc::new(Mutex::new(NSGAIISampler::new(2, None, 1.0, 1.0))),
+            Arc::new(NSGAIISampler::new(2, None, 1.0, 1.0)),
         )
         .unwrap();
         resumed.ask().unwrap();
@@ -1146,7 +1146,7 @@ mod tests {
         let resumed = rustuna_core::study::Study::from_id(
             study.id,
             Arc::clone(&study.storage),
-            Arc::new(Mutex::new(NSGAIISampler::new(3, None, 1.0, 1.0))),
+            Arc::new(NSGAIISampler::new(3, None, 1.0, 1.0)),
         )
         .unwrap();
         let generation_zero_trial = resumed.ask().unwrap();
