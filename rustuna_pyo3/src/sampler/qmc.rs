@@ -23,19 +23,24 @@ pub struct PyQmcSampler {
 impl PyQmcSampler {
     #[new]
     #[pyo3(signature = (*, seed = None))]
-    fn py_new(seed: Option<u64>) -> Self {
+    fn py_new(seed: Option<u64>) -> PyResult<Self> {
         let rs_sampler = match seed {
             Some(seed) => QmcSampler::seed_from_u64(seed),
             None => QmcSampler::new(),
         };
-        PyQmcSampler {
+        Ok(PyQmcSampler {
             sampler: Arc::new(Mutex::new(rs_sampler)),
-        }
+        })
     }
 
     #[getter]
-    fn support_joint_sampling(&self) -> PyResult<bool> {
-        Ok(true)
+    fn support_joint_sampling(&self, py: Python<'_>) -> PyResult<bool> {
+        py.detach(|| {
+            let guard = self.sampler.lock().map_err(|e| {
+                PyRuntimeError::new_err(format!("Failed to acquire sampler lock: {e}"))
+            })?;
+            Ok(guard.support_joint_sampling())
+        })
     }
 
     fn sample_independent(
