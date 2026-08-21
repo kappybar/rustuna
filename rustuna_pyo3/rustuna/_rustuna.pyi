@@ -1224,6 +1224,11 @@ class QMCSampler:
     The joint search space may hold at most 1024 parameters, which is how far the embedded
     table of direction numbers reaches. A larger one raises an error.
 
+    The parameters of the first completed trial fix how many dimensions the sequence has for the
+    rest of the study. A parameter that only some trials suggest drops out of the joint search
+    space and falls back to random sampling, but the dimension stays put so the sequence carries
+    on instead of restarting and repeating points.
+
     The position in the sequence is kept in a study system attribute rather than in the sampler,
     so workers sharing a storage walk one sequence together and a resumed study continues where
     it left off. Threads within one process are serialized by the storage lock, but two processes

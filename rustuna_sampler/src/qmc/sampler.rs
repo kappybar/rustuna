@@ -28,6 +28,11 @@ use super::SobolEngine;
 /// The joint search space may hold at most 1024 parameters, which is how far the embedded
 /// table of direction numbers reaches. A larger one raises an error.
 ///
+/// The parameters of the first completed trial fix how many dimensions the sequence has for the
+/// rest of the study. A parameter that only some trials suggest drops out of the joint search
+/// space and falls back to random sampling, but the dimension stays put so the sequence carries
+/// on instead of restarting and repeating points.
+///
 /// The position in the sequence is kept in a study system attribute rather than in the sampler,
 /// so workers sharing a storage walk one sequence together and a resumed study continues where it
 /// left off. Threads within one process are serialized by the storage lock, but two processes can
@@ -121,7 +126,14 @@ impl Sampler for QmcSampler {
             return Ok(HashMap::new());
         }
 
-        let transform = SearchSpaceTransform::new(&to_numerical_search_space(search_space))?;
+        // Falling back to what we were handed only matters if no trial has completed yet, which
+        // the caller already rules out by passing a non-empty search space.
+        let reference = match first_trial_search_space(ctx, &storage)? {
+            space if space.is_empty() => search_space.clone(),
+            space => space,
+        };
+
+        let transform = SearchSpaceTransform::new(&to_numerical_search_space(&reference))?;
         let dim = transform.parameter_names().len();
         let engine = match &self.engine {
             Some(engine) if engine.dim() == dim => engine,
@@ -130,12 +142,12 @@ impl Sampler for QmcSampler {
 
         // The index lives in the storage rather than in the engine, so that workers sharing a
         // study keep walking one sequence instead of each replaying it from the start.
-        let sample_id = next_sample_id(ctx, &storage, search_space)?;
+        let sample_id = next_sample_id(ctx, &storage, &reference)?;
         let mut params = transform.untransform(&engine.nth_point(sample_id)?)?;
 
         // A categorical parameter occupies one coordinate spanning [0, cardinality), so flooring
         // it turns the coordinate into a choice index.
-        for (name, distribution) in search_space {
+        for (name, distribution) in &reference {
             let Distribution::Categorical { cardinality } = distribution else {
                 continue;
             };
@@ -145,6 +157,10 @@ impl Sampler for QmcSampler {
                     .clamp(0.0, cardinality.saturating_sub(1) as f64);
             }
         }
+
+        // The caller drops anything outside the search space it handed us, so the coordinates
+        // belonging to parameters that have since left the intersection go no further.
+        params.retain(|name, _| search_space.contains_key(name));
         Ok(params)
     }
 
@@ -157,6 +173,37 @@ impl Sampler for QmcSampler {
         self.independent_sampler
             .after_trial(ctx, storage, state_values)
     }
+}
+
+/// Returns the distributions of the earliest completed trial, which is what pins the number of
+/// Sobol' dimensions for the whole study.
+///
+/// `study.rs` hands the sampler the intersection of every completed trial, and that intersection
+/// shrinks as soon as a conditional parameter goes missing. Rebuilding the sequence around the
+/// smaller space would restart it from the origin and hand out points the study has already
+/// evaluated, so the dimension comes from the first trial instead and stays put. Optuna's
+/// `QMCSampler` pins it the same way.
+fn first_trial_search_space(
+    ctx: &Context,
+    storage: &Arc<RwLock<dyn Storage>>,
+) -> Result<HashMap<String, Distribution>> {
+    let mut guard = storage.write().map_err(|e| {
+        Error::with_reason(
+            ErrorKind::StorageError,
+            format!("Failed to acquire a storage guard: {e}"),
+        )
+    })?;
+
+    let first = guard
+        .get_trials(ctx.study_id)?
+        .iter()
+        .flatten()
+        .find(|trial| matches!(trial.state_values, TrialStateValues::Complete(_)));
+
+    Ok(match first {
+        Some(trial) => trial.distributions.clone(),
+        None => HashMap::new(),
+    })
 }
 
 /// Replaces categorical distributions so that the whole search space can be transformed into the
@@ -410,7 +457,7 @@ mod tests {
     }
 
     #[test]
-    fn separates_counters_of_different_search_spaces() -> Result<()> {
+    fn keeps_walking_one_sequence_when_the_search_space_shrinks() -> Result<()> {
         let study = create_study(
             "qmc",
             InMemoryStorage::new(),
@@ -418,7 +465,7 @@ mod tests {
             vec![Direction::Minimize],
         )?;
         // "y" only exists while the first trials run, so the joint search space shrinks from
-        // {x, y} to {x} and the sampler starts a fresh counter for the smaller space.
+        // {x, y} to {x}. The dimension still comes from the first trial, which had both.
         study.optimize(
             |mut trial| {
                 let x = trial.suggest_float("x", 0.0, 1.0)?;
@@ -432,13 +479,14 @@ mod tests {
             6,
         )?;
 
+        // Trials 1..=5 take indices 0..=4 of the two-dimensional sequence without interruption.
+        // Restarting once "y" left would hand out 0.0 and 0.5 a second time.
         let trials = study.get_trials()?;
-        // Trials 1 and 2 walk the two-dimensional sequence, then trials 4 and 5 restart in one
-        // dimension once "y" has dropped out of the joint search space.
-        assert_eq!(trials[1].internal_params["x"], 0.0);
-        assert_eq!(trials[2].internal_params["x"], 0.5);
-        assert_eq!(trials[4].internal_params["x"], 0.0);
-        assert_eq!(trials[5].internal_params["x"], 0.5);
+        let sampled: Vec<f64> = trials[1..]
+            .iter()
+            .map(|trial| trial.internal_params["x"])
+            .collect();
+        assert_eq!(sampled, vec![0.0, 0.5, 0.75, 0.25, 0.375]);
         Ok(())
     }
 }

@@ -13,25 +13,6 @@ use crate::distribution::PyDistribution;
 use crate::sampler::{extract_storage, PySamplerContext};
 use crate::trial::PyTrialState;
 
-/// A Quasi-Monte Carlo Sampler that generates low-discrepancy sequences.
-///
-/// The sampler covers the search space with a low-discrepancy sequence instead of independent
-/// random draws, so a given number of trials spreads more evenly than random search does. The
-/// sequence matches `scipy.stats.qmc.Sobol(d, scramble=False)`, which is what Optuna's
-/// `QMCSampler` uses under its default settings. Scrambling is not implemented yet.
-///
-/// Sobol' points are most uniform when the number of trials is a power of two. Parameters
-/// outside the joint search space, including everything in the first trial, fall back to
-/// random sampling.
-///
-/// The joint search space may hold at most 1024 parameters, which is how far the embedded
-/// table of direction numbers reaches. A larger one raises an error.
-///
-/// The position in the sequence is kept in a study system attribute rather than in the sampler,
-/// so workers sharing a storage walk one sequence together and a resumed study continues where it
-/// left off. Threads within one process are serialized by the storage lock, but two processes can
-/// reserve the same index, because reading and writing the counter is not a single storage
-/// transaction.
 #[derive(Clone)]
 #[pyclass(name = "QMCSampler", from_py_object)]
 #[pyo3(module = "rustuna")]
@@ -40,12 +21,6 @@ pub struct PyQmcSampler {
 }
 #[pymethods]
 impl PyQmcSampler {
-    /// Creates a sampler.
-    ///
-    /// Args:
-    ///     seed: Random seed of the sampler used for parameters outside the joint search space.
-    ///         The Sobol' sequence itself is deterministic and ignores this. If None, a default
-    ///         seed is used.
     #[new]
     #[pyo3(signature = (*, seed = None))]
     fn py_new(seed: Option<u64>) -> Self {
