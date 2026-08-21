@@ -1,4 +1,37 @@
 //! Sobol' low-discrepancy sequence generator.
+//!
+//! This module reproduces `scipy.stats.qmc.Sobol(d, scramble=False)` exactly: it uses the same
+//! Joe-Kuo direction numbers, the same Antonov-Saleev Gray code construction, and the same
+//! convention of placing the origin at index 0.
+//!
+//! A coordinate is the exclusive-or of the direction numbers selected by the set bits of the
+//! Gray code of the point index. Since every operation is a bitwise exclusive-or, the direction
+//! numbers are kept as fixed-point integers and scaled into `[0, 1)` only when a point is handed
+//! out.
+//!
+//! # Balance properties
+//!
+//! Sobol' points are a quadrature rule, not a stream of independent samples. They form a
+//! `(t, m, d)`-net only when the `2^m` points at indices `0..2^m` are taken together, so using a
+//! non-power-of-two number of points, skipping index 0, or thinning the sequence all degrade
+//! their uniformity.
+//!
+//! # Examples
+//!
+//! ```
+//! use rustuna_core::Result;
+//! use rustuna_sampler::qmc::sobol;
+//!
+//! fn main() -> Result<()> {
+//!     assert_eq!(sobol::nth_point(2, 0)?, vec![0.0, 0.0]);
+//!     assert_eq!(sobol::nth_point(2, 1)?, vec![0.5, 0.5]);
+//!     assert_eq!(sobol::nth_point(2, 2)?, vec![0.75, 0.25]);
+//!     assert_eq!(sobol::nth_point(2, 3)?, vec![0.25, 0.75]);
+//!     Ok(())
+//! }
+//! ```
+
+use std::sync::LazyLock;
 
 use rustuna_core::{Error, ErrorKind, Result};
 
@@ -10,99 +43,59 @@ const BITS: usize = 30;
 /// Number of points the sequence holds before it would start repeating.
 const CAPACITY: u64 = 1 << BITS;
 
-/// Generator for the Sobol' quasirandom sequence.
+/// Direction numbers for every supported dimension, built once per process.
 ///
-/// The engine reproduces `scipy.stats.qmc.Sobol(d, scramble=False)` exactly: it uses the same
-/// Joe-Kuo direction numbers, the same Antonov-Saleev Gray code construction, and the same
-/// convention of placing the origin at index 0.
+/// Row `d` depends only on dimension `d`, and `direction_numbers::decode` reads the packed table
+/// front to back, so the first `dim` rows are exactly what a `dim`-dimensional sequence needs.
+/// Building all of them costs about 217k exclusive-ors and 120 KiB once, which is cheaper than
+/// rebuilding a smaller table whenever the joint search space changes size, and it lets the
+/// table be shared without any synchronization because it never changes after initialization.
+static DIRECTIONS: LazyLock<Vec<[u32; BITS]>> =
+    LazyLock::new(|| initialize_direction_numbers(MAX_DIM));
+
+/// Returns the point at index `n` of the `dim`-dimensional Sobol' sequence, where index 0 is the
+/// origin.
 ///
-/// A coordinate is the exclusive-or of the direction numbers selected by the set bits of the
-/// Gray code of the point index. Since every operation is a bitwise exclusive-or, the direction
-/// numbers are kept as fixed-point integers and scaled into `[0, 1)` only when a point is handed
-/// out.
-///
-/// # Balance properties
-///
-/// Sobol' points are a quadrature rule, not a stream of independent samples. They form a
-/// `(t, m, d)`-net only when the `2^m` points at indices `0..2^m` are taken together, so using a
-/// non-power-of-two number of points, skipping index 0, or thinning the sequence all degrade
-/// their uniformity.
-///
-/// # Examples
-///
-/// ```
-/// use rustuna_core::Result;
-/// use rustuna_sampler::qmc::SobolEngine;
-///
-/// fn main() -> Result<()> {
-///     let engine = SobolEngine::new(2)?;
-///     assert_eq!(engine.nth_point(0)?, vec![0.0, 0.0]);
-///     assert_eq!(engine.nth_point(1)?, vec![0.5, 0.5]);
-///     assert_eq!(engine.nth_point(2)?, vec![0.75, 0.25]);
-///     assert_eq!(engine.nth_point(3)?, vec![0.25, 0.75]);
-///     Ok(())
-/// }
-/// ```
-#[derive(Debug, Clone)]
-pub struct SobolEngine {
-    dim: usize,
-    /// Direction numbers per dimension: `sv[d][j]` is the `j`-th direction number of dimension
-    /// `d`, left-aligned as a `BITS`-wide fixed-point fraction.
-    sv: Vec<[u32; BITS]>,
+/// This evaluates the Gray code definition of the sequence directly rather than iterating the
+/// recurrence, so the cost does not grow with `n`.
+pub fn nth_point(dim: usize, n: u64) -> Result<Vec<f64>> {
+    if dim == 0 || dim > MAX_DIM {
+        return Err(Error::with_reason(
+            ErrorKind::SamplerError,
+            format!("Sobol' dimension must be in 1..={MAX_DIM}, got {dim}"),
+        ));
+    }
+    if n >= CAPACITY {
+        return Err(Error::with_reason(
+            ErrorKind::SamplerError,
+            format!("Sobol' point index must be below 2**{BITS}={CAPACITY}, got {n}"),
+        ));
+    }
+
+    Ok(DIRECTIONS[..dim]
+        .iter()
+        .map(|row| scale(gray_code_xor(row, n)))
+        .collect())
 }
 
-impl SobolEngine {
-    /// Creates an engine over `dim` dimensions.
-    pub fn new(dim: usize) -> Result<Self> {
-        if dim == 0 || dim > MAX_DIM {
-            return Err(Error::with_reason(
-                ErrorKind::SamplerError,
-                format!("Sobol' dimension must be in 1..={MAX_DIM}, got {dim}"),
-            ));
+/// Exclusive-ors the direction numbers selected by the set bits of the Gray code of `n`.
+fn gray_code_xor(row: &[u32; BITS], n: u64) -> u32 {
+    let mut quasi = 0;
+    let mut gray = n ^ (n >> 1);
+    let mut j = 0;
+    while gray != 0 {
+        if gray & 1 == 1 {
+            quasi ^= row[j];
         }
-
-        Ok(Self {
-            dim,
-            sv: initialize_direction_numbers(dim),
-        })
+        gray >>= 1;
+        j += 1;
     }
+    quasi
+}
 
-    /// Returns the number of dimensions the engine covers.
-    pub fn dim(&self) -> usize {
-        self.dim
-    }
-
-    /// Returns the point at index `n`, where index 0 is the origin.
-    ///
-    /// This evaluates the Gray code definition of the sequence directly rather than iterating the
-    /// recurrence, so the cost does not grow with `n`.
-    pub fn nth_point(&self, n: u64) -> Result<Vec<f64>> {
-        if n >= CAPACITY {
-            return Err(Error::with_reason(
-                ErrorKind::SamplerError,
-                format!("Sobol' point index must be below 2**{BITS}={CAPACITY}, got {n}"),
-            ));
-        }
-
-        let mut quasi = vec![0u32; self.dim];
-        let mut gray = n ^ (n >> 1);
-        let mut j = 0;
-        while gray != 0 {
-            if gray & 1 == 1 {
-                for (value, row) in quasi.iter_mut().zip(&self.sv) {
-                    *value ^= row[j];
-                }
-            }
-            gray >>= 1;
-            j += 1;
-        }
-
-        let scale = 1.0 / CAPACITY as f64;
-        Ok(quasi
-            .iter()
-            .map(|&value| f64::from(value) * scale)
-            .collect())
-    }
+/// Turns a `BITS`-wide fixed-point fraction into a `f64` in `[0, 1)`.
+fn scale(quasi: u32) -> f64 {
+    f64::from(quasi) * (1.0 / CAPACITY as f64)
 }
 
 /// Builds the direction numbers for `dim` dimensions as `BITS`-wide fixed-point fractions.
@@ -157,8 +150,7 @@ mod tests {
 
     /// Returns the points at indices `0..n`.
     fn first_points(dim: usize, n: u64) -> Result<Vec<Vec<f64>>> {
-        let engine = SobolEngine::new(dim)?;
-        (0..n).map(|index| engine.nth_point(index)).collect()
+        (0..n).map(|index| nth_point(dim, index)).collect()
     }
 
     #[test]
@@ -203,16 +195,15 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_dimensions() {
-        assert!(SobolEngine::new(0).is_err());
-        assert!(SobolEngine::new(MAX_DIM + 1).is_err());
-        assert!(SobolEngine::new(MAX_DIM).is_ok());
+        assert!(nth_point(0, 0).is_err());
+        assert!(nth_point(MAX_DIM + 1, 0).is_err());
+        assert!(nth_point(MAX_DIM, 0).is_ok());
     }
 
     #[test]
     fn refuses_indices_past_the_end_of_the_sequence() -> Result<()> {
-        let engine = SobolEngine::new(2)?;
-        assert_eq!(engine.nth_point(CAPACITY - 1)?.len(), 2);
-        assert!(engine.nth_point(CAPACITY).is_err());
+        assert_eq!(nth_point(2, CAPACITY - 1)?.len(), 2);
+        assert!(nth_point(2, CAPACITY).is_err());
         Ok(())
     }
 }

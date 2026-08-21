@@ -2,7 +2,6 @@
 
 pub mod direction_numbers;
 mod sampler;
-mod sobol;
+pub mod sobol;
 
 pub use sampler::QmcSampler;
-pub use sobol::SobolEngine;
