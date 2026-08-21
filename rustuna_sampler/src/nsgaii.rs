@@ -224,7 +224,6 @@ impl NSGAIISampler {
                 None => return Ok(None),
             }
         }
-        population_numbers.sort_unstable();
         Ok(Some(population_numbers))
     }
 
@@ -1109,6 +1108,20 @@ mod tests {
             .unwrap();
         let parent_ids: Vec<u32> = serde_json::from_str(&encoded).unwrap();
         assert_eq!(parent_ids.len(), 2);
+    }
+
+    #[test]
+    fn test_parent_population_cache_preserves_parent_order() {
+        let completed_trial_numbers_by_id = HashMap::from([(10, 2), (20, 0), (30, 1)]);
+        let population_numbers = NSGAIISampler::decode_parent_population_numbers(
+            &completed_trial_numbers_by_id,
+            "[10,20,30]",
+            3,
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(population_numbers, vec![2, 0, 1]);
     }
 
     #[test]
