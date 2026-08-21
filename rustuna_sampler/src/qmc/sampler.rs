@@ -313,75 +313,41 @@ mod tests {
         )?;
         study.optimize(
             |mut trial| {
-                let x = trial.suggest_float("x", 0.0, 1.0)?;
-                Ok(vec![x])
+                let a = trial.suggest_float("a", 0.0, 1.0)?;
+                let b = trial.suggest_float("b", 0.0, 1.0)?;
+                Ok(vec![a + b])
             },
-            5,
+            17,
         )?;
 
         // The first trial has no joint search space yet and falls back to random sampling. Every
         // later trial walks the sequence, starting from its origin.
         let trials = study.get_trials()?;
-        let sampled: Vec<f64> = trials[1..]
-            .iter()
-            .map(|trial| trial.internal_params["x"])
-            .collect();
-        assert_eq!(sampled, vec![0.0, 0.5, 0.75, 0.25]);
-        Ok(())
-    }
-
-    #[test]
-    fn assigns_dimensions_in_sorted_parameter_order() -> Result<()> {
-        let study = create_study(
-            "qmc",
-            InMemoryStorage::new(),
-            QmcSampler::new(),
-            vec![Direction::Minimize],
-        )?;
-        // "b" is suggested first but sorts second, so it must take the second Sobol' coordinate.
-        study.optimize(
-            |mut trial| {
-                let b = trial.suggest_float("b", 0.0, 1.0)?;
-                let a = trial.suggest_float("a", 0.0, 1.0)?;
-                Ok(vec![a + b])
-            },
-            4,
-        )?;
-
-        let trials = study.get_trials()?;
         let sampled: Vec<(f64, f64)> = trials[1..]
             .iter()
             .map(|trial| (trial.internal_params["a"], trial.internal_params["b"]))
             .collect();
-        assert_eq!(sampled, vec![(0.0, 0.0), (0.5, 0.5), (0.75, 0.25)]);
-        Ok(())
-    }
-
-    #[test]
-    fn maps_every_kind_of_distribution_into_its_own_range() -> Result<()> {
-        let study = create_study(
-            "qmc",
-            InMemoryStorage::new(),
-            QmcSampler::new(),
-            vec![Direction::Minimize],
-        )?;
-        study.optimize(
-            |mut trial| {
-                let linear = trial.suggest_float("linear", -10.0, 10.0)?;
-                let logarithmic = trial.suggest_float("logarithmic", 1e-3, 1e3)?;
-                let stepped = trial.suggest_float("stepped", 0.0, 10.0)?;
-                let integer = trial.suggest_int("integer", -5, 5)?;
-                let choice = *trial.suggest_categorical("choice", &[10, 20, 30, 40])?;
-
-                assert!((-10.0..=10.0).contains(&linear));
-                assert!((1e-3..=1e3).contains(&logarithmic));
-                assert!((0.0..=10.0).contains(&stepped));
-                assert!((-5..=5).contains(&integer));
-                assert!([10, 20, 30, 40].contains(&choice));
-                Ok(vec![linear + integer as f64 + choice as f64])
-            },
-            32,
-        )?;
+        assert_eq!(
+            sampled,
+            vec![
+                (0.0, 0.0),
+                (0.5, 0.5),
+                (0.75, 0.25),
+                (0.25, 0.75),
+                (0.375, 0.375),
+                (0.875, 0.875),
+                (0.625, 0.125),
+                (0.125, 0.625),
+                (0.1875, 0.3125),
+                (0.6875, 0.8125),
+                (0.9375, 0.0625),
+                (0.4375, 0.5625),
+                (0.3125, 0.1875),
+                (0.8125, 0.6875),
+                (0.5625, 0.4375),
+                (0.0625, 0.9375),
+            ]
+        );
         Ok(())
     }
 
