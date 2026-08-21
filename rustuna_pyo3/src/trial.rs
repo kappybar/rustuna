@@ -367,9 +367,9 @@ impl PyTrial {
         let constraints: HashMap<String, f64> =
             Python::attach(|py| constraints.bind(py).extract())?;
 
-        self.trial.set_constraints(constraints).map_err(|e| {
-            PyRuntimeError::new_err(format!("Fialed to set constraints: {:?}", e.kind))
-        })?;
+        self.trial
+            .set_constraints(constraints)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to set constraints: {e}")))?;
 
         Ok(())
     }

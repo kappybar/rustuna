@@ -1,4 +1,4 @@
-name: tests
+name: Tests and checks (JavaScript)
 on:
   pull_request:
     branches:
