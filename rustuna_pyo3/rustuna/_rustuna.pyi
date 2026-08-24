@@ -169,8 +169,22 @@ class Trial:
     def set_constraints(self, constraints: dict[str, float]) -> None:
         """Set constraints to the trial.
 
+        A trial is feasible when every one of its constraint values is zero or less, and
+        infeasible when any of them is positive. How the infeasible trials are compared
+        with each other is up to the sampler; see the documentation of each sampler that
+        supports constraints, such as [TPESampler][rustuna.samplers.TPESampler] and
+        [NSGAIISampler][rustuna.samplers.NSGAIISampler].
+
+        Calling this method again overwrites the values of the constraint names given in
+        `constraints`, and leaves the other names untouched.
+
         Args:
-            constraints: A dictionary object.
+            constraints: A dictionary object mapping each constraint name to its value.
+
+        Raises:
+            RuntimeError: If any of the values is NaN. The constraints are validated
+                before anything is stored, so none of the values in `constraints` is
+                recorded in that case.
         """
 
 class AttrsDictView(Mapping[str, str]):
@@ -1259,6 +1273,20 @@ class TPESampler:
         jointly, which is reported to outperform independent sampling. See
         [BOHB: Robust and Efficient Hyperparameter Optimization at Scale](http://proceedings.mlr.press/v80/falkner18a.html)
         for more details.
+
+    Note:
+        Constraints set via [Trial.set_constraints][rustuna.trial.Trial.set_constraints] are
+        taken into account when the observations are split into the good half, which `l(x)`
+        is fitted to, and the poor half, which `g(x)` is fitted to. Feasible trials, whose
+        constraint values are all zero or less, are always preferred over infeasible ones,
+        so the good half is filled with the best feasible trials first, and only the
+        remaining slots, if any, are filled with infeasible trials. The infeasible trials
+        are ordered by their total violation, i.e. the sum of their positive constraint
+        values, and the ones violating the constraints the least come first.
+
+        Which feasible trials are the best is decided exactly as in the unconstrained case:
+        by the objective value for single-objective studies, and by the non-domination rank
+        and the hypervolume contribution for multi-objective ones.
     """
     def __init__(
         self,
@@ -1324,6 +1352,21 @@ class NSGAIISampler:
         crossover_prob: Probability of performing crossover between two parents. Defaults to `0.9`.
         swapping_prob: Probability of swapping each parameter value during crossover.
             Defaults to `0.5`.
+
+    Note:
+        Constraints set via [Trial.set_constraints][rustuna.trial.Trial.set_constraints] are
+        taken into account by replacing the dominance relation of the non-dominated sort with
+        constrained domination. A trial is feasible when its constraint values are all zero
+        or less, and its total violation is the sum of its positive constraint values. A
+        trial `a` constrained-dominates a trial `b` when
+
+        * both are feasible and `a` dominates `b` in the usual Pareto sense,
+        * `a` is feasible and `b` is not, or
+        * both are infeasible and the total violation of `a` is smaller than that of `b`.
+
+        Feasible trials therefore always form the earlier fronts, and the infeasible ones
+        are ranked by how much they violate the constraints. The crowding distance used
+        within a front is unchanged.
     """
     def __init__(
         self,
