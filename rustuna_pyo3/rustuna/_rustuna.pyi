@@ -166,6 +166,19 @@ class Trial:
         Args:
             attrs: A dictionary object.
         """
+    def set_constraint(self, key: str, value: float) -> None:
+        """Set a constraint to the trial.
+
+        See [Trial.set_constraints][rustuna.trial.Trial.set_constraints] for the detailed
+        behavior of the constraints.
+
+        Args:
+            key: A key string of the constraint.
+            value: A value of the constraint.
+
+        Raises:
+            RuntimeError: If `value` is NaN. Nothing is recorded in that case.
+        """
     def set_constraints(self, constraints: dict[str, float]) -> None:
         """Set constraints to the trial.
 

@@ -372,6 +372,15 @@ impl PyTrial {
         })?;
         Ok(())
     }
+    #[pyo3(signature = (key, value))]
+    pub fn set_constraint(&mut self, key: &str, value: f64) -> PyResult<()> {
+        let constraint = HashMap::from([(String::from(key), value)]);
+        self.trial
+            .set_constraints(constraint)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to set constraints: {e}")))?;
+
+        Ok(())
+    }
     #[pyo3(signature = (constraints))]
     pub fn set_constraints(&mut self, constraints: Py<PyAny>) -> PyResult<()> {
         let constraints: HashMap<String, f64> =
