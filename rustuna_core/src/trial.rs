@@ -275,7 +275,9 @@ impl Trial {
             // TODO(inoue): Replace eprintln! with warning once rustuna has a logging mechanism.
             eprintln!(
                 "Warning: The constraint '{}' is already set. No constraint was updated.",
-                key.as_str().trim_start_matches(CONSTRAINTS_PREFIX)
+                key.as_str()
+                    .strip_prefix(CONSTRAINTS_PREFIX)
+                    .unwrap_or(key.as_str())
             );
             return Ok(());
         }
