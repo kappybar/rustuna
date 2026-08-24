@@ -441,8 +441,7 @@ impl PyStudy {
     }
 
     pub fn ask(&self, py: Python<'_>) -> PyResult<PyTrial> {
-        // ask takes the storage/sampler locks inside rustuna_core: run it
-        // detached (see the comment on `PyTrial::suggest_float`).
+        // ask takes the storage/sampler locks inside rustuna_core: run it detached.
         let trial = py.detach(|| self.study.ask()).map_err(err_to_exceptions)?;
         Ok(PyTrial::new(trial, self.storage_pyobj.clone_ref(py)))
     }
@@ -478,8 +477,7 @@ impl PyStudy {
             }
         };
         let state_values = state_values?;
-        // tell and the trial fetch below take the storage lock: run them
-        // detached (see the comment on `PyTrial::suggest_float`).
+        // tell and the trial fetch below take the storage lock: run them detached.
         py.detach(|| {
             self.study
                 .tell(number, state_values)
