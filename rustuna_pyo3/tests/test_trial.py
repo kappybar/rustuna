@@ -107,6 +107,17 @@ def test_persisted_trial_new_value_and_values_error() -> None:
         )
 
 
+def test_set_constraint() -> None:
+    study = rustuna.create_study()
+
+    def objective(trial: rustuna.Trial) -> float:
+        trial.set_constraint("c0", 5.0)
+        return 0.0
+
+    study.optimize(objective, n_trials=1)
+    assert study.trials[0].constraints["c0"] == 5.0
+
+
 def test_constraints() -> None:
     study = rustuna.create_study()
 
