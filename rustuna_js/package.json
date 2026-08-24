@@ -42,8 +42,8 @@
   ],
   "scripts": {
     "build": "bash ./build.sh",
-    "build:node": "mkdir -p ./pkg/node && cargo build --target wasm32-unknown-unknown --release && wasm-bindgen ../target/wasm32-unknown-unknown/release/rustuna.wasm --out-dir ./pkg/node --target nodejs",
-    "build:web": "mkdir -p ./pkg/web && cargo build --target wasm32-unknown-unknown --release && wasm-bindgen ../target/wasm32-unknown-unknown/release/rustuna.wasm --out-dir ./pkg/web --target web",
+    "build:node": "mkdir -p ./pkg/node && cargo build --locked --target wasm32-unknown-unknown --release && wasm-bindgen ../target/wasm32-unknown-unknown/release/rustuna.wasm --out-dir ./pkg/node --target nodejs",
+    "build:web": "mkdir -p ./pkg/web && cargo build --locked --target wasm32-unknown-unknown --release && wasm-bindgen ../target/wasm32-unknown-unknown/release/rustuna.wasm --out-dir ./pkg/web --target web",
     "test": "node --test ./test/*.mjs"
   }
 }

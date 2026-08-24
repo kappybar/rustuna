@@ -42,7 +42,7 @@ jobs:
             ${{ runner.os }}-cargo-bin-
       - name: Install wasm-bindgen-cli and wasm-opt
         run: |
-          WASM_BINDGEN_VERSION=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')
+          WASM_BINDGEN_VERSION=$(cargo metadata --format-version 1 --locked | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')
           if ! command -v wasm-bindgen &> /dev/null; then
             cargo install wasm-bindgen-cli --version $WASM_BINDGEN_VERSION
           fi
@@ -58,4 +58,3 @@ jobs:
       - name: Run tests
         working-directory: rustuna_js
         run: node --test
-

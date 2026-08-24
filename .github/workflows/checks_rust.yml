@@ -17,7 +17,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: rustfmt, clippy
-      - run: cargo clippy --workspace --lib --bins --tests --examples --all-features -- -D warnings
+      - run: cargo clippy --locked --workspace --lib --bins --tests --examples --all-features -- -D warnings
       - name: Rustfmt Check
         uses: actions-rust-lang/rustfmt@v1
   rust_test:
@@ -28,7 +28,7 @@ jobs:
           persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@v1
 
-      - run: cargo test --all-features
+      - run: cargo test --locked --all-features
 
       - uses: actions/setup-python@v5
         with:
@@ -40,4 +40,4 @@ jobs:
       - name: Run tests which require Python and Optuna
         working-directory: rustuna_storage
         run: |
-          cargo test -- --ignored
+          cargo test --locked -- --ignored
