@@ -10,7 +10,7 @@ set -ex
 pushd ${DIR}
 
 # Build rustuna library
-cargo build --target wasm32-unknown-unknown --release
+cargo build --locked --target wasm32-unknown-unknown --release
 mkdir -p ${NODE_OUTPUT_DIR} ${WEB_OUTPUT_DIR}
 wasm-bindgen ../target/wasm32-unknown-unknown/release/rustuna.wasm --out-dir ${NODE_OUTPUT_DIR} --target nodejs
 wasm-bindgen ../target/wasm32-unknown-unknown/release/rustuna.wasm --out-dir ${WEB_OUTPUT_DIR} --target web
