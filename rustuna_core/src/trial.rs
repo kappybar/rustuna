@@ -270,6 +270,16 @@ impl Trial {
                 format!("Failed to acquire storage guard: {e}"),
             )
         })?;
+        let persisted = guard.get_trial(self.id)?;
+        if let Some(AttrKey::System(key)) = attrs.keys().find(|k| persisted.attrs.contains_key(k)) {
+            // TODO(inoue): Replace eprintln! with warning once rustuna has a logging mechanism.
+            eprintln!(
+                "Warning: The constraint '{}' is already set. No constraint was updated.",
+                key.as_str().trim_start_matches(CONSTRAINTS_PREFIX)
+            );
+            return Ok(());
+        }
+
         guard.set_trial_attrs(self.id, attrs, false)?;
         drop(guard);
         Ok(())
@@ -631,6 +641,30 @@ mod tests {
 
         let constraints = trials[0].constraints()?;
         assert_eq!(constraints, HashMap::from([(String::from("c0"), 10.0)]));
+        Ok(())
+    }
+
+    #[test]
+    fn test_set_constraints_with_duplicated_key() -> Result<()> {
+        let storage = Arc::new(RwLock::new(InMemoryStorage::new()));
+        let sampler = Arc::new(RandomSampler::new());
+        let directions = vec![Direction::Minimize];
+        let study = create_study_with_arc("dummy", storage.clone(), sampler, directions)?;
+
+        let mut trial = study.ask()?;
+        let _ = trial.suggest_float("x", -10.0, 10.0)?;
+        trial.set_constraints(HashMap::from([(String::from("c0"), 10.0)]))?;
+
+        // "c0" is already set, so nothing is updated including the new "c1".
+        let constraints = HashMap::from([(String::from("c0"), 20.0), (String::from("c1"), 1.0)]);
+        trial.set_constraints(constraints)?;
+
+        let _ = study.tell(trial.number, TrialStateValues::Complete(vec![0.0]));
+        let trials = study.get_trials()?;
+        assert_eq!(
+            trials[0].constraints()?,
+            HashMap::from([(String::from("c0"), 10.0)])
+        );
         Ok(())
     }
 
