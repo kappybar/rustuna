@@ -128,3 +128,19 @@ def test_constraints() -> None:
     study.optimize(objective, n_trials=1)
     assert study.trials[0].constraints["c0"] == 5.0
     assert study.trials[0].constraints["c1"] == 10.0
+
+
+def test_constraints_with_duplicated_key(capfd: pytest.CaptureFixture[str]) -> None:
+    study = rustuna.create_study()
+
+    trial = study.ask()
+    trial.set_constraints({"c0": 5.0})
+
+    # "c0" is already set, so nothing is updated including the new "c1".
+    trial.set_constraints({"c0": 10.0, "c1": 1.0})
+    # The warning is written to the stderr file descriptor by Rust, so it is only visible
+    # through capfd, not through capsys.
+    assert "The constraint 'c0' is already set." in capfd.readouterr().err
+
+    study.tell(trial.number, values=0.0)
+    assert study.trials[0].constraints == {"c0": 5.0}

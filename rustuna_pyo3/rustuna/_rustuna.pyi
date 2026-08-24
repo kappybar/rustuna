@@ -188,8 +188,9 @@ class Trial:
         supports constraints, such as [TPESampler][rustuna.samplers.TPESampler] and
         [NSGAIISampler][rustuna.samplers.NSGAIISampler].
 
-        Calling this method again overwrites the values of the constraint names given in
-        `constraints`, and leaves the other names untouched.
+        A constraint name that is already set on the trial cannot be overwritten. If any of
+        the names in `constraints` is already set, a warning is emitted and none of the
+        values is recorded, not even the ones whose names are not set yet.
 
         Args:
             constraints: A dictionary object mapping each constraint name to its value.
