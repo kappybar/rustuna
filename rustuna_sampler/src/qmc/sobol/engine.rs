@@ -1,6 +1,4 @@
-//! Generator for the Sobol' sequence.
-//!
-//! See the module documentation of [`super`] for what the sequence guarantees.
+//! Generator for the Sobol' sequence. See [`super`] for what the sequence guarantees.
 
 use std::sync::LazyLock;
 
@@ -16,11 +14,10 @@ const CAPACITY: u64 = 1 << BITS;
 
 /// Direction numbers for every supported dimension, built once per process.
 ///
-/// Row `d` depends only on dimension `d`, and `direction_numbers::decode` reads the packed table
-/// front to back, so the first `dim` rows are exactly what a `dim`-dimensional sequence needs.
-/// Building all of them costs about 217k exclusive-ors and 120 KiB once, which is cheaper than
-/// rebuilding a smaller table whenever the joint search space changes size, and it lets the
-/// table be shared without any synchronization because it never changes after initialization.
+/// Row `d` depends only on dimension `d`, so the first `dim` rows are what a `dim`-dimensional
+/// sequence needs. Building all of them costs 120 KiB once, which beats rebuilding a smaller
+/// table whenever the dimension changes, and the table needs no synchronization because it never
+/// changes after initialization.
 static DIRECTIONS: LazyLock<Vec<[u32; BITS]>> =
     LazyLock::new(|| initialize_direction_numbers(MAX_DIM));
 
@@ -74,9 +71,9 @@ fn scale(quasi: u32) -> f64 {
 
 /// Builds the direction numbers for `dim` dimensions as `BITS`-wide fixed-point fractions.
 ///
-/// This mirrors SciPy's `_initialize_v`. For each dimension the initial values `m_1..m_s` come
-/// from the Joe-Kuo table and the remaining ones follow the recurrence induced by that
-/// dimension's primitive polynomial `x^s + a_1 x^(s-1) + ... + a_(s-1) x + 1`:
+/// This mirrors SciPy's `_initialize_v`. The initial values `m_1..m_s` come from the Joe-Kuo
+/// table; the rest follow the recurrence induced by the dimension's primitive polynomial
+/// `x^s + a_1 x^(s-1) + ... + a_(s-1) x + 1`:
 ///
 /// ```text
 /// m_i = 2 a_1 m_(i-1) XOR 4 a_2 m_(i-2) XOR ... XOR 2^(s-1) a_(s-1) m_(i-s+1)

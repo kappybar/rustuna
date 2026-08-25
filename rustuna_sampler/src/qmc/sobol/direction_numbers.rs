@@ -1,10 +1,8 @@
 //! Joe-Kuo direction numbers for the Sobol' sequence.
 //!
 //! The table is the leading part of the `new-joe-kuo-6.21201` set published by Joe and Kuo,
-//! selected with their search criterion 6. SciPy embeds all 21201 dimensions of it; Rustuna keeps
-//! the first [`MAX_DIM`] so that the table stays small.
-//! Over that range the direction numbers are identical to SciPy's, which is what lets
-//! [`super::nth_point`] reproduce SciPy's points exactly.
+//! selected with their search criterion 6. SciPy embeds all 21201 dimensions; Rustuna keeps the
+//! first [`MAX_DIM`], where the numbers are identical to SciPy's.
 //!
 //! See <https://web.maths.unsw.edu.au/~fkuo/sobol/> and
 //! S. Joe and F. Y. Kuo, "Constructing Sobol sequences with better two-dimensional projections",
@@ -28,7 +26,8 @@ fn m_width(i: usize) -> usize {
 }
 
 /// Packed table generated from the published `new-joe-kuo-6.21201` text file, truncated to
-/// [`MAX_DIM`] dimensions.
+/// [`MAX_DIM`] dimensions. The script that produced it is at
+/// <https://github.com/optuna/rustuna/pull/221#issuecomment-5353189930>.
 ///
 /// Fields are little-endian and byte-aligned, with dimensions in ascending order and no padding
 /// between them. For a dimension of degree `s` the layout is
@@ -44,17 +43,14 @@ fn m_width(i: usize) -> usize {
 /// m_s  : ceil(s / 8) bytes
 /// ```
 ///
-/// The initial values are narrow because every `m_i` is below `2^i`, so it fits in
-/// `ceil(i / 8)` bytes. That keeps the table at 21 KiB rather than the 76 KiB a fixed `u32` per
-/// value would need, without giving up byte alignment.
+/// Every `m_i` is below `2^i`, so narrowing it to `ceil(i / 8)` bytes keeps the table at 21 KiB
+/// rather than the 76 KiB a fixed `u32` per value would need, without giving up byte alignment.
 static PACKED: &[u8] = include_bytes!("joe_kuo_6.bin");
 
 /// Direction numbers for a single dimension.
 pub struct Entry {
-    /// Primitive polynomial encoded as `(1 << degree) | (a << 1) | 1`.
-    ///
-    /// Bit `i` is set when the term `x^i` is present, matching the encoding used by Bratley and
-    /// Fox and by SciPy.
+    /// Primitive polynomial, with bit `i` set when the term `x^i` is present. This is the
+    /// encoding used by Bratley and Fox and by SciPy.
     pub poly: u32,
     /// Degree of [`Entry::poly`], i.e. the number of valid entries in [`Entry::m`].
     pub degree: usize,
