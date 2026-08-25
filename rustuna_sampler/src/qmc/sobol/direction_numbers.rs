@@ -2,9 +2,9 @@
 //!
 //! The table is the leading part of the `new-joe-kuo-6.21201` set published by Joe and Kuo,
 //! selected with their search criterion 6. SciPy embeds all 21201 dimensions of it; Rustuna keeps
-//! the first [`MAX_DIM`] so that the table stays small, which is plenty for hyperparameter
-//! search. Over that range the direction numbers are identical to SciPy's, which is what lets
-//! [`super::sobol::nth_point`] reproduce SciPy's points exactly.
+//! the first [`MAX_DIM`] so that the table stays small.
+//! Over that range the direction numbers are identical to SciPy's, which is what lets
+//! [`super::nth_point`] reproduce SciPy's points exactly.
 //!
 //! See <https://web.maths.unsw.edu.au/~fkuo/sobol/> and
 //! S. Joe and F. Y. Kuo, "Constructing Sobol sequences with better two-dimensional projections",

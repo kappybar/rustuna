@@ -1,6 +1,5 @@
-//! Quasi-Monte Carlo sampling based on the Sobol' sequence.
+//! Quasi-Monte Carlo sampler
 
-pub mod direction_numbers;
 mod sampler;
 pub mod sobol;
 
