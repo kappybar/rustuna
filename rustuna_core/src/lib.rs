@@ -21,6 +21,19 @@ pub mod trial;
 pub mod trial_queue;
 
 mod error;
+mod parzen_estimator;
+
+/// Implementation details shared by Rustuna crates.
+///
+/// This module is not part of Rustuna's stable public API. Items in this module
+/// are not covered by Rustuna's semantic-versioning guarantees and may be
+/// changed or removed in any release without a major version bump.
+#[doc(hidden)]
+pub mod internal {
+    pub mod parzen_estimator {
+        pub use crate::parzen_estimator::ParzenEstimator;
+    }
+}
 
 /// A crate-specific [`std::result::Result`] alias.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
