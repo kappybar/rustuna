@@ -116,8 +116,7 @@ mod tests {
         assert_eq!(entries[2].degree, 3);
         assert_eq!(&entries[2].m[..3], &[1, 3, 1]);
 
-        // Dimension index 9: x^5 + x^3 + x^2 + x + 1, m = [1, 1, 7, 11, 19]. Bratley and Fox use
-        // the same polynomial here but the older Sobol'-Levitan initial values [1, 1, 5, 11, 27].
+        // Dimension index 9: x^5 + x^3 + x^2 + x + 1, m = [1, 1, 7, 11, 19].
         assert_eq!(entries[8].poly, 0b101111);
         assert_eq!(entries[8].degree, 5);
         assert_eq!(&entries[8].m[..5], &[1, 1, 7, 11, 19]);

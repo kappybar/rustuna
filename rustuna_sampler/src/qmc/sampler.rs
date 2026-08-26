@@ -30,10 +30,6 @@ use super::sobol;
 /// [`MAX_DIM`](sobol::direction_numbers::MAX_DIM) parameters. A larger one raises an error even
 /// when the joint search space the later trials share is smaller.
 ///
-/// The position in the sequence lives in a study system attribute rather than in the sampler, so
-/// workers sharing a storage walk one sequence together and a resumed study continues where it
-/// left off.
-///
 /// # Examples
 ///
 /// ```no_run
@@ -219,8 +215,9 @@ fn to_numerical_search_space(
 
 /// Reserves the next index of the sequence for this trial.
 ///
-/// Like Optuna, the counter lives in a study system attribute keyed by the search space, so
-/// workers sharing a storage advance through one sequence instead of each replaying it.
+/// Like Optuna, the counter lives in a study system attribute rather than in the sampler, keyed
+/// by the search space, so workers sharing a storage advance through one sequence instead of each
+/// replaying it, and a resumed study continues where it left off.
 ///
 /// The storage lock covers both the read and the write, so threads within one process cannot land
 /// on the same index. Separate processes hold their own locks and [`Storage`] has no atomic
