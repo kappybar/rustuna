@@ -9,8 +9,7 @@ pub use error::{Error, ErrorKind};
 pub mod attr;
 pub mod datetime;
 pub mod distribution;
-pub mod multi_objective;
-pub mod parzen_estimator;
+pub mod multi_objective; // TODO(kAIto47802): Move this into the `internal` module.
 pub mod sampler;
 pub mod storage;
 pub mod string_interner;
