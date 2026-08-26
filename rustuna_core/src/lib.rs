@@ -31,7 +31,7 @@ mod parzen_estimator;
 #[doc(hidden)]
 pub mod internal {
     pub mod parzen_estimator {
-        pub use crate::parzen_estimator::ParzenEstimator;
+        pub use crate::parzen_estimator::*;
     }
 }
 
