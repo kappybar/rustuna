@@ -4,7 +4,6 @@ from rustuna._protocols import SamplerProtocol
 from rustuna._rustuna import (
     CmaEsSampler,
     NSGAIISampler,
-    QMCSampler,
     RandomSampler,
     SamplerContext,
     TPESampler,
@@ -17,5 +16,4 @@ __all__ = [
     "TPESampler",
     "NSGAIISampler",
     "CmaEsSampler",
-    "QMCSampler",
 ]

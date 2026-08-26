@@ -36,12 +36,6 @@ class TestNSGAIISampler(BasicSamplerTestCase, MultiObjectiveSamplerTestCase):
         return lambda: ToOptunaSampler(rustuna.samplers.NSGAIISampler())
 
 
-class TestQMCSampler(BasicSamplerTestCase, RelativeSamplerTestCase):
-    @pytest.fixture
-    def sampler(self) -> Callable[[], BaseSampler]:
-        return lambda: ToOptunaSampler(rustuna.samplers.QMCSampler())
-
-
 class TestCmaEsSampler(BasicSamplerTestCase, RelativeSamplerTestCase):
     @pytest.fixture
     def sampler(self) -> Callable[[], BaseSampler]:
