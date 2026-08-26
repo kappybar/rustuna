@@ -24,7 +24,7 @@
 //! }
 //! ```
 
-pub mod direction_numbers;
+mod direction_numbers;
 mod engine;
 
 pub use engine::nth_point;
