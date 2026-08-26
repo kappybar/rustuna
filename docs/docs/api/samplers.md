@@ -10,5 +10,4 @@
 
 ::: rustuna.samplers.CmaEsSampler
 
-
 ::: rustuna.samplers.SamplerContext
