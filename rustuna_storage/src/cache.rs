@@ -4,8 +4,8 @@ use rustuna_core::attr::{
     category_labels_to_attrs, get_category_labels, AttrKey, Attrs, CategoryLabel,
 };
 use rustuna_core::distribution::Distribution;
+use rustuna_core::internal::study_cache::StudyCache;
 use rustuna_core::study::{Direction, PersistedStudy};
-use rustuna_core::study_cache::StudyCache;
 use rustuna_core::trial::{PersistedTrial, TrialState, TrialStateValues};
 use rustuna_core::{Error, ErrorKind, Result};
 
