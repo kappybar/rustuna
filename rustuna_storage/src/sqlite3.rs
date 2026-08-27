@@ -3,8 +3,8 @@ use rusqlite::{
     params, Connection, Error as RusqliteError, OptionalExtension, TransactionBehavior,
 };
 use rustuna_core::attr::{get_category_labels, AttrKey, Attrs, CategoryLabel};
-use rustuna_core::datetime::now_naive_utc;
 use rustuna_core::distribution::Distribution;
+use rustuna_core::internal::datetime::now_naive_utc;
 use rustuna_core::study::{Direction, PersistedStudy};
 use rustuna_core::trial::{PersistedTrial, TrialState, TrialStateValues};
 use rustuna_core::{Error, ErrorKind, Result};

@@ -7,7 +7,6 @@
 pub use error::{Error, ErrorKind};
 
 pub mod attr;
-pub mod datetime;
 pub mod distribution;
 pub mod multi_objective; // TODO(kAIto47802): Move this into the `internal` module.
 pub mod sampler;
@@ -17,6 +16,7 @@ pub mod transform;
 pub mod trial;
 pub mod trial_queue;
 
+mod datetime;
 mod error;
 mod parzen_estimator;
 mod string_interner;
@@ -34,6 +34,9 @@ pub mod internal {
     }
     pub mod study_cache {
         pub use crate::study_cache::StudyCache;
+    }
+    pub mod datetime {
+        pub use crate::datetime::now_naive_utc;
     }
 }
 
