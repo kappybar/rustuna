@@ -12,15 +12,15 @@ pub mod distribution;
 pub mod multi_objective; // TODO(kAIto47802): Move this into the `internal` module.
 pub mod sampler;
 pub mod storage;
-pub mod string_interner;
 pub mod study;
-pub mod study_cache;
 pub mod transform;
 pub mod trial;
 pub mod trial_queue;
 
 mod error;
 mod parzen_estimator;
+mod string_interner;
+mod study_cache;
 
 /// Implementation details shared by Rustuna crates.
 ///
@@ -31,6 +31,9 @@ mod parzen_estimator;
 pub mod internal {
     pub mod parzen_estimator {
         pub use crate::parzen_estimator::*;
+    }
+    pub mod study_cache {
+        pub use crate::study_cache::StudyCache;
     }
 }
 
