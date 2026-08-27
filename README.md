@@ -95,7 +95,3 @@ If you use Rustuna for your research, please cite it using the following BibTeX 
 ## License
 
 MIT License
-
-### Third party license
-rustuna_sampler crate includes data that is licensed by third-party developers.
-See [LICENSE_THIRD_PARTY](LICENSE_THIRD_PARTY) for details.
